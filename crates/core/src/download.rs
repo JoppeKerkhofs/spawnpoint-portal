@@ -78,6 +78,15 @@ fn is_current(item: &Download) -> bool {
     }
 }
 
+pub async fn get_ok(client: &Client, url: &str) -> Result<reqwest::Response> {
+    let response = client.get(url).send().await?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(Error::Status { url: url.into(), status: status.as_u16() });
+    }
+    Ok(response)
+}
+
 async fn fetch_once(client: &Client, item: &Download) -> Result<()> {
     let mut part = item.path.clone().into_os_string();
     part.push(".part");
@@ -85,10 +94,7 @@ async fn fetch_once(client: &Client, item: &Download) -> Result<()> {
     if let Some(dir) = item.path.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }
-    let mut resp = client.get(&item.url).send().await?;
-    if !resp.status().is_success() {
-        return Err(Error::Status { url: item.url.clone(), status: resp.status().as_u16() });
-    }
+    let mut resp = get_ok(client, &item.url).await?;
     let mut file = tokio::fs::File::create(&part).await?;
     while let Some(chunk) = resp.chunk().await? {
         file.write_all(&chunk).await?;

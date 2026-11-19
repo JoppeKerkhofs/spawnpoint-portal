@@ -1,4 +1,4 @@
-use crate::download::{fetch, fetch_all, Download, Hash, ProgressTx};
+use crate::download::{fetch, fetch_all, get_ok, Download, Hash, ProgressTx};
 use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
 use reqwest::Client;
@@ -38,18 +38,9 @@ pub fn runtime_downloads(files_json: &str, dir: &Path) -> Result<Vec<Download>> 
     Ok(downloads)
 }
 
-async fn get_text(client: &Client, url: &str) -> Result<String> {
-    let response = client.get(url).send().await?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(Error::Status { url: url.into(), status: status.as_u16() });
-    }
-    Ok(response.text().await?)
-}
-
 pub async fn ensure(client: &Client, paths: &Paths, component: &str, progress: &ProgressTx) -> Result<PathBuf> {
     check_relative(component)?;
-    let (url, sha1) = runtime_manifest(&get_text(client, RUNTIMES_URL).await?, component)?;
+    let (url, sha1) = runtime_manifest(&get_ok(client, RUNTIMES_URL).await?.text().await?, component)?;
     let list = paths.java().join(format!("{component}.json"));
     fetch(client, &Download { url, path: list.clone(), hash: Some(Hash::Sha1(sha1)), size: None }).await?;
     let dir = paths.java().join(component);

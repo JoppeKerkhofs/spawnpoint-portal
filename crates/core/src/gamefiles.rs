@@ -1,4 +1,4 @@
-use crate::download::{fetch, fetch_all, Download, Hash, ProgressTx};
+use crate::download::{fetch, fetch_all, get_ok, Download, Hash, ProgressTx};
 use crate::version::{library_files, VersionJson};
 use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
@@ -44,12 +44,7 @@ struct AssetObject {
 }
 
 pub async fn manifest(client: &Client) -> Result<Manifest> {
-    let response = client.get(MANIFEST_URL).send().await?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(Error::Status { url: MANIFEST_URL.into(), status: status.as_u16() });
-    }
-    Ok(serde_json::from_slice(&response.bytes().await?)?)
+    Ok(serde_json::from_slice(&get_ok(client, MANIFEST_URL).await?.bytes().await?)?)
 }
 
 pub async fn version_json(client: &Client, paths: &Paths, id: &str) -> Result<VersionJson> {
