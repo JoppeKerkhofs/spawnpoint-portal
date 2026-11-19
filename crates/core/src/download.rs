@@ -152,12 +152,19 @@ pub async fn fetch_all(
         });
     }
     let mut done = 0;
+    let mut first_error = None;
     while let Some(joined) = tasks.join_next().await {
-        joined.map_err(|e| Error::Other(e.to_string()))??;
-        done += 1;
-        let _ = progress.send(Progress { stage: stage.to_string(), done, total });
+        match joined.map_err(|e| Error::Other(e.to_string())).and_then(|r| r) {
+            Ok(()) => {
+                done += 1;
+                let _ = progress.send(Progress { stage: stage.to_string(), done, total });
+            }
+            Err(e) => {
+                first_error.get_or_insert(e);
+            }
+        }
     }
-    Ok(())
+    first_error.map_or(Ok(()), Err)
 }
 
 #[cfg(test)]

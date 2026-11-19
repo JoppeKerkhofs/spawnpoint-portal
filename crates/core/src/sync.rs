@@ -1,11 +1,13 @@
-use std::path::Path;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::download::{Hash, file_matches, sha1_file};
-use crate::instance::ManagedFile;
+use crate::download::{Download, Hash, ProgressTx, fetch_all, file_matches, sha1_file};
+use crate::instance::{self, Instance, ManagedFile};
 use crate::paths::check_relative;
-use crate::{Error, Result};
+use crate::{Error, Paths, Result};
 
 #[derive(Debug, Clone)]
 pub struct Wanted {
@@ -94,10 +96,83 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
     Ok(out)
 }
 
+pub async fn apply(
+    client: &Client,
+    paths: &Paths,
+    instance: &mut Instance,
+    plan: SyncPlan,
+    progress: &ProgressTx,
+) -> Result<Vec<Manual>> {
+    let game = instance::game_dir(paths, &instance.id);
+    let target = |p: &str| safe_path(p).map(|p| game.join(p));
+    let deletes = plan.delete.iter().map(|p| target(p)).collect::<Result<Vec<_>>>()?;
+    let writes = plan.write.iter().map(|w| target(&w.path)).collect::<Result<Vec<_>>>()?;
+
+    for file in deletes {
+        match tokio::fs::remove_file(&file).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.into()),
+        }
+        let mut dir = file.parent();
+        while let Some(d) = dir.filter(|d| *d != game) {
+            if tokio::fs::remove_dir(d).await.is_err() {
+                break;
+            }
+            dir = d.parent();
+        }
+    }
+
+    let mut downloads = Vec::new();
+    let mut result = Ok(());
+    for (w, file) in plan.write.iter().zip(&writes) {
+        match &w.from {
+            Origin::Bytes(bytes) if result.is_ok() => result = write_bytes(file, bytes).await,
+            Origin::Url(url) => downloads.push(Download {
+                url: url.clone(),
+                path: file.clone(),
+                hash: w.hash.clone(),
+                size: w.size,
+            }),
+            _ => {}
+        }
+    }
+    if result.is_ok() {
+        result = fetch_all(client, "mods", downloads, progress).await;
+    }
+
+    instance.managed = plan.managed;
+    for (w, file) in plan.write.iter().zip(&writes) {
+        let arrived = file.is_file() && w.hash.as_ref().is_none_or(|h| file_matches(file, h));
+        if arrived {
+            let sha1 = sha1_file(file)?;
+            instance.managed.retain(|m| m.path != w.path);
+            instance.managed.push(ManagedFile { path: w.path.clone(), sha1 });
+        }
+    }
+    instance::save(paths, instance)?;
+    result?;
+    Ok(plan.manual)
+}
+
+async fn write_bytes(file: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(dir) = file.parent() {
+        tokio::fs::create_dir_all(dir).await?;
+    }
+    let mut part = file.as_os_str().to_owned();
+    part.push(".part");
+    let part = PathBuf::from(part);
+    tokio::fs::write(&part, bytes).await?;
+    tokio::fs::rename(&part, file).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::download::testing::{Tmp, tmp_dir};
+    use crate::download::testing::{Tmp, serve, tmp_dir};
+    use crate::instance::{Source, create};
+    use crate::http_client;
     use sha1::{Digest, Sha1};
 
     fn sha(bytes: &[u8]) -> String {
@@ -238,5 +313,79 @@ mod tests {
         let nohash = Wanted { hash: None, ..w("b", b"1") };
         let p = plan(&d, &[m("b", b"1")], vec![nohash]).unwrap();
         expect(&p, &[], &[], &["b"], &[]);
+    }
+
+    fn setup() -> (Tmp, Paths, Instance) {
+        let t = tmp_dir();
+        let paths = Paths { root: t.join("root") };
+        let inst = create(&paths, "T", "1.21.1", None, Source::Manual).unwrap();
+        (t, paths, inst)
+    }
+
+    fn url_w(path: &str, url: &str, bytes: &[u8]) -> Wanted {
+        Wanted { from: Origin::Url(url.into()), ..w(path, bytes) }
+    }
+
+    #[tokio::test]
+    async fn apply_writes_deletes_and_records() {
+        let (_t, paths, mut inst) = setup();
+        let game = instance::game_dir(&paths, &inst.id);
+        std::fs::create_dir_all(game.join("old")).unwrap();
+        std::fs::write(game.join("old/old.jar"), b"old").unwrap();
+        std::fs::write(game.join("own.txt"), b"mine").unwrap();
+        let (url, _) = serve(200, b"new").await;
+        let plan = SyncPlan {
+            write: vec![
+                url_w("mods/new.jar", &url, b"new"),
+                Wanted { from: Origin::Bytes(b"x=1".to_vec()), ..w("config/a.toml", b"x=1") },
+            ],
+            delete: vec!["old/old.jar".into()],
+            managed: vec![],
+            manual: vec![Manual { path: "m".into(), name: "M".into(), page: String::new() }],
+        };
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let manual = apply(&http_client(), &paths, &mut inst, plan, &tx).await.unwrap();
+        assert_eq!(manual.len(), 1);
+        assert!(!game.join("old").exists());
+        assert!(game.join("own.txt").is_file() && game.join("mods").is_dir());
+        assert_eq!(std::fs::read(game.join("mods/new.jar")).unwrap(), b"new");
+        assert_eq!(std::fs::read(game.join("config/a.toml")).unwrap(), b"x=1");
+        let mut got = instance::load(&paths, &inst.id).unwrap().managed;
+        got.sort_by(|a, b| a.path.cmp(&b.path));
+        assert_eq!(got, vec![m("config/a.toml", b"x=1"), m("mods/new.jar", b"new")]);
+        assert_eq!(inst.managed.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_failed_download_keeps_what_arrived() {
+        let (_t, paths, mut inst) = setup();
+        let (good, _) = serve(200, b"good").await;
+        let (bad, _) = serve(404, b"").await;
+        let plan = SyncPlan {
+            write: vec![url_w("mods/good.jar", &good, b"good"), url_w("mods/bad.jar", &bad, b"bad")],
+            delete: vec![],
+            managed: vec![],
+            manual: vec![],
+        };
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        assert!(apply(&http_client(), &paths, &mut inst, plan, &tx).await.is_err());
+        let saved = instance::load(&paths, &inst.id).unwrap().managed;
+        assert_eq!(saved, vec![m("mods/good.jar", b"good")]);
+    }
+
+    #[tokio::test]
+    async fn apply_refuses_an_unsafe_path_before_touching_anything() {
+        let (_t, paths, mut inst) = setup();
+        let game = instance::game_dir(&paths, &inst.id);
+        std::fs::write(game.join("a"), b"1").unwrap();
+        let plan = SyncPlan {
+            write: vec![],
+            delete: vec!["a".into(), "../instance.json".into()],
+            managed: vec![],
+            manual: vec![],
+        };
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        assert!(apply(&http_client(), &paths, &mut inst, plan, &tx).await.is_err());
+        assert!(game.join("a").is_file());
     }
 }
