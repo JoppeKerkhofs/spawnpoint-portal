@@ -259,3 +259,21 @@ Expected: `<panel id>: ... no longer accepts this launcher; link it again`.
 
 - [ ] **Step 5:** Update the README's command list.
 - [ ] **Step 6: Commit** `Link panels and join their servers`.
+
+---
+
+## Carried over from plans 1 to 3
+
+Found while building and reviewing the earlier plans. Where a line here and a task above disagree, the line here describes the code as it is.
+
+- Interfaces as built: `pack::install(client, paths, &mut instance, pack, progress)` plans first and only then sets the instance's version and loader, saves and applies; `join::sync` should build one `PackInstall` (pack files, minus `removed`, plus the server's mods) and call it, rather than a separate `Desired` type with its own copy of those steps. `play::start_instance` takes `memory_mb` (pass `DEFAULT_MEMORY_MB`). `loader::resolve` turns a loader without a version into one with it and checks both versions with `paths::check_id`.
+- FTB paths are normalised by the reader (`mods/x.jar`, no `./`), so matching `removed` names against `mods/<name>` works; compare lower-cased, as the sync does.
+- Unhashed files that come as bytes (archive overrides) are hashed by `sync::plan`, so they update when their content changes; the CurseForge overrides get that for free.
+- `sync::apply`'s match on `Origin` names every variant: adding `Origin::PanelFile` will not compile until it is handled there.
+- `download::Download` derives `Serialize` today; it must lose that when it gains `bearer`. Temporary files use `download::part_path` (`.portal-part`).
+- The bearer goes only to the panel's own address, and redirects are followed by reqwest: a panel download that redirects to another host must not carry the header there. Either disable redirects for panel requests or check the final host.
+- Anything from the panel that reaches a URL or a file name (slug, loader name and version, mod file names, pack ids) goes through `paths::check_id` or `sync::safe_path`, as pack data does.
+- A hand-placed file is never taken for a managed one unless its hash proves it (ruling in plan 3); a write skipped because the player's file is in the way is silent today, and the window (plan 5) should list those.
+- Nothing locks an instance during a sync; two syncs at once race on `instance.json`. The window's "already starting" guard (plan 5) covers the window; the command line is single-shot.
+- Open decision for the owner (plan 5): a pack mod disabled by renaming it to `x.jar.disabled` comes back as `x.jar` on the next sync.
+- Still open from earlier plans: vanilla assets hashed twice per modded launch; `spawn_blocking` for hashing and zip work; `CREATE_NO_WINDOW` for installer processors; `java::ensure` needing the network when installed; `Error` not `Serialize`; single-pass `launch::fill` before real tokens (plan 6); a size cap on archive overrides; old `.mrpack` files are never removed; `slug` can yield a Windows device name; `cargo fmt` not run.
