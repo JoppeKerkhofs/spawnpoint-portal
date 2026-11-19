@@ -133,6 +133,7 @@ pub fn arguments(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> 
 }
 
 pub fn extract_natives(paths: &Paths, version: &VersionJson) -> Result<()> {
+    version.check_ids()?;
     let dest = paths.natives(&version.id);
     std::fs::create_dir_all(&dest)?;
     // ponytail: excludes of all libraries apply to every native jar; only META-INF/ occurs in practice.
@@ -250,6 +251,16 @@ mod tests {
     #[test]
     fn older_than_1_13_is_refused() {
         assert!(matches!(arguments(&paths(), &v("1.12.2"), &opts(None)), Err(Error::Unsupported(_))));
+    }
+
+    #[test]
+    fn natives_of_an_escaping_version_id_are_refused() {
+        let root = std::env::temp_dir().join(format!("portal-ids-{}", std::process::id()));
+        let _guard = Tmp(root.clone());
+        let paths = Paths { root: root.join("data") };
+        let version: VersionJson = serde_json::from_str(r#"{"id":"../../../escaped","mainClass":"m"}"#).unwrap();
+        assert!(extract_natives(&paths, &version).is_err());
+        assert!(!root.join("escaped").exists() && !root.exists());
     }
 
     #[test]
