@@ -361,16 +361,6 @@ mod tests {
         assert_eq!(normalize_address("https://panel.example.org/Sub/api/v1", false).unwrap(), "https://panel.example.org/Sub");
     }
 
-    struct Cleanup(Paths);
-
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            for p in list(&self.0).unwrap_or_default() {
-                let _ = remove(&self.0, &p.id);
-            }
-        }
-    }
-
     fn unique_host() -> String {
         format!("{}.example.org", &secrets::test_account()[5..].replace(':', "-"))
     }
@@ -379,7 +369,6 @@ mod tests {
     fn panels_file_has_no_token() {
         let dir = tmp_dir();
         let paths = Paths { root: dir.join("home") };
-        let _cleanup = Cleanup(paths.clone());
         let address = format!("https://{}", unique_host());
         let p = add(&paths, &address, "Home", "tok-123", false).unwrap();
         assert!(!std::fs::read_to_string(paths.panels_file()).unwrap().contains("tok-123"));
@@ -394,7 +383,6 @@ mod tests {
     fn a_taken_id_is_numbered_and_the_id_is_the_host_only() {
         let dir = tmp_dir();
         let paths = Paths { root: dir.join("home") };
-        let _cleanup = Cleanup(paths.clone());
         let host = unique_host();
         let a = add(&paths, &format!("https://{}/", host.to_uppercase()), "A", "t", false).unwrap();
         assert_eq!(a.id, host.replace('.', "-"));
@@ -408,7 +396,6 @@ mod tests {
     fn add_enforces_https() {
         let dir = tmp_dir();
         let paths = Paths { root: dir.join("home") };
-        let _cleanup = Cleanup(paths.clone());
         let address = format!("http://{}", unique_host());
         assert!(add(&paths, &address, "A", "t", false).is_err());
         assert!(list(&paths).unwrap().is_empty());
@@ -448,12 +435,6 @@ mod tests {
 
     struct Linked {
         panel: Panel,
-    }
-
-    impl Drop for Linked {
-        fn drop(&mut self) {
-            let _ = secrets::delete(&account(&self.panel.id));
-        }
     }
 
     fn link(address: &str, token: &str) -> Linked {

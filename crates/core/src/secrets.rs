@@ -6,11 +6,11 @@ fn entry(account: &str) -> Result<keyring::Entry> {
     keyring::Entry::new(SERVICE, account).map_err(|e| Error::Secret(e.to_string()))
 }
 
-pub fn set(account: &str, secret: &str) -> Result<()> {
+fn real_set(account: &str, secret: &str) -> Result<()> {
     entry(account)?.set_password(secret).map_err(|e| Error::Secret(e.to_string()))
 }
 
-pub fn get(account: &str) -> Result<Option<String>> {
+fn real_get(account: &str) -> Result<Option<String>> {
     match entry(account)?.get_password() {
         Ok(s) => Ok(Some(s)),
         Err(keyring::Error::NoEntry) => Ok(None),
@@ -18,11 +18,47 @@ pub fn get(account: &str) -> Result<Option<String>> {
     }
 }
 
-pub fn delete(account: &str) -> Result<()> {
+fn real_delete(account: &str) -> Result<()> {
     match entry(account)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(Error::Secret(e.to_string())),
     }
+}
+
+// Tests use a map so they never touch the real Credential Manager.
+#[cfg(test)]
+static STORE: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+pub fn set(account: &str, secret: &str) -> Result<()> {
+    STORE.lock().unwrap().get_or_insert_default().insert(account.into(), secret.into());
+    Ok(())
+}
+
+#[cfg(test)]
+pub fn get(account: &str) -> Result<Option<String>> {
+    Ok(STORE.lock().unwrap().get_or_insert_default().get(account).cloned())
+}
+
+#[cfg(test)]
+pub fn delete(account: &str) -> Result<()> {
+    STORE.lock().unwrap().get_or_insert_default().remove(account);
+    Ok(())
+}
+
+#[cfg(not(test))]
+pub fn set(account: &str, secret: &str) -> Result<()> {
+    real_set(account, secret)
+}
+
+#[cfg(not(test))]
+pub fn get(account: &str) -> Result<Option<String>> {
+    real_get(account)
+}
+
+#[cfg(not(test))]
+pub fn delete(account: &str) -> Result<()> {
+    real_delete(account)
 }
 
 #[cfg(test)]
@@ -37,20 +73,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn secrets_round_trip() {
-        struct Cleanup(String);
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                let _ = delete(&self.0);
-            }
-        }
+    fn the_test_store_round_trips() {
         let account = test_account();
-        let _cleanup = Cleanup(account.clone());
         assert_eq!(get(&account).unwrap(), None);
         set(&account, "s3cret").unwrap();
         assert_eq!(get(&account).unwrap().as_deref(), Some("s3cret"));
         delete(&account).unwrap();
         assert_eq!(get(&account).unwrap(), None);
         delete(&account).unwrap();
+    }
+
+    #[test]
+    #[ignore = "writes to the real Credential Manager; run by hand"]
+    fn the_credential_manager_round_trips() {
+        struct Cleanup(String);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = real_delete(&self.0);
+            }
+        }
+        let account = test_account();
+        let _cleanup = Cleanup(account.clone());
+        assert_eq!(real_get(&account).unwrap(), None);
+        real_set(&account, "s3cret").unwrap();
+        assert_eq!(real_get(&account).unwrap().as_deref(), Some("s3cret"));
+        real_delete(&account).unwrap();
+        assert_eq!(real_get(&account).unwrap(), None);
+        real_delete(&account).unwrap();
     }
 }
