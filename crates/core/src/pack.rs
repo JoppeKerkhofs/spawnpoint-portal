@@ -47,17 +47,20 @@ pub async fn install(
     pack: PackInstall,
     progress: &ProgressTx,
 ) -> Result<Vec<Manual>> {
+    let game = instance::game_dir(paths, &instance.id);
+    let plan = sync::plan(&game, &instance.managed, pack.files)?;
     instance.minecraft = pack.minecraft;
     instance.loader = pack.loader;
     instance::save(paths, instance)?;
-    let game = instance::game_dir(paths, &instance.id);
-    let plan = sync::plan(&game, &instance.managed, pack.files)?;
     sync::apply(client, paths, instance, plan, progress).await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::check_id;
+    use super::*;
+    use crate::download::testing::tmp_dir;
+    use crate::instance::{ManagedFile, Source, create};
+    use crate::sync::Origin;
 
     #[test]
     fn ids() {
@@ -67,5 +70,23 @@ mod tests {
         for bad in ["", ".", "..", "...", "a/b", "1?x", "a b", "a:b"] {
             assert!(check_id(bad).is_err(), "{bad}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_refused_pack_leaves_the_instance_alone() {
+        let t = tmp_dir();
+        let paths = Paths { root: t.join("root") };
+        let mut inst = create(&paths, "P", "1.21.1", Some(Loader::parse("fabric:0.1").unwrap()), Source::Manual).unwrap();
+        inst.managed.push(ManagedFile { path: "mods/a.jar".into(), sha1: "x".into() });
+        instance::save(&paths, &inst).unwrap();
+        let bad = Wanted { path: "../x".into(), from: Origin::Bytes(vec![]), hash: None, size: None };
+        let pack = PackInstall { minecraft: "1.20.1".into(), loader: None, files: vec![bad] };
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        assert!(install(&crate::http_client(), &paths, &mut inst, pack, &tx).await.is_err());
+        let saved = instance::load(&paths, "p").unwrap();
+        assert_eq!(saved.minecraft, "1.21.1");
+        assert_eq!(saved, inst);
+        assert_eq!(saved.loader, Some(Loader::parse("fabric:0.1").unwrap()));
+        assert_eq!(saved.managed.len(), 1);
     }
 }

@@ -100,9 +100,23 @@ async fn pack_install(rest: &[String], pack: PackRef) -> Result<()> {
     let name = pack_name(rest, &pack)?;
     let (client, paths) = (http_client(), Paths::new()?);
     let resolved = pack::resolve(&client, &paths, &pack).await?;
-    let mut instance = instance::create(&paths, &name, &resolved.minecraft, resolved.loader.clone(), Source::Pack { pack })?;
+    // Left empty until `pack::install` has planned the sync: empty after a failure means nothing was written.
+    let mut instance = instance::create(&paths, &name, "", None, Source::Pack { pack })?;
     println!("instance {}", instance.id);
-    install_pack(&client, &paths, &mut instance, resolved).await
+    if let Err(e) = install_pack(&client, &paths, &mut instance, resolved).await {
+        if instance.minecraft.is_empty() {
+            let _ = instance::delete(&paths, &instance.id);
+            return Err(e);
+        }
+        let Source::Pack { pack } = &instance.source else { return Err(e) };
+        return Err(Error::Other(format!(
+            "{e}
+the instance {id} is incomplete; run \"portal pack update {id} {version}\" to finish",
+            id = instance.id,
+            version = pack.version
+        )));
+    }
+    Ok(())
 }
 
 async fn run(args: &[String]) -> Result<()> {
@@ -170,9 +184,8 @@ async fn run(args: &[String]) -> Result<()> {
             };
             let pack = pack_ref(&pack.catalogue, &pack.project, version);
             let resolved = pack::resolve(&client, &paths, &pack).await?;
-            install_pack(&client, &paths, &mut instance, resolved).await?;
             instance.source = Source::Pack { pack };
-            instance::save(&paths, &instance)?;
+            install_pack(&client, &paths, &mut instance, resolved).await?;
         }
         [cmd, id, rest @ ..] if cmd == "launch" => {
             let (profile, server, memory) = launch_options(rest)?;
