@@ -161,7 +161,8 @@ pub fn mods(paths: &Paths, instance: &Instance) -> Result<Vec<ModFile>> {
         let meta = entry.metadata()?;
         let Some(name) = entry.file_name().to_str().map(String::from) else { continue };
         if meta.is_file() && (has_ext(&name, ".jar") || has_ext(&name, ".jar.disabled")) {
-            let managed = instance.managed.iter().any(|m| m.path == format!("mods/{name}"));
+            let rel = format!("mods/{name}").to_lowercase();
+            let managed = instance.managed.iter().any(|m| m.path.to_lowercase() == rel);
             out.push(ModFile { name, size: meta.len(), managed });
         }
     }
@@ -304,6 +305,9 @@ mod tests {
         let m = mods(&p, &inst).unwrap();
         assert!(m.iter().any(|f| f.name == "own.jar" && !f.managed && f.size == 3));
         assert!(m.iter().any(|f| f.name == "off.jar.disabled" && f.managed));
+        inst.managed.push(ManagedFile { path: "Mods/OWN.JAR".into(), sha1: "x".into() });
+        assert!(mods(&p, &inst).unwrap().iter().any(|f| f.name == "own.jar" && f.managed));
+        inst.managed.pop();
         assert!(remove_mod(&p, &mut inst, r"..\instance.json").is_err());
         assert!(remove_mod(&p, &mut inst, "../instance.json").is_err());
         assert!(remove_mod(&p, &mut inst, "gone.jar").is_err());

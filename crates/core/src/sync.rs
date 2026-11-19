@@ -63,19 +63,24 @@ pub fn safe_path(path: &str) -> Result<String> {
 }
 
 pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Result<SyncPlan> {
-    let mut list: Vec<Wanted> = Vec::new();
+    let mut slots: Vec<Option<Wanted>> = Vec::new();
+    let mut slot_of: HashMap<String, usize> = HashMap::new();
     for mut w in wanted {
         w.path = safe_path(&w.path)?;
         if let (Origin::Bytes(bytes), None) = (&w.from, &w.hash) {
             w.hash = Some(Hash::Sha1(sha1_bytes(bytes)));
         }
-        list.retain(|o| o.path.to_lowercase() != w.path.to_lowercase());
-        list.push(w);
+        if let Some(old) = slot_of.insert(w.path.to_lowercase(), slots.len()) {
+            slots[old] = None;
+        }
+        slots.push(Some(w));
     }
-    let managed_sha = |p: &str| {
-        managed.iter().find(|m| m.path.to_lowercase() == p.to_lowercase()).map(|m| m.sha1.as_str())
-    };
-    let wanted_paths: Vec<String> = list.iter().map(|w| w.path.to_lowercase()).collect();
+    let list: Vec<Wanted> = slots.into_iter().flatten().collect();
+    let mut managed_by_path: HashMap<String, &str> = HashMap::new();
+    for m in managed {
+        managed_by_path.entry(m.path.to_lowercase()).or_insert(m.sha1.as_str());
+    }
+    let managed_sha = |p: &str| managed_by_path.get(&p.to_lowercase()).copied();
     let mut out = SyncPlan {
         write: vec![],
         delete: vec![],
@@ -111,7 +116,7 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
     for m in managed {
         let Ok(p) = safe_path(&m.path) else { continue };
         let full = game_dir.join(&p);
-        if !wanted_paths.contains(&p.to_lowercase())
+        if !slot_of.contains_key(&p.to_lowercase())
             && full.is_file()
             && sha1_file(&full)?.eq_ignore_ascii_case(&m.sha1)
         {
@@ -171,27 +176,32 @@ pub async fn apply(
         }
         attempted[i] = true;
         match &w.from {
-            Origin::Bytes(bytes) if result.is_ok() => result = write_bytes(file, bytes).await,
+            Origin::Bytes(bytes) => {
+                if result.is_ok() {
+                    result = write_bytes(file, bytes).await;
+                }
+            }
             Origin::Url(url) => downloads.push(Download {
                 url: url.clone(),
                 path: file.clone(),
                 hash: w.hash.clone(),
                 size: w.size,
             }),
-            _ => {}
+            Origin::Manual { .. } => {}
         }
     }
     if result.is_ok() {
         result = fetch_all(client, "mods", downloads, progress).await;
     }
 
+    let old_sha: HashMap<String, &str> = old.iter().map(|m| (m.path.to_lowercase(), m.sha1.as_str())).collect();
     instance.managed = plan.managed;
     for ((w, file), tried) in plan.write.iter().zip(&writes).zip(attempted) {
         if !file.is_file() {
             continue;
         }
         let arrived = tried && w.hash.as_ref().is_none_or(|h| file_matches(file, h));
-        let old_sha = old.iter().find(|m| m.path.to_lowercase() == w.path.to_lowercase()).map(|m| m.sha1.as_str());
+        let old_sha = old_sha.get(&w.path.to_lowercase()).copied();
         let Ok(sha1) = sha1_file(file) else { continue };
         if arrived || old_sha.is_some_and(|o| o.eq_ignore_ascii_case(&sha1)) {
             instance.managed.retain(|m| m.path != w.path);
@@ -295,6 +305,16 @@ mod tests {
         let d = disk(&[("a", b"X")]);
         let p = plan(&d, &[m("a", b"1")], vec![bytes_w("a", b"2")]).unwrap();
         expect(&p, &[], &[], &[], &[]);
+    }
+
+    #[test]
+    fn a_big_plan_finishes() {
+        let d = disk(&[]);
+        let managed: Vec<_> = (0..5000).map(|i| m(&format!("mods/m{i}.jar"), b"1")).collect();
+        let wanted = (0..5000).map(|i| w(&format!("mods/N{i}.jar"), b"1")).collect();
+        let p = plan(&d, &managed, wanted).unwrap();
+        assert_eq!(p.write.len(), 5000);
+        assert!(p.delete.is_empty());
     }
 
     #[test]
