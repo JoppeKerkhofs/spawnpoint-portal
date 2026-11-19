@@ -17,7 +17,7 @@ All earlier plans', plus:
 - The launcher talks only to `<panel address>/api/v1`, never to a node.
 - A panel token is stored only in the Windows Credential Manager (service `SpawnpointPortal`, account `panel:<panel id>`), never in `panels.json`, never printed, never in an error message.
 - The `Authorization: Bearer` header goes only on requests whose URL starts with that panel's own address. Download URLs the panel hands out (Modrinth, CurseForge CDNs) get no header.
-- A panel address must be `https://`, or `http://` only when the caller passes `allow_http` (the owner's Tailorfit panel answers on plain http).
+- A panel address must be `https://`, or `http://` only when the caller passes `allow_http`.
 - Servers are named by their `slug`. The Minecraft version is `game_version`, never `mc_version`.
 - A sync runs on every join. Jars only from `client-mods`; no `config/` from the server.
 - `openapi.json` is the reference: when it and this plan disagree, it wins.
