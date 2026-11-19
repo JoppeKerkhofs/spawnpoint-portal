@@ -20,12 +20,26 @@ pub enum Hash {
     Sha512(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Download {
     pub url: String,
     pub path: PathBuf,
     pub hash: Option<Hash>,
     pub size: Option<u64>,
+    // Panel token: only with a client that does not follow redirects.
+    pub bearer: Option<String>,
+}
+
+impl std::fmt::Debug for Download {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Download")
+            .field("url", &self.url)
+            .field("path", &self.path)
+            .field("hash", &self.hash)
+            .field("size", &self.size)
+            .field("bearer", &self.bearer.as_ref().map(|_| "***"))
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,7 +103,15 @@ fn is_current(item: &Download) -> bool {
 }
 
 pub async fn get_ok(client: &Client, url: &str) -> Result<reqwest::Response> {
-    let response = client.get(url).send().await?;
+    get_with(client, url, None).await
+}
+
+async fn get_with(client: &Client, url: &str, bearer: Option<&str>) -> Result<reqwest::Response> {
+    let mut request = client.get(url);
+    if let Some(token) = bearer {
+        request = request.bearer_auth(token);
+    }
+    let response = request.send().await?;
     let status = response.status();
     if !status.is_success() {
         return Err(Error::Status { url: url.into(), status: status.as_u16() });
@@ -102,7 +124,7 @@ async fn fetch_once(client: &Client, item: &Download) -> Result<()> {
     if let Some(dir) = item.path.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }
-    let mut resp = get_ok(client, &item.url).await?;
+    let mut resp = get_with(client, &item.url, item.bearer.as_deref()).await?;
     let mut file = tokio::fs::File::create(&part).await?;
     while let Some(chunk) = resp.chunk().await? {
         file.write_all(&chunk).await?;
@@ -130,7 +152,7 @@ pub async fn fetch(client: &Client, item: &Download) -> Result<()> {
     let mut attempt = 1;
     loop {
         match fetch_once(client, item).await {
-            Err(Error::Status { status, .. }) if (400..500).contains(&status) => {
+            Err(Error::Status { status, .. }) if (300..500).contains(&status) => {
                 return Err(Error::Status { url: item.url.clone(), status });
             }
             Err(e) if attempt >= ATTEMPTS => return Err(e),
@@ -272,7 +294,7 @@ pub mod testing {
 mod tests {
     use super::*;
     use crate::http_client;
-    use crate::download::testing::{Tmp, serve, tmp_dir};
+    use crate::download::testing::{Tmp, serve, serve_full, tmp_dir};
     use std::sync::atomic::Ordering;
 
     fn tmp_with(bytes: &[u8]) -> Tmp {
@@ -282,7 +304,7 @@ mod tests {
     }
 
     fn item(url: String, path: PathBuf, hash: Option<Hash>) -> Download {
-        Download { url, path, hash, size: None }
+        Download { url, path, hash, size: None, bearer: None }
     }
 
     const ABC_SHA1: &str = "a9993e364706816aba3e25717850c26c9cd0d89d";
@@ -378,5 +400,18 @@ mod tests {
         let err = fetch(&http_client(), &it).await.unwrap_err();
         assert!(matches!(err, Error::Status { status: 404, .. }));
         assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_bearer_is_sent_only_when_set() {
+        let (url, _, heads) = serve_full(200, b"abc".to_vec(), String::new()).await;
+        let dir = tmp_dir();
+        let with = Download { bearer: Some("t".into()), ..item(url.clone(), dir.join("a"), None) };
+        fetch(&http_client(), &with).await.unwrap();
+        fetch(&http_client(), &item(url, dir.join("b"), None)).await.unwrap();
+        let heads = heads.lock().unwrap();
+        assert!(heads[0].to_lowercase().contains("authorization: bearer t"));
+        assert!(!heads[1].to_lowercase().contains("authorization"));
+        assert!(format!("{with:?}").contains("Some(\"***\")"));
     }
 }

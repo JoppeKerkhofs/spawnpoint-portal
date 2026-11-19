@@ -45,7 +45,7 @@ pub async fn profile(client: &Client, paths: &Paths, minecraft: &str, version: &
         url: format!("{META}/{minecraft}/{version}/profile/json"),
         path: file.clone(),
         hash: None,
-        size: None,
+        size: None, bearer: None,
     };
     fetch(client, &item).await.map_err(|e| match e {
         Error::Status { status: 400 | 404, .. } => missing(),

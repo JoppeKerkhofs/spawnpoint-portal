@@ -65,7 +65,7 @@ pub async fn version_json(client: &Client, paths: &Paths, id: &str) -> Result<Ve
             url: entry.url.clone(),
             path: file.clone(),
             hash: Some(Hash::Sha1(entry.sha1.clone())),
-            size: None,
+            size: None, bearer: None,
         };
         fetch(client, &item).await?;
     }
@@ -86,7 +86,7 @@ pub fn asset_downloads(index_json: &str, assets_dir: &Path) -> Result<Vec<Downlo
             url: format!("https://resources.download.minecraft.net/{prefix}/{}", object.hash),
             path: assets_dir.join("objects").join(prefix).join(&object.hash),
             hash: Some(Hash::Sha1(object.hash.clone())),
-            size: Some(object.size),
+            size: Some(object.size), bearer: None,
         });
     }
     Ok(downloads)
@@ -106,7 +106,7 @@ fn library_download(lib: LibraryFile, libraries: &Path, id: &str) -> Result<Opti
             false => Err(Error::Other(format!("{} is missing; the {id} install did not complete", lib.path))),
         };
     }
-    Ok(Some(Download { url: lib.url, path, hash: lib.sha1.map(Hash::Sha1), size: lib.size }))
+    Ok(Some(Download { url: lib.url, path, hash: lib.sha1.map(Hash::Sha1), size: lib.size, bearer: None }))
 }
 
 pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, progress: &ProgressTx) -> Result<()> {
@@ -116,7 +116,7 @@ pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, prog
         url: client_jar.url.clone(),
         path: crate::launch::jar_path(paths, version),
         hash: client_jar.sha1.clone().map(Hash::Sha1),
-        size: client_jar.size,
+        size: client_jar.size, bearer: None,
     }];
     for lib in library_files(version)? {
         files.extend(library_download(lib, &paths.libraries(), &version.id)?);
@@ -133,7 +133,7 @@ pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, prog
             url: index_ref.url.clone(),
             path: index_file.clone(),
             hash: Some(Hash::Sha1(index_ref.sha1.clone())),
-            size: None,
+            size: None, bearer: None,
         },
     )
     .await?;
@@ -144,7 +144,7 @@ pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, prog
             url: log.file.url.clone(),
             path: assets.join("log_configs").join(&log.file.id),
             hash: Some(Hash::Sha1(log.file.sha1.clone())),
-            size: Some(log.file.size),
+            size: Some(log.file.size), bearer: None,
         });
     }
     fetch_all(client, "assets", once_per_path(files), progress).await

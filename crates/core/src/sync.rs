@@ -18,11 +18,23 @@ pub struct Wanted {
     pub size: Option<u64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Origin {
     Url(String),
     Bytes(Vec<u8>),
     Manual { name: String, page: String },
+    PanelFile { url: String, bearer: String },
+}
+
+impl std::fmt::Debug for Origin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Origin::Url(u) => f.debug_tuple("Url").field(u).finish(),
+            Origin::Bytes(b) => f.debug_tuple("Bytes").field(b).finish(),
+            Origin::Manual { name, page } => f.debug_struct("Manual").field("name", name).field("page", page).finish(),
+            Origin::PanelFile { url, .. } => f.debug_struct("PanelFile").field("url", url).field("bearer", &"***").finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -168,6 +180,7 @@ pub async fn apply(
 
     let old = std::mem::take(&mut instance.managed);
     let mut downloads = Vec::new();
+    let mut panel_downloads = Vec::new();
     let mut attempted = vec![false; writes.len()];
     let mut result = Ok(());
     for (i, (w, file)) in plan.write.iter().zip(&writes).enumerate() {
@@ -185,13 +198,23 @@ pub async fn apply(
                 url: url.clone(),
                 path: file.clone(),
                 hash: w.hash.clone(),
+                size: w.size, bearer: None,
+            }),
+            Origin::PanelFile { url, bearer } => panel_downloads.push(Download {
+                url: url.clone(),
+                path: file.clone(),
+                hash: w.hash.clone(),
                 size: w.size,
+                bearer: Some(bearer.clone()),
             }),
             Origin::Manual { .. } => {}
         }
     }
     if result.is_ok() {
         result = fetch_all(client, "mods", downloads, progress).await;
+    }
+    if result.is_ok() && !panel_downloads.is_empty() {
+        result = fetch_all(&crate::panel_client(), "mods", panel_downloads, progress).await;
     }
 
     let old_sha: HashMap<String, &str> = old.iter().map(|m| (m.path.to_lowercase(), m.sha1.as_str())).collect();
@@ -226,7 +249,7 @@ async fn write_bytes(file: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::download::testing::{Tmp, serve, tmp_dir};
+    use crate::download::testing::{Tmp, serve, serve_full, tmp_dir};
     use crate::instance::{Source, create};
     use crate::http_client;
     use sha1::{Digest, Sha1};
@@ -597,5 +620,39 @@ mod tests {
             assert_eq!(std::fs::read(game.join("a.jar")).unwrap(), b"player's");
             assert!(inst.managed.is_empty());
         }
+    }
+
+    fn panel_plan(url: &str) -> SyncPlan {
+        let from = Origin::PanelFile { url: url.into(), bearer: "tok-SECRET".into() };
+        SyncPlan {
+            write: vec![Wanted { from, ..w("mods/p.jar", b"new") }],
+            delete: vec![],
+            managed: vec![],
+            manual: vec![],
+            replaces: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_panel_file_carries_its_token_and_follows_no_redirect() {
+        let (_t, paths, mut inst) = setup();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (url, _, heads) = serve_full(200, b"new".to_vec(), String::new()).await;
+        apply(&http_client(), &paths, &mut inst, panel_plan(&url), &tx).await.unwrap();
+        assert!(heads.lock().unwrap()[0].to_lowercase().contains("authorization: bearer tok-secret"));
+        let game = instance::game_dir(&paths, &inst.id);
+        assert_eq!(std::fs::read(game.join("mods/p.jar")).unwrap(), b"new");
+
+        std::fs::remove_file(game.join("mods/p.jar")).unwrap();
+        let (other, other_hits) = serve(200, b"new").await;
+        let (url, _, _) = serve_full(302, vec![], format!("Location: {other}/x\r\n")).await;
+        assert!(apply(&http_client(), &paths, &mut inst, panel_plan(&url), &tx).await.is_err());
+        assert_eq!(other_hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn debug_hides_the_bearer() {
+        let plan = panel_plan("http://x/y");
+        assert!(!format!("{plan:?}").contains("tok-SECRET"));
     }
 }

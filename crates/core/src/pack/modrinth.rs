@@ -120,7 +120,7 @@ pub async fn resolve(client: &Client, paths: &Paths, version: &str) -> Result<Pa
         url: https_url(&file.url, version)?,
         path: path.clone(),
         hash: Some(Hash::Sha512(file.hashes.sha512.clone())),
-        size: file.size,
+        size: file.size, bearer: None,
     };
     fetch(client, &item).await?;
     read_mrpack(&path)

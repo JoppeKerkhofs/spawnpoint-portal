@@ -100,7 +100,7 @@ pub async fn installer(
     check_relative(minecraft)?;
     check_relative(version)?;
     let path = paths.installers().join(format!("{}-{minecraft}-{version}.jar", kind.as_str()));
-    let item = Download { url: installer_url(kind, minecraft, version), path: path.clone(), hash: None, size: None };
+    let item = Download { url: installer_url(kind, minecraft, version), path: path.clone(), hash: None, size: None, bearer: None };
     fetch(client, &item).await.map_err(|e| match e {
         Error::Status { status: 404, .. } => {
             Error::Other(format!("{name} {version} does not exist for Minecraft {minecraft}"))
@@ -359,7 +359,7 @@ pub async fn install(
     for lib in installer_libraries(&profile, &loader_json)? {
         let dest = under(&libraries, &lib.path)?;
         if !lib.url.is_empty() {
-            downloads.push(Download { url: lib.url, path: dest, hash: lib.sha1.map(Hash::Sha1), size: lib.size });
+            downloads.push(Download { url: lib.url, path: dest, hash: lib.sha1.map(Hash::Sha1), size: lib.size, bearer: None });
         } else {
             copy_out(&mut zip, &format!("maven/{}", lib.path), &dest, lib.sha1.as_deref())?;
         }

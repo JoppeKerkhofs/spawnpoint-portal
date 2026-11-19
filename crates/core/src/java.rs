@@ -32,7 +32,7 @@ pub fn runtime_downloads(files_json: &str, dir: &Path) -> Result<Vec<Download>> 
             url: url.into(),
             path: dir.join(name),
             hash: Some(Hash::Sha1(sha1.into())),
-            size: raw["size"].as_u64(),
+            size: raw["size"].as_u64(), bearer: None,
         });
     }
     Ok(downloads)
@@ -42,7 +42,7 @@ pub async fn ensure(client: &Client, paths: &Paths, component: &str, progress: &
     check_relative(component)?;
     let (url, sha1) = runtime_manifest(&get_ok(client, RUNTIMES_URL).await?.text().await?, component)?;
     let list = paths.java().join(format!("{component}.json"));
-    fetch(client, &Download { url, path: list.clone(), hash: Some(Hash::Sha1(sha1)), size: None }).await?;
+    fetch(client, &Download { url, path: list.clone(), hash: Some(Hash::Sha1(sha1)), size: None, bearer: None }).await?;
     let dir = paths.java().join(component);
     let items = runtime_downloads(&tokio::fs::read_to_string(&list).await?, &dir)?;
     fetch_all(client, "java", items, progress).await?;
