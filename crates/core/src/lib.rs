@@ -1,4 +1,5 @@
 pub mod download;
+pub mod gamefiles;
 pub mod error;
 pub mod paths;
 pub mod version;
