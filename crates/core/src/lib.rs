@@ -4,6 +4,7 @@ pub mod java;
 pub mod launch;
 pub mod error;
 pub mod paths;
+pub mod play;
 pub mod version;
 
 pub use error::{Error, Result};
