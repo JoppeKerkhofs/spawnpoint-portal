@@ -17,8 +17,9 @@ pub struct StartRequest {
 
 pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progress: &ProgressTx) -> Result<std::process::Child> {
     let version = version_json(client, paths, &request.minecraft).await?;
+    let game_dir = std::path::absolute(&request.game_dir)?;
     let opts = LaunchOptions {
-        game_dir: request.game_dir.clone(),
+        game_dir: game_dir.clone(),
         profile: request.profile.clone(),
         server: request.server.clone(),
         memory_mb: request.memory_mb,
@@ -28,6 +29,6 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
     let component = version.java_version.as_ref().map_or("jre-legacy", |j| j.component.as_str());
     let javaw = java::ensure(client, paths, component, progress).await?;
     extract_natives(paths, &version)?;
-    std::fs::create_dir_all(&request.game_dir)?;
-    Ok(command(&javaw, &args, &request.game_dir).spawn()?)
+    std::fs::create_dir_all(&game_dir)?;
+    Ok(command(&javaw, &args, &game_dir).spawn()?)
 }

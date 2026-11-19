@@ -47,16 +47,20 @@ pub async fn manifest(client: &Client) -> Result<Manifest> {
     Ok(serde_json::from_slice(&get_ok(client, MANIFEST_URL).await?.bytes().await?)?)
 }
 
+pub fn find<'a>(manifest: &'a Manifest, id: &str) -> Result<&'a ManifestVersion> {
+    manifest
+        .versions
+        .iter()
+        .find(|v| v.id == id)
+        .ok_or_else(|| Error::Other(format!("Minecraft version {id} does not exist")))
+}
+
 pub async fn version_json(client: &Client, paths: &Paths, id: &str) -> Result<VersionJson> {
     check_relative(id)?;
     let file = paths.versions().join(id).join(format!("{id}.json"));
     if !file.exists() {
         let manifest = manifest(client).await?;
-        let entry = manifest
-            .versions
-            .iter()
-            .find(|v| v.id == id)
-            .ok_or_else(|| Error::Other(format!("Minecraft version {id} does not exist")))?;
+        let entry = find(&manifest, id)?;
         let item = Download {
             url: entry.url.clone(),
             path: file.clone(),
@@ -148,6 +152,14 @@ mod tests {
     fn parses_the_manifest() {
         let m: Manifest = serde_json::from_str(include_str!("../tests/fixtures/version_manifest_v2.json")).unwrap();
         assert!(m.versions.iter().any(|v| v.id == "1.21.1" && v.kind == "release"));
+    }
+
+    #[test]
+    fn finds_a_version_in_the_manifest() {
+        let m: Manifest = serde_json::from_str(include_str!("../tests/fixtures/version_manifest_v2.json")).unwrap();
+        assert_eq!(find(&m, "1.21.1").unwrap().id, "1.21.1");
+        let err = find(&m, "1.99").unwrap_err();
+        assert_eq!(err.to_string(), "Minecraft version 1.99 does not exist");
     }
 
     #[test]

@@ -11,7 +11,8 @@ pub struct Paths {
 
 impl Paths {
     pub fn new() -> Result<Paths> {
-        let root = if let Some(home) = std::env::var_os("SPAWNPOINT_PORTAL_HOME") {
+        let home = std::env::var_os("SPAWNPOINT_PORTAL_HOME").filter(|h| !h.is_empty());
+        let root = if let Some(home) = home {
             PathBuf::from(home)
         } else if let Some(appdata) = std::env::var_os("APPDATA") {
             PathBuf::from(appdata).join("SpawnpointPortal")
@@ -20,7 +21,7 @@ impl Paths {
                 "neither SPAWNPOINT_PORTAL_HOME nor APPDATA is set".into(),
             ));
         };
-        Ok(Paths { root })
+        Ok(Paths { root: std::path::absolute(root)? })
     }
 
     pub fn versions(&self) -> PathBuf {
@@ -72,6 +73,13 @@ mod tests {
         assert_eq!(p.versions(), PathBuf::from(r"C:\tmp\portal home\meta\versions"));
         assert_eq!(p.natives("1.16.5"), PathBuf::from(r"C:\tmp\portal home\meta\natives\1.16.5"));
         assert_eq!(p.panels_file(), PathBuf::from(r"C:\tmp\portal home\panels.json"));
+
+        unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", r"relative\home") };
+        let root = Paths::new().unwrap().root;
+        assert!(root.is_absolute() && root.ends_with(r"relative\home"), "{root:?}");
+        unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", "") };
+        let root = Paths::new().unwrap().root;
+        assert!(root.is_absolute() && root.ends_with("SpawnpointPortal"), "{root:?}");
     }
 
     #[test]
