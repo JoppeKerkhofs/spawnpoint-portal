@@ -387,4 +387,21 @@ mod tests {
         assert!(own.exists());
         assert_eq!(instance::list(&paths).unwrap().len(), 1);
     }
+
+    #[tokio::test]
+    async fn a_dead_panel_does_not_hide_the_others() {
+        let dir = tmp_dir();
+        let paths = Paths { root: dir.join("home") };
+        let list = serde_json::json!({ "data": [atm10(serde_json::Value::Null)] }).to_string().into_bytes();
+        let (good, _, _) = serve_routes(vec![("/servers", 200, list, String::new())]).await;
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dead = format!("http://{}", closed.local_addr().unwrap());
+        drop(closed);
+        panel::add(&paths, &good, "Good", "t", true).unwrap();
+        panel::add(&paths, &dead, "Dead", "t", true).unwrap();
+        let all = all_servers(&paths).await.unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].1.as_ref().unwrap()[0].slug, "atm10");
+        assert!(all[1].1.as_ref().unwrap_err().to_string().contains("cannot be reached"));
+    }
 }

@@ -288,7 +288,11 @@ pub async fn servers(panel: &Panel) -> Result<Vec<Server>> {
 
 pub async fn server(panel: &Panel, slug: &str) -> Result<Server> {
     check_id(slug)?;
-    data(call(panel, Method::GET, &format!("/servers/{}", encode(slug)), None).await?).await
+    let resp = call(panel, Method::GET, &format!("/servers/{}", encode(slug)), None).await?;
+    if resp.status().as_u16() == 404 {
+        return Err(panel_error(&panel.name, format!("has no server {slug}")));
+    }
+    data(resp).await
 }
 
 pub async fn client_mods(panel: &Panel, slug: &str) -> Result<ClientMods> {
@@ -503,6 +507,15 @@ mod tests {
         let s = server(&l.panel, "lobby").await.unwrap();
         assert_eq!(s.slug, "lobby");
         assert!(server(&l.panel, "../x").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_missing_server_is_named() {
+        let (url, _) = serve(404, b"").await;
+        let l = link(&url, "tok-1");
+        let err = server(&l.panel, "lobby").await.unwrap_err();
+        assert!(matches!(err, Error::Panel { .. }));
+        assert_eq!(err.to_string(), "panel Home: has no server lobby");
     }
 
     #[tokio::test]
