@@ -94,11 +94,10 @@ fn once_per_path(items: Vec<Download>) -> Vec<Download> {
 
 pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, progress: &ProgressTx) -> Result<()> {
     let missing = |what: &str| Error::Other(format!("version {} has no {what}", version.id));
-    let jar_id = version.inherits_from.as_deref().unwrap_or(&version.id);
     let client_jar = &version.downloads.as_ref().ok_or_else(|| missing("client download"))?.client;
     let mut files = vec![Download {
         url: client_jar.url.clone(),
-        path: paths.versions().join(jar_id).join(format!("{jar_id}.jar")),
+        path: crate::launch::jar_path(paths, version),
         hash: client_jar.sha1.clone().map(Hash::Sha1),
         size: client_jar.size,
     }];

@@ -1,6 +1,7 @@
 pub mod download;
 pub mod gamefiles;
 pub mod java;
+pub mod launch;
 pub mod error;
 pub mod paths;
 pub mod version;
