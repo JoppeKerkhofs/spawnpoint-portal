@@ -61,6 +61,14 @@ impl Paths {
     }
 }
 
+// For anything from the caller that ends up in a URL or one of our own file names.
+pub(crate) fn check_id(id: &str) -> Result<()> {
+    if id.is_empty() || id.bytes().all(|b| b == b'.') || !id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.')) {
+        return Err(Error::Other(format!("{id:?} is not a valid pack id")));
+    }
+    Ok(())
+}
+
 pub fn check_relative(name: &str) -> Result<()> {
     let plain = Path::new(name).components().all(|c| matches!(c, Component::Normal(_)));
     if name.is_empty() || !plain || name.contains('\\') {

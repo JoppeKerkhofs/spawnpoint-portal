@@ -61,6 +61,9 @@ pub fn installer_url(kind: LoaderKind, minecraft: &str, version: &str) -> String
         LoaderKind::Forge => format!(
             "https://maven.minecraftforge.net/net/minecraftforge/forge/{minecraft}-{version}/forge-{minecraft}-{version}-installer.jar"
         ),
+        LoaderKind::NeoForge if minecraft == "1.20.1" => format!(
+            "https://maven.neoforged.net/releases/net/neoforged/forge/1.20.1-{version}/forge-1.20.1-{version}-installer.jar"
+        ),
         _ => format!(
             "https://maven.neoforged.net/releases/net/neoforged/neoforge/{version}/neoforge-{version}-installer.jar"
         ),
@@ -422,6 +425,7 @@ mod tests {
     #[test]
     fn installer_urls() {
         assert_eq!(installer_url(LoaderKind::NeoForge, "1.21.1", "21.1.90"), "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.90/neoforge-21.1.90-installer.jar");
+        assert_eq!(installer_url(LoaderKind::NeoForge, "1.20.1", "47.1.84"), "https://maven.neoforged.net/releases/net/neoforged/forge/1.20.1-47.1.84/forge-1.20.1-47.1.84-installer.jar");
         assert_eq!(installer_url(LoaderKind::Forge, "1.20.1", "47.3.0"), "https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.3.0/forge-1.20.1-47.3.0-installer.jar");
     }
 

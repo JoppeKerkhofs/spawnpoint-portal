@@ -44,7 +44,8 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
             install(client, paths, &merged, progress).await?;
             merged
         }
-        _ => version,
+        Some(_) => return Err(crate::Error::Other("the loader has no version after resolving".into())),
+        None => version,
     };
     let args = arguments(paths, &version, &opts)?;
     extract_natives(paths, &version)?;

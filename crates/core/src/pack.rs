@@ -16,13 +16,7 @@ pub struct PackInstall {
     pub files: Vec<Wanted>,
 }
 
-// For anything from the caller that ends up in a URL or one of our own file names.
-pub(crate) fn check_id(id: &str) -> Result<()> {
-    if id.is_empty() || id.bytes().all(|b| b == b'.') || !id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.')) {
-        return Err(Error::Other(format!("{id:?} is not a valid pack id")));
-    }
-    Ok(())
-}
+pub(crate) use crate::paths::check_id;
 
 pub(crate) fn https_url(url: &str, name: &str) -> Result<String> {
     if !url.starts_with("https://") {

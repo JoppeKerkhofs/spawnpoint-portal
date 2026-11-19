@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::download::ProgressTx;
-use crate::paths::check_relative;
+use crate::paths::check_id;
 use crate::version::VersionJson;
 use crate::{Error, Paths, Result};
 use reqwest::Client;
@@ -57,13 +57,13 @@ impl Loader {
 }
 
 pub async fn resolve(client: &Client, minecraft: &str, loader: &Loader) -> Result<Loader> {
-    check_relative(minecraft)?;
+    check_id(minecraft)?;
     let version = match &loader.version {
         Some(v) => v.clone(),
         None if loader.kind == LoaderKind::Fabric => fabric::newest_version(client, minecraft).await?,
         None => forge::newest_version(client, loader.kind, minecraft).await?,
     };
-    check_relative(&version)?;
+    check_id(&version)?;
     Ok(Loader { kind: loader.kind, version: Some(version) })
 }
 
@@ -85,6 +85,16 @@ pub async fn profile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn resolve_refuses_odd_versions_before_any_request() {
+        let c = crate::http_client();
+        let given = |v: &str| Loader { kind: LoaderKind::NeoForge, version: Some(v.into()) };
+        assert!(resolve(&c, "1.21.1", &given("1?x")).await.is_err());
+        assert!(resolve(&c, "1.21.1", &given("21.1.1#a")).await.is_err());
+        assert!(resolve(&c, "1%2e", &given("21.1.1")).await.is_err());
+        assert!(resolve(&c, "1.21.1", &given("..")).await.is_err());
+    }
 
     #[test]
     fn loader_names() {
