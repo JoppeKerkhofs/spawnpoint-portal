@@ -25,6 +25,24 @@ async fn with_progress<T, F: std::future::Future<Output = Result<T>>>(work: impl
     result
 }
 
+fn launch_request(version: &str, rest: &[String]) -> Result<StartRequest> {
+    let (mut dir, mut name, mut server, mut memory) = (None, "Player".to_string(), None, DEFAULT_MEMORY_MB);
+    let mut it = rest.iter();
+    while let Some(f) = it.next() {
+        let bad = || portal_core::Error::Other(format!("unknown or incomplete option: {f}"));
+        let value = it.next().filter(|v| !v.starts_with("--")).ok_or_else(bad)?;
+        match f.as_str() {
+            "--dir" => dir = Some(value.clone()),
+            "--name" => name = value.clone(),
+            "--server" => server = Some(value.clone()),
+            "--memory" => memory = value.parse().map_err(|_| portal_core::Error::Other(format!("invalid --memory: {value}")))?,
+            _ => return Err(bad()),
+        }
+    }
+    let dir = dir.ok_or_else(|| portal_core::Error::Other("--dir is required".into()))?;
+    Ok(StartRequest { minecraft: version.to_string(), game_dir: dir.into(), profile: Profile::offline(&name), server, memory_mb: memory })
+}
+
 async fn run(args: &[String]) -> Result<()> {
     match args {
         [cmd] if cmd == "versions" => {
@@ -43,22 +61,7 @@ async fn run(args: &[String]) -> Result<()> {
             println!("{}", javaw.display());
         }
         [cmd, version, rest @ ..] if cmd == "launch" => {
-            let flag = |name: &str| rest.windows(2).find(|w| w[0] == name).map(|w| w[1].clone());
-            let Some(dir) = flag("--dir") else {
-                println!("{USAGE}");
-                std::process::exit(1);
-            };
-            let memory_mb = match flag("--memory") {
-                Some(m) => m.parse().map_err(|_| portal_core::Error::Other(format!("invalid --memory: {m}")))?,
-                None => DEFAULT_MEMORY_MB,
-            };
-            let request = StartRequest {
-                minecraft: version.clone(),
-                game_dir: dir.into(),
-                profile: Profile::offline(&flag("--name").unwrap_or_else(|| "Player".into())),
-                server: flag("--server"),
-                memory_mb,
-            };
+            let request = launch_request(version, rest)?;
             let (client, paths) = (http_client(), Paths::new()?);
             let mut child = with_progress(|tx| async move { start(&client, &paths, &request, &tx).await }).await?;
             println!("started, pid {}", child.id());
@@ -79,5 +82,24 @@ async fn main() {
     if let Err(e) = run(&args).await {
         eprintln!("error: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn launch_options() {
+        let r = launch_request("1.21.1", &args(&["--dir", "x y", "--name", "Bob", "--server", "mc.test", "--memory", "2048"])).unwrap();
+        assert_eq!((r.game_dir, r.profile.name, r.server, r.memory_mb), ("x y".into(), "Bob".into(), Some("mc.test".into()), 2048));
+        assert_eq!(launch_request("1.21.1", &args(&["--dir", "x"])).unwrap().memory_mb, DEFAULT_MEMORY_MB);
+        for bad in [&["--dir", "x", "--server"][..], &["--dir", "x", "--srever", "h"], &["--dir", "x", "--memory=8"], &["--name", "--dir", "x"], &["--dir"], &[]] {
+            assert!(launch_request("1.21.1", &args(bad)).is_err(), "{bad:?}");
+        }
     }
 }
