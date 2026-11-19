@@ -231,6 +231,40 @@ pub fn library_files(version: &VersionJson) -> Result<Vec<LibraryFile>> {
     Ok(files)
 }
 
+fn library_key(name: &str) -> String {
+    let mut parts = name.split(':');
+    let (group, artifact) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    let classifier = parts.nth(1).unwrap_or("");
+    format!("{group}:{artifact}:{classifier}")
+}
+
+pub fn merge(parent: VersionJson, child: VersionJson) -> VersionJson {
+    let own: BTreeSet<String> = child.libraries.iter().map(|l| library_key(&l.name)).collect();
+    let mut libraries = child.libraries;
+    libraries.extend(parent.libraries.into_iter().filter(|l| !own.contains(&library_key(&l.name))));
+    let arguments = match (parent.arguments, child.arguments) {
+        (Some(mut p), Some(c)) => {
+            p.game.extend(c.game);
+            p.jvm.extend(c.jvm);
+            Some(p)
+        }
+        (p, c) => c.or(p),
+    };
+    VersionJson {
+        id: child.id,
+        inherits_from: Some(parent.id),
+        main_class: child.main_class,
+        arguments,
+        asset_index: child.asset_index.or(parent.asset_index),
+        assets: child.assets.or(parent.assets),
+        downloads: child.downloads.or(parent.downloads),
+        libraries,
+        java_version: child.java_version.or(parent.java_version),
+        logging: child.logging.or(parent.logging),
+        minecraft_arguments: child.minecraft_arguments.or(parent.minecraft_arguments),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,6 +276,57 @@ mod tests {
             _ => include_str!("../tests/fixtures/version-1.12.2.json"),
         };
         serde_json::from_str(text).unwrap()
+    }
+
+    fn fixture(name: &str) -> VersionJson {
+        let text = match name {
+            "fabric-profile-1.21.1.json" => include_str!("../tests/fixtures/fabric-profile-1.21.1.json"),
+            _ => unreachable!(),
+        };
+        serde_json::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn fabric_over_vanilla() {
+        let profile = fixture("fabric-profile-1.21.1.json");
+        let m = merge(v("1.21.1"), profile.clone());
+        assert_eq!(m.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        assert_eq!(m.inherits_from.as_deref(), Some("1.21.1"));
+        assert!(m.id.starts_with("fabric-loader-"));
+        assert!(m.downloads.is_some() && m.asset_index.is_some() && m.java_version.is_some());
+        let asm: Vec<_> = m.libraries.iter().filter(|l| l.name.starts_with("org.ow2.asm:asm:")).collect();
+        assert_eq!(asm.len(), 1);
+        assert!(m.libraries[0].name.contains("fabric") || m.libraries[0].url.is_some());
+        let first_vanilla_only = m
+            .libraries
+            .iter()
+            .position(|l| !profile.libraries.iter().any(|p| p.name == l.name))
+            .unwrap();
+        assert_eq!(first_vanilla_only, profile.libraries.len());
+        let files = library_files(&m).unwrap();
+        assert!(files.iter().any(|f| f.url.starts_with("https://maven.fabricmc.net/") && f.path.contains("fabric-loader")));
+    }
+
+    #[test]
+    fn merge_rules() {
+        let parent = v("1.21.1");
+        let child: VersionJson = serde_json::from_str(
+            r#"{"id":"c","mainClass":"m","libraries":[{"name":"a:b:2"},{"name":"a:b:2:nat"}],
+            "arguments":{"game":["--x"],"jvm":["-y"]}}"#,
+        )
+        .unwrap();
+        let mut parent = parent;
+        parent.libraries.push(serde_json::from_str(r#"{"name":"a:b:1"}"#).unwrap());
+        parent.libraries.push(serde_json::from_str(r#"{"name":"a:b:1:other"}"#).unwrap());
+        let (pg, pj) = parent.arguments.as_ref().map(|a| (a.game.len(), a.jvm.len())).unwrap();
+        let m = merge(parent, child);
+        let names: Vec<_> = m.libraries.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(&names[..2], ["a:b:2", "a:b:2:nat"]);
+        assert!(!names.contains(&"a:b:1") && names.contains(&"a:b:1:other"));
+        let a = m.arguments.unwrap();
+        assert_eq!((a.game.len(), a.jvm.len()), (pg + 1, pj + 1));
+        assert!(matches!(a.game.last(), Some(Argument::Plain(s)) if s == "--x"));
+        assert!(matches!(a.jvm.last(), Some(Argument::Plain(s)) if s == "-y"));
     }
 
     fn rules(json: &str) -> Vec<Rule> {
