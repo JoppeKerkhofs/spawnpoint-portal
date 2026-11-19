@@ -256,9 +256,14 @@ fn main_class(jar: &Path) -> Result<String> {
     manifest_main_class(&manifest).ok_or_else(|| Error::Other(format!("{} has no Main-Class", jar.display())))
 }
 
+// javaw shows failures in a dialog instead of stderr.
+fn console_java(javaw: &Path) -> PathBuf {
+    javaw.with_file_name("java.exe")
+}
+
 async fn run_step(java: &Path, step: &Step, cwd: &Path, loader: &str, number: usize) -> Result<()> {
     let classpath = std::iter::once(&step.jar).chain(&step.classpath).map(|p| text(p)).collect::<Vec<_>>().join(";");
-    let out = tokio::process::Command::new(java)
+    let out = tokio::process::Command::new(console_java(java))
         .arg("-cp")
         .arg(classpath)
         .arg(main_class(&step.jar)?)
@@ -508,6 +513,11 @@ Other: x
         let paths: Vec<String> = installer_libraries(&profile, &version).unwrap().into_iter().map(|l| l.path).collect();
         assert!(paths.contains(&"a/forge/1/forge-1.jar".to_string()));
         assert!(!paths.contains(&"a/other/1/other-1.jar".to_string()));
+    }
+
+    #[test]
+    fn processors_run_with_the_console_java() {
+        assert_eq!(console_java(Path::new(r"C:\j\bin\javaw.exe")), PathBuf::from(r"C:\j\bin\java.exe"));
     }
 
     #[test]
