@@ -10,6 +10,7 @@ pub enum Error {
     Zip(zip::result::ZipError),
     Hash { path: PathBuf, expected: String, actual: String },
     Unsupported(String),
+    Secret(String),
     Other(String),
 }
 
@@ -28,6 +29,7 @@ impl fmt::Display for Error {
                 "{} has hash {actual}, expected {expected}",
                 path.display()
             ),
+            Error::Secret(m) => write!(f, "credential store error: {m}"),
             Error::Unsupported(m) | Error::Other(m) => f.write_str(m),
         }
     }
