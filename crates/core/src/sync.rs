@@ -116,7 +116,11 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
         }
         let sha1 = sha1_file(&full)?;
         let ours = managed_sha(&w.path).is_some_and(|m| m.eq_ignore_ascii_case(&sha1));
-        let right = w.hash.as_ref().is_some_and(|h| file_matches(&full, h));
+        let right = match &w.hash {
+            Some(Hash::Sha1(h)) => h.eq_ignore_ascii_case(&sha1),
+            Some(h) => file_matches(&full, h),
+            None => false,
+        };
         let manual = matches!(w.from, Origin::Manual { .. });
         if right || (ours && (manual || w.hash.is_none())) {
             out.managed.push(ManagedFile { path: w.path, sha1 });
@@ -181,7 +185,6 @@ pub async fn apply(
 
     let old = std::mem::take(&mut instance.managed);
     let mut downloads = Vec::new();
-    let mut panel_downloads = Vec::new();
     let mut attempted = vec![false; writes.len()];
     let mut result = Ok(());
     for (i, (w, file)) in plan.write.iter().zip(&writes).enumerate() {
@@ -201,7 +204,7 @@ pub async fn apply(
                 hash: w.hash.clone(),
                 size: w.size, bearer: None,
             }),
-            Origin::PanelFile { url, bearer } => panel_downloads.push(Download {
+            Origin::PanelFile { url, bearer } => downloads.push(Download {
                 url: url.clone(),
                 path: file.clone(),
                 hash: w.hash.clone(),
@@ -213,9 +216,6 @@ pub async fn apply(
     }
     if result.is_ok() {
         result = fetch_all(client, "mods", downloads, progress).await;
-    }
-    if result.is_ok() && !panel_downloads.is_empty() {
-        result = fetch_all(&crate::panel_client(), "mods", panel_downloads, progress).await;
     }
 
     let old_sha: HashMap<String, &str> = old.iter().map(|m| (m.path.to_lowercase(), m.sha1.as_str())).collect();

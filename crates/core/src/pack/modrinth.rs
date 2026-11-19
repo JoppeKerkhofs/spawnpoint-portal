@@ -20,11 +20,16 @@ struct Index {
 #[derive(Deserialize)]
 struct IndexFile {
     path: String,
-    hashes: Hashes,
+    hashes: IndexHashes,
     env: Option<Env>,
     downloads: Vec<String>,
     #[serde(rename = "fileSize")]
     file_size: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct IndexHashes {
+    sha1: String,
 }
 
 #[derive(Deserialize)]
@@ -56,7 +61,7 @@ pub fn parse_index(json: &str) -> Result<PackInstall> {
         }
         let url = f.downloads.first().ok_or_else(|| Error::Other(format!("the pack lists no download: {}", f.path)))?;
         let from = Origin::Url(https_url(url, &f.path)?);
-        files.push(Wanted { path: f.path, from, hash: Some(Hash::Sha512(f.hashes.sha512)), size: f.file_size });
+        files.push(Wanted { path: f.path, from, hash: Some(Hash::Sha1(f.hashes.sha1)), size: f.file_size });
     }
     Ok(PackInstall { minecraft, loader, files })
 }
@@ -138,7 +143,7 @@ mod tests {
     fn index() {
         let p = parse_index(INDEX).unwrap();
         assert_eq!(p.files.len(), 2);
-        assert!(p.files.iter().all(|f| matches!(f.hash, Some(Hash::Sha512(_))) && matches!(f.from, Origin::Url(_))));
+        assert!(p.files.iter().all(|f| matches!(f.hash, Some(Hash::Sha1(_))) && matches!(f.from, Origin::Url(_))));
         assert!(matches!(p.loader.unwrap().kind, LoaderKind::Fabric));
     }
 
@@ -150,7 +155,7 @@ mod tests {
 
     #[test]
     fn a_plain_http_download_is_refused() {
-        let json = r#"{"dependencies":{"minecraft":"1.21.1"},"files":[{"path":"mods/a.jar","hashes":{"sha512":"x"},
+        let json = r#"{"dependencies":{"minecraft":"1.21.1"},"files":[{"path":"mods/a.jar","hashes":{"sha1":"x","sha512":"x"},
             "downloads":["http://x/a.jar"],"fileSize":1}]}"#;
         assert!(parse_index(json).unwrap_err().to_string().contains("not https: mods/a.jar"));
     }

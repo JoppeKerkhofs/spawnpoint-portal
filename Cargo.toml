@@ -1,3 +1,9 @@
 [workspace]
 resolver = "2"
 members = ["crates/core"]
+
+[profile.dev.package.sha1]
+opt-level = 3
+
+[profile.dev.package.sha2]
+opt-level = 3
