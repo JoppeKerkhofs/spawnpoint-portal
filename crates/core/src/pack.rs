@@ -6,6 +6,7 @@ use crate::loader::Loader;
 use crate::sync::{self, Manual, Wanted};
 use crate::{Error, Paths, Result};
 
+pub mod curseforge;
 pub mod ftb;
 pub mod modrinth;
 
