@@ -1,0 +1,66 @@
+use std::path::PathBuf;
+
+use crate::error::{Error, Result};
+
+#[derive(Debug, Clone)]
+pub struct Paths {
+    pub root: PathBuf,
+}
+
+impl Paths {
+    pub fn new() -> Result<Paths> {
+        let root = if let Some(home) = std::env::var_os("SPAWNPOINT_PORTAL_HOME") {
+            PathBuf::from(home)
+        } else if let Some(appdata) = std::env::var_os("APPDATA") {
+            PathBuf::from(appdata).join("SpawnpointPortal")
+        } else {
+            return Err(Error::Other(
+                "neither SPAWNPOINT_PORTAL_HOME nor APPDATA is set".into(),
+            ));
+        };
+        Ok(Paths { root })
+    }
+
+    pub fn versions(&self) -> PathBuf {
+        self.root.join("meta").join("versions")
+    }
+
+    pub fn libraries(&self) -> PathBuf {
+        self.root.join("meta").join("libraries")
+    }
+
+    pub fn assets(&self) -> PathBuf {
+        self.root.join("meta").join("assets")
+    }
+
+    pub fn natives(&self, version_id: &str) -> PathBuf {
+        self.root.join("meta").join("natives").join(version_id)
+    }
+
+    pub fn java(&self) -> PathBuf {
+        self.root.join("java")
+    }
+
+    pub fn instances(&self) -> PathBuf {
+        self.root.join("instances")
+    }
+
+    pub fn panels_file(&self) -> PathBuf {
+        self.root.join("panels.json")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paths_follow_the_override() {
+        // SAFETY: the only test that touches this variable.
+        unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", r"C:\tmp\portal home") };
+        let p = Paths::new().unwrap();
+        assert_eq!(p.versions(), PathBuf::from(r"C:\tmp\portal home\meta\versions"));
+        assert_eq!(p.natives("1.16.5"), PathBuf::from(r"C:\tmp\portal home\meta\natives\1.16.5"));
+        assert_eq!(p.panels_file(), PathBuf::from(r"C:\tmp\portal home\panels.json"));
+    }
+}
