@@ -1,0 +1,171 @@
+{
+ "status": "success",
+ "updated": 1793896502,
+ "refreshed": 0,
+ "type": "release",
+ "plays": 5795,
+ "installs": 1147,
+ "changelog": "",
+ "parent": 126,
+ "notification": "",
+ "links": [],
+ "id": 100596,
+ "name": "1.23.0",
+ "private": false,
+ "targets": [
+  {
+   "id": -1,
+   "name": "minecraft",
+   "version": "1.21.1",
+   "type": "game",
+   "updated": 0
+  },
+  {
+   "id": -1,
+   "name": "neoforge",
+   "version": "21.1.265",
+   "type": "modloader",
+   "updated": 0
+  },
+  {
+   "id": -1,
+   "name": "java",
+   "version": "21.0.4+7-LTS",
+   "type": "runtime",
+   "updated": 0
+  }
+ ],
+ "specs": {
+  "id": 0,
+  "minimum": 4096,
+  "recommended": 6144
+ },
+ "files": [
+  {
+   "id": 2149465755,
+   "version": "0",
+   "path": "./mods",
+   "url": "https://edge.forgecdn.net/files/5637/783/AE2-Things-1.4.2-beta.jar",
+   "mirrors": [],
+   "tags": [],
+   "sha1": "593ad26ae4143f529a63cc63b96c6430ebba67c3",
+   "hashes": {
+    "sha1": "593ad26ae4143f529a63cc63b96c6430ebba67c3"
+   },
+   "size": 66034,
+   "clientonly": false,
+   "serveronly": false,
+   "optional": false,
+   "name": "AE2-Things-1.4.2-beta.jar",
+   "type": "mod",
+   "updated": 1793896200,
+   "curseforge": {
+    "project": "609977",
+    "file": "5637783"
+   }
+  },
+  {
+   "id": 2149467283,
+   "version": "0",
+   "path": "./mods",
+   "url": "https://files.feed-the-beast.com/blob/7a/7aca6b2f6c22b1c216a97ebc543ead77573f396da3485068d14a4cd1bfbc2c21.jar",
+   "mirrors": [],
+   "tags": [],
+   "sha1": "f35d4f636c2eb1b30c5d3f5c08e110c6acb8e02f",
+   "hashes": {
+    "sha1": "f35d4f636c2eb1b30c5d3f5c08e110c6acb8e02f"
+   },
+   "size": 3126327,
+   "clientonly": false,
+   "serveronly": false,
+   "optional": false,
+   "name": "cc-tweaked-1.21.1-forge-1.120.2.jar",
+   "type": "mod",
+   "updated": 1793896200
+  },
+  {
+   "id": 2149444649,
+   "version": "0",
+   "path": "./config",
+   "url": "https://files.feed-the-beast.com/blob/b5/b531647b7f129799124b4594fffb05567cfde3ad884e3309557d45555a218e61.cfg",
+   "mirrors": [],
+   "tags": [],
+   "sha1": "4110547c387c96f481e3d2dd840ec51917952534",
+   "hashes": {
+    "sha1": "4110547c387c96f481e3d2dd840ec51917952534"
+   },
+   "size": 522,
+   "clientonly": false,
+   "serveronly": false,
+   "optional": false,
+   "name": "EnderStorage.cfg",
+   "type": "config",
+   "updated": 1793896200
+  },
+  {
+   "id": 2149467284,
+   "version": "0",
+   "path": "./mods",
+   "url": "https://files.feed-the-beast.com/blob/7a/7aca6b2f6c22b1c216a97ebc543ead77573f396da3485068d14a4cd1bfbc2c21.jar",
+   "mirrors": [],
+   "tags": [],
+   "sha1": "f35d4f636c2eb1b30c5d3f5c08e110c6acb8e02f",
+   "hashes": {
+    "sha1": "f35d4f636c2eb1b30c5d3f5c08e110c6acb8e02f"
+   },
+   "size": 3126327,
+   "clientonly": false,
+   "serveronly": true,
+   "optional": false,
+   "name": "server-only-helper.jar",
+   "type": "mod",
+   "updated": 1793896200
+  },
+  {
+   "id": 2149465754,
+   "version": "0",
+   "path": "./mods",
+   "url": "https://edge.forgecdn.net/files/9039/351/ExtremeSoundMuffler-3.57_NeoForge-1.21.jar",
+   "mirrors": [],
+   "tags": [],
+   "sha1": "c9f51a7a057230ae06ca1e830cad2752dcbfd08b",
+   "hashes": {
+    "sha1": "c9f51a7a057230ae06ca1e830cad2752dcbfd08b"
+   },
+   "size": 270493,
+   "clientonly": true,
+   "serveronly": false,
+   "optional": false,
+   "name": "ExtremeSoundMuffler-3.57_NeoForge-1.21.jar",
+   "type": "mod",
+   "updated": 1793896200,
+   "curseforge": {
+    "project": "363363",
+    "file": "9039351"
+   }
+  },
+  {
+   "id": 2149465757,
+   "version": "0",
+   "path": "./mods",
+   "url": "",
+   "mirrors": [],
+   "tags": [],
+   "sha1": "593ad26ae4143f529a63cc63b96c6430ebba67c3",
+   "hashes": {
+    "sha1": "593ad26ae4143f529a63cc63b96c6430ebba67c3"
+   },
+   "size": 66034,
+   "clientonly": false,
+   "serveronly": false,
+   "optional": false,
+   "name": "Manual-Mod-1.0.jar",
+   "type": "mod",
+   "updated": 1793896200,
+   "curseforge": {
+    "project": "609977",
+    "file": "5637783"
+   }
+  }
+ ]
+}

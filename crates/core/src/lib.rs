@@ -4,6 +4,7 @@ pub mod instance;
 pub mod java;
 pub mod launch;
 pub mod loader;
+pub mod pack;
 pub mod sync;
 pub mod error;
 pub mod paths;
