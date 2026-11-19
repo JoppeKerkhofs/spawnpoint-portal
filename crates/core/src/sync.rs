@@ -76,7 +76,7 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
         let ours = managed_sha(&w.path).is_some_and(|m| m.eq_ignore_ascii_case(&sha1));
         let right = w.hash.as_ref().is_some_and(|h| file_matches(&full, h));
         let manual = matches!(w.from, Origin::Manual { .. });
-        if right || manual || (w.hash.is_none() && ours) {
+        if right || (ours && (manual || w.hash.is_none())) {
             out.managed.push(ManagedFile { path: w.path, sha1 });
         } else if ours {
             out.write.push(w);
@@ -294,6 +294,15 @@ mod tests {
         assert_eq!((p.manual[0].name.as_str(), p.manual[0].page.as_str()), ("A", "p"));
         let p = plan(&disk(&[("a", b"1")]), &[], vec![manual()]).unwrap();
         expect(&p, &[], &[], &["a"], &[]);
+        let nohash = Wanted { hash: None, ..manual() };
+        let p = plan(&disk(&[("a", b"1")]), &[], vec![nohash.clone()]).unwrap();
+        expect(&p, &[], &[], &[], &[]);
+        let p = plan(&disk(&[("a", b"X")]), &[], vec![manual()]).unwrap();
+        expect(&p, &[], &[], &[], &[]);
+        let p = plan(&disk(&[("a", b"X")]), &[m("a", b"X")], vec![manual()]).unwrap();
+        expect(&p, &[], &[], &["a"], &[]);
+        let p = plan(&disk(&[("a", b"X")]), &[m("a", b"1")], vec![nohash]).unwrap();
+        expect(&p, &[], &[], &[], &[]);
     }
 
     #[test]
