@@ -98,7 +98,7 @@ pub fn arguments(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> 
     let host = opts.server.clone().unwrap_or_default();
     let vars = BTreeMap::from([
         ("auth_player_name", opts.profile.name.clone()),
-        ("version_name", version.id.clone()),
+        ("version_name", jar_path(paths, version).file_stem().unwrap_or_default().to_string_lossy().into_owned()),
         ("game_directory", opts.game_dir.to_string_lossy().into_owned()),
         ("assets_root", paths.assets().to_string_lossy().into_owned()),
         ("assets_index_name", version.assets.clone().unwrap_or_default()),
@@ -226,6 +226,16 @@ mod tests {
         assert!(!a.iter().any(|x| x == "--demo" || x == "--width" || x.starts_with("--quickPlay")));
         assert!(!a.iter().any(|x| x == "-XstartOnFirstThread"));
         assert!(a.iter().any(|x| x.starts_with("-Dlog4j.configurationFile=")));
+    }
+
+    #[test]
+    fn version_name_is_the_name_of_the_client_jar() {
+        let mut version = v("1.21.1");
+        version.id = "neoforge-1".into();
+        version.inherits_from = Some("1.21.1".into());
+        version.arguments.as_mut().unwrap().jvm.push(Argument::Plain("-DignoreList=${version_name}.jar".into()));
+        let a = arguments(&paths(), &version, &opts(None)).unwrap();
+        assert!(a.contains(&"-DignoreList=1.21.1.jar".to_string()));
     }
 
     #[test]
