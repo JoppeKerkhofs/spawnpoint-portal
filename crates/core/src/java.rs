@@ -2,7 +2,7 @@ use crate::download::{fetch_all, Download, Hash, ProgressTx};
 use crate::{Error, Paths, Result};
 use reqwest::Client;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub const RUNTIMES_URL: &str = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
@@ -21,6 +21,7 @@ pub fn runtime_downloads(files_json: &str, dir: &Path) -> Result<Vec<Download>> 
         .ok_or_else(|| Error::Other("Java runtime manifest has no files".into()))?;
     let mut downloads = Vec::new();
     for (name, entry) in files.iter().filter(|(_, e)| e["type"] == "file") {
+        check_relative(name)?;
         let raw = &entry["downloads"]["raw"];
         let (Some(url), Some(sha1)) = (raw["url"].as_str(), raw["sha1"].as_str()) else {
             return Err(Error::Other(format!("Java runtime file {name} has no raw download")));
@@ -35,6 +36,14 @@ pub fn runtime_downloads(files_json: &str, dir: &Path) -> Result<Vec<Download>> 
     Ok(downloads)
 }
 
+fn check_relative(name: &str) -> Result<()> {
+    let plain = Path::new(name).components().all(|c| matches!(c, Component::Normal(_)));
+    if !plain || name.contains('\\') {
+        return Err(Error::Other(format!("{name} points outside the runtime folder")));
+    }
+    Ok(())
+}
+
 async fn get_text(client: &Client, url: &str) -> Result<String> {
     let response = client.get(url).send().await?;
     let status = response.status();
@@ -46,6 +55,7 @@ async fn get_text(client: &Client, url: &str) -> Result<String> {
 
 pub async fn ensure(client: &Client, paths: &Paths, component: &str, progress: &ProgressTx) -> Result<PathBuf> {
     let url = runtime_manifest_url(&get_text(client, RUNTIMES_URL).await?, component)?;
+    check_relative(component)?;
     let dir = paths.java().join(component);
     let items = runtime_downloads(&get_text(client, &url).await?, &dir)?;
     fetch_all(client, "java", items, progress).await?;
@@ -71,5 +81,14 @@ mod tests {
         assert_eq!(d.len(), 2);
         assert!(d.iter().any(|x| x.path == Path::new("J").join("bin").join("javaw.exe")));
         assert!(d.iter().all(|x| matches!(x.hash, Some(Hash::Sha1(_)))));
+    }
+
+    #[test]
+    fn refuses_paths_outside_the_folder() {
+        for key in ["../x", "C:\\x", "a\\b", "/x"] {
+            let raw = serde_json::json!({"url": "u", "sha1": "s", "size": 1});
+            let json = serde_json::json!({"files": {key: {"type": "file", "downloads": {"raw": raw}}}}).to_string();
+            assert!(runtime_downloads(&json, Path::new("J")).is_err(), "{key}");
+        }
     }
 }
