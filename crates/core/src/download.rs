@@ -58,6 +58,10 @@ pub fn sha1_file(path: &Path) -> Result<String> {
     hash_with::<Sha1>(path)
 }
 
+pub fn sha1_bytes(bytes: &[u8]) -> String {
+    hex(Sha1::digest(bytes))
+}
+
 pub fn sha512_file(path: &Path) -> Result<String> {
     hash_with::<Sha512>(path)
 }
@@ -255,6 +259,11 @@ mod tests {
     }
 
     const ABC_SHA1: &str = "a9993e364706816aba3e25717850c26c9cd0d89d";
+
+    #[test]
+    fn hashes_bytes() {
+        assert_eq!(sha1_bytes(b"abc"), ABC_SHA1);
+    }
 
     #[test]
     fn hashes_a_file() {

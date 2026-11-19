@@ -5,7 +5,7 @@ use std::path::Path;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::download::{Download, Hash, ProgressTx, fetch_all, file_matches, part_path, sha1_file};
+use crate::download::{Download, Hash, ProgressTx, fetch_all, file_matches, part_path, sha1_bytes, sha1_file};
 use crate::instance::{self, Instance, ManagedFile};
 use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
@@ -66,6 +66,9 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
     let mut list: Vec<Wanted> = Vec::new();
     for mut w in wanted {
         w.path = safe_path(&w.path)?;
+        if let (Origin::Bytes(bytes), None) = (&w.from, &w.hash) {
+            w.hash = Some(Hash::Sha1(sha1_bytes(bytes)));
+        }
         list.retain(|o| o.path.to_lowercase() != w.path.to_lowercase());
         list.push(w);
     }
@@ -267,6 +270,31 @@ mod tests {
         }
         let err = safe_path("../x").unwrap_err().to_string();
         assert_eq!(err, "unsafe path in pack: ../x");
+    }
+
+    fn bytes_w(path: &str, bytes: &[u8]) -> Wanted {
+        Wanted { path: path.into(), from: Origin::Bytes(bytes.to_vec()), hash: None, size: None }
+    }
+
+    #[test]
+    fn an_unchanged_override_with_new_bytes_is_rewritten() {
+        let d = disk(&[("a", b"1")]);
+        let p = plan(&d, &[m("a", b"1")], vec![bytes_w("a", b"2")]).unwrap();
+        expect(&p, &["a"], &[], &[], &[]);
+    }
+
+    #[test]
+    fn an_override_with_the_same_bytes_is_adopted() {
+        let d = disk(&[("a", b"1")]);
+        let p = plan(&d, &[m("a", b"1")], vec![bytes_w("a", b"1")]).unwrap();
+        expect(&p, &[], &[], &["a"], &[]);
+    }
+
+    #[test]
+    fn a_changed_override_is_kept() {
+        let d = disk(&[("a", b"X")]);
+        let p = plan(&d, &[m("a", b"1")], vec![bytes_w("a", b"2")]).unwrap();
+        expect(&p, &[], &[], &[], &[]);
     }
 
     #[test]
