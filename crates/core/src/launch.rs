@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
 use crate::version::{allowed, library_files, Argument, Features, OneOrMany, VersionJson};
+use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
 
 pub const DEFAULT_MEMORY_MB: u32 = 4096;
@@ -118,6 +119,7 @@ pub fn arguments(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> 
 
     let mut out = vec![format!("-Xmx{}M", opts.memory_mb)];
     if let Some(log) = version.logging.as_ref().and_then(|l| l.client.as_ref()) {
+        check_relative(&log.file.id)?;
         let path = paths.assets().join("log_configs").join(&log.file.id);
         out.push(log.argument.replace("${path}", &path.to_string_lossy()));
     }

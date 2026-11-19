@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +52,14 @@ impl Paths {
     }
 }
 
+pub fn check_relative(name: &str) -> Result<()> {
+    let plain = Path::new(name).components().all(|c| matches!(c, Component::Normal(_)));
+    if name.is_empty() || !plain || name.contains('\\') {
+        return Err(Error::Other(format!("{name:?} is not a plain relative path")));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,5 +72,13 @@ mod tests {
         assert_eq!(p.versions(), PathBuf::from(r"C:\tmp\portal home\meta\versions"));
         assert_eq!(p.natives("1.16.5"), PathBuf::from(r"C:\tmp\portal home\meta\natives\1.16.5"));
         assert_eq!(p.panels_file(), PathBuf::from(r"C:\tmp\portal home\panels.json"));
+    }
+
+    #[test]
+    fn check_relative_accepts_plain_paths_only() {
+        assert!(check_relative("bin/javaw.exe").is_ok());
+        for bad in ["", "../x", "/x", r"C:\x", "C:x", r"a\b", "."] {
+            assert!(check_relative(bad).is_err(), "{bad}");
+        }
     }
 }

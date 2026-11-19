@@ -1,5 +1,6 @@
 use crate::download::{fetch, fetch_all, Download, Hash, ProgressTx};
 use crate::version::{library_files, VersionJson};
+use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -52,6 +53,7 @@ pub async fn manifest(client: &Client) -> Result<Manifest> {
 }
 
 pub async fn version_json(client: &Client, paths: &Paths, id: &str) -> Result<VersionJson> {
+    check_relative(id)?;
     let file = paths.versions().join(id).join(format!("{id}.json"));
     if !file.exists() {
         let manifest = manifest(client).await?;
@@ -76,7 +78,11 @@ pub fn asset_downloads(index_json: &str, assets_dir: &Path) -> Result<Vec<Downlo
     let mut seen = HashSet::new();
     let mut downloads = Vec::new();
     for object in index.objects.values().filter(|o| seen.insert(o.hash.clone())) {
-        let prefix = &object.hash[..2];
+        let hash = &object.hash;
+        if hash.len() != 40 || !hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+            return Err(Error::Other(format!("asset hash {hash:?} is not 40 lower-case hex characters")));
+        }
+        let prefix = &hash[..2];
         downloads.push(Download {
             url: format!("https://resources.download.minecraft.net/{prefix}/{}", object.hash),
             path: assets_dir.join("objects").join(prefix).join(&object.hash),
@@ -113,6 +119,7 @@ pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, prog
 
     let assets = paths.assets();
     let index_ref = version.asset_index.as_ref().ok_or_else(|| missing("asset index"))?;
+    check_relative(&index_ref.id)?;
     let index_file = assets.join("indexes").join(format!("{}.json", index_ref.id));
     fetch(
         client,
@@ -126,6 +133,7 @@ pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, prog
     .await?;
     let mut files = asset_downloads(&tokio::fs::read_to_string(&index_file).await?, &assets)?;
     if let Some(log) = version.logging.as_ref().and_then(|l| l.client.as_ref()) {
+        check_relative(&log.file.id)?;
         files.push(Download {
             url: log.file.url.clone(),
             path: assets.join("log_configs").join(&log.file.id),
@@ -158,7 +166,16 @@ mod tests {
 
     #[test]
     fn the_same_hash_is_downloaded_once() {
-        let index = r#"{"objects":{"a":{"hash":"aabbcc","size":1},"b":{"hash":"aabbcc","size":1}}}"#;
-        assert_eq!(asset_downloads(index, Path::new("A")).unwrap().len(), 1);
+        let h = "aa".repeat(20);
+        let index = format!(r#"{{"objects":{{"a":{{"hash":"{h}","size":1}},"b":{{"hash":"{h}","size":1}}}}}}"#);
+        assert_eq!(asset_downloads(&index, Path::new("A")).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn bad_asset_hashes_are_refused() {
+        for hash in ["a", "aabbcc", &"AA".repeat(20), &"zz".repeat(20), "\u{e9}\u{e9}", &"aa".repeat(21)] {
+            let index = format!(r#"{{"objects":{{"a":{{"hash":"{hash}","size":1}}}}}}"#);
+            assert!(asset_downloads(&index, Path::new("A")).is_err(), "{hash}");
+        }
     }
 }

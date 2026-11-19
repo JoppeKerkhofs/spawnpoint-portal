@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::paths::check_relative;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +128,13 @@ pub struct LoggingFile {
     pub url: String,
 }
 
+impl VersionJson {
+    pub fn check_ids(&self) -> Result<()> {
+        check_relative(&self.id)?;
+        self.inherits_from.as_deref().map_or(Ok(()), check_relative)
+    }
+}
+
 pub type Features = BTreeSet<String>;
 
 pub fn allowed(rules: &[Rule], features: &Features) -> bool {
@@ -187,6 +195,8 @@ fn from_artifact(a: &Artifact, fallback_path: impl FnOnce() -> Result<String>, n
 }
 
 pub fn library_files(version: &VersionJson) -> Result<Vec<LibraryFile>> {
+    // Every caller builds paths from the ids and from these files, so one check here covers them all.
+    version.check_ids()?;
     let no_features = Features::new();
     let mut files = Vec::new();
     for lib in &version.libraries {
@@ -217,6 +227,7 @@ pub fn library_files(version: &VersionJson) -> Result<Vec<LibraryFile>> {
             }
         }
     }
+    files.iter().try_for_each(|f| check_relative(&f.path))?;
     Ok(files)
 }
 
@@ -295,5 +306,38 @@ mod tests {
         assert_eq!(files[0].url, "https://maven.example/a/b/c/1/c-1.jar");
         assert_eq!(files[0].sha1.as_deref(), Some("ff"));
         assert_eq!(files[1].url, "https://libraries.minecraft.net/a/b/d/2/d-2.jar");
+    }
+
+    fn with_libraries(libraries: &str) -> VersionJson {
+        serde_json::from_str(&format!(r#"{{"id":"x","mainClass":"m","libraries":{libraries}}}"#)).unwrap()
+    }
+
+    #[test]
+    fn library_paths_must_stay_inside() {
+        for path in [r"C:\evil.jar", "/evil.jar", "../evil.jar"] {
+            let lib = format!(r#"[{{"name":"a:b:1","downloads":{{"artifact":{{"path":{path:?},"url":"u"}}}}}}]"#);
+            assert!(library_files(&with_libraries(&lib)).is_err(), "{path}");
+        }
+        let lib = r#"[{"name":"a:../..:1","downloads":{"artifact":{"url":"u"}}}]"#;
+        assert!(library_files(&with_libraries(lib)).is_err());
+        assert!(library_files(&with_libraries(r#"[{"name":"a:../..:1"}]"#)).is_err());
+    }
+
+    #[test]
+    fn version_ids_must_stay_inside() {
+        for (id, parent) in [("..", "null"), ("ok", r#""C:\\x""#)] {
+            let json = format!(r#"{{"id":{id:?},"inheritsFrom":{parent},"mainClass":"m"}}"#);
+            let version: VersionJson = serde_json::from_str(&json).unwrap();
+            assert!(library_files(&version).is_err(), "{id} {parent}");
+        }
+    }
+
+    #[test]
+    fn native_fallback_path_uses_the_arch() {
+        let lib = r#"[{"name":"a.b:c:1","natives":{"windows":"natives-windows-${arch}"},
+            "downloads":{"classifiers":{"natives-windows-64":{"url":"u"}}}}]"#;
+        let files = library_files(&with_libraries(lib)).unwrap();
+        assert_eq!(files[0].path, "a/b/c/1/c-1-natives-windows-64.jar");
+        assert!(files[0].native);
     }
 }

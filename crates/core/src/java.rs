@@ -1,8 +1,9 @@
 use crate::download::{fetch_all, Download, Hash, ProgressTx};
+use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
 use reqwest::Client;
 use serde_json::Value;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 pub const RUNTIMES_URL: &str = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
@@ -34,14 +35,6 @@ pub fn runtime_downloads(files_json: &str, dir: &Path) -> Result<Vec<Download>> 
         });
     }
     Ok(downloads)
-}
-
-fn check_relative(name: &str) -> Result<()> {
-    let plain = Path::new(name).components().all(|c| matches!(c, Component::Normal(_)));
-    if !plain || name.contains('\\') {
-        return Err(Error::Other(format!("{name} points outside the runtime folder")));
-    }
-    Ok(())
 }
 
 async fn get_text(client: &Client, url: &str) -> Result<String> {
