@@ -25,7 +25,7 @@ impl fmt::Display for Error {
             Error::Zip(e) => write!(f, "zip error: {e}"),
             Error::Hash { path, expected, actual } => write!(
                 f,
-                "{} has sha1 {actual}, expected {expected}",
+                "{} has hash {actual}, expected {expected}",
                 path.display()
             ),
             Error::Unsupported(m) | Error::Other(m) => f.write_str(m),
