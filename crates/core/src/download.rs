@@ -161,16 +161,15 @@ pub async fn fetch_all(
 }
 
 #[cfg(test)]
-mod tests {
+pub mod testing {
     use super::*;
-    use crate::http_client;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncReadExt;
     use tokio::net::TcpListener;
 
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-    struct Tmp(PathBuf);
+    pub struct Tmp(PathBuf);
 
     impl std::ops::Deref for Tmp {
         type Target = PathBuf;
@@ -185,7 +184,7 @@ mod tests {
         }
     }
 
-    fn tmp_dir() -> Tmp {
+    pub fn tmp_dir() -> Tmp {
         let dir = std::env::temp_dir().join(format!(
             "portal-dl-{}-{}",
             std::process::id(),
@@ -195,14 +194,8 @@ mod tests {
         Tmp(dir)
     }
 
-    fn tmp_with(bytes: &[u8]) -> Tmp {
-        let dir = tmp_dir();
-        std::fs::write(dir.join("f"), bytes).unwrap();
-        dir
-    }
-
     // Answers every request with `status` and `body`; returns the base url and a request counter.
-    async fn serve(status: u16, body: &'static [u8]) -> (String, Arc<AtomicUsize>) {
+    pub async fn serve(status: u16, body: &'static [u8]) -> (String, Arc<AtomicUsize>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let hits = Arc::new(AtomicUsize::new(0));
@@ -230,6 +223,20 @@ mod tests {
             }
         });
         (url, hits)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::http_client;
+    use crate::download::testing::{Tmp, serve, tmp_dir};
+    use std::sync::atomic::Ordering;
+
+    fn tmp_with(bytes: &[u8]) -> Tmp {
+        let dir = tmp_dir();
+        std::fs::write(dir.join("f"), bytes).unwrap();
+        dir
     }
 
     fn item(url: String, path: PathBuf, hash: Option<Hash>) -> Download {
