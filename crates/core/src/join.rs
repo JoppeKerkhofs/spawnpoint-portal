@@ -49,14 +49,7 @@ pub fn parse_target(arg: &str, panels: &[Panel]) -> Result<(Panel, String)> {
     Ok((panel.clone(), slug.to_string()))
 }
 
-async fn install(
-    client: &Client,
-    paths: &Paths,
-    panel: &Panel,
-    server: &Server,
-    instance: &mut Instance,
-    progress: &ProgressTx,
-) -> Result<Vec<Manual>> {
+async fn prepare(client: &Client, paths: &Paths, panel: &Panel, server: &Server) -> Result<(PackInstall, Option<PackRef>)> {
     let pack = match &server.modpack {
         None => None,
         Some(mp) => {
@@ -71,16 +64,12 @@ async fn install(
         }
     };
     let mods = panel::client_mods(panel, &server.slug).await?;
-    let (pack_ref, resolved) = match pack {
-        Some((r, p)) => (Some(r), Some(p)),
-        None => (None, None),
-    };
+    let (pack_ref, resolved) = pack.unzip();
     let mut wanted = desired(panel, server, resolved, mods)?;
     if let Some(l) = &wanted.loader {
         wanted.loader = Some(loader::resolve(client, &wanted.minecraft, l).await?);
     }
-    instance.source = Source::Server { panel: panel.id.clone(), server: server.slug.clone(), pack: pack_ref };
-    pack::install(client, paths, instance, wanted, progress).await
+    Ok((wanted, pack_ref))
 }
 
 pub async fn sync(
@@ -91,12 +80,19 @@ pub async fn sync(
     progress: &ProgressTx,
 ) -> Result<(Instance, Server, Vec<Manual>)> {
     let server = panel::server(panel, slug).await?;
-    let mut instance = instance_for(paths, panel, &server)?;
-    match install(client, paths, panel, &server, &mut instance, progress).await {
+    let (wanted, pack_ref) = prepare(client, paths, panel, &server).await?;
+    let existing = find_instance(paths, &panel.id, &server.slug)?;
+    let created = existing.is_none();
+    let mut instance = match existing {
+        Some(i) => i,
+        None => instance_for(paths, panel, &server)?,
+    };
+    instance.source = Source::Server { panel: panel.id.clone(), server: server.slug.clone(), pack: pack_ref };
+    match pack::install(client, paths, &mut instance, wanted, progress).await {
         Ok(manual) => Ok((instance, server, manual)),
         Err(e) => {
-            // An empty version means nothing was written for this new instance.
-            if instance.minecraft.is_empty() {
+            // An empty version means install failed before writing anything.
+            if created && instance.minecraft.is_empty() {
                 let _ = instance::delete(paths, &instance.id);
             }
             Err(e)
@@ -333,5 +329,62 @@ mod tests {
     fn quilt_server_is_unsupported() {
         let err = run(&server(Some("1.21.1"), Some(("quilt", None))), None, ClientMods::default()).unwrap_err();
         assert!(matches!(err, Error::Unsupported(_)));
+    }
+
+    use crate::download::testing::{serve_routes, tmp_dir};
+
+    async fn test_panel(server_json: serde_json::Value, mods_status: u16) -> Panel {
+        let body = serde_json::json!({ "data": server_json }).to_string().into_bytes();
+        let routes = vec![("/client-mods", mods_status, vec![], String::new()), ("/servers/atm10", 200, body, String::new())];
+        let (address, _, _) = serve_routes(routes).await;
+        let id = crate::secrets::test_account().replace(':', "-");
+        crate::secrets::set(&format!("panel:{id}"), "tok").unwrap();
+        Panel { id, address, name: "Home".into() }
+    }
+
+    async fn failing_sync(paths: &Paths, panel: &Panel) -> Error {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        sync(&crate::http_client(), paths, panel, "atm10", &tx).await.unwrap_err()
+    }
+
+    fn atm10(modpack: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({ "slug": "atm10", "name": "ATM", "hostname": "atm10.mc.example.org", "state": "running", "game_version": "1.21.1", "modpack": modpack })
+    }
+
+    fn nothing_on_disk(paths: &Paths) -> bool {
+        std::fs::read_dir(paths.instances()).map_or(true, |mut d| d.next().is_none())
+    }
+
+    #[tokio::test]
+    async fn a_sync_that_cannot_start_creates_nothing() {
+        let dir = tmp_dir();
+        let paths = Paths { root: dir.join("home") };
+        let panel = test_panel(atm10(serde_json::Value::Null), 409).await;
+        assert!(matches!(failing_sync(&paths, &panel).await, Error::NotReady(_)));
+        assert!(nothing_on_disk(&paths));
+    }
+
+    #[tokio::test]
+    async fn a_pack_without_a_version_creates_nothing() {
+        let dir = tmp_dir();
+        let paths = Paths { root: dir.join("home") };
+        let modpack = serde_json::json!({ "catalogue": "ftb", "project": "1", "version": null, "version_name": null });
+        let panel = test_panel(atm10(modpack), 200).await;
+        assert!(matches!(failing_sync(&paths, &panel).await, Error::NotReady(_)));
+        assert!(nothing_on_disk(&paths));
+    }
+
+    #[tokio::test]
+    async fn a_failed_sync_keeps_an_existing_instance_and_its_files() {
+        let dir = tmp_dir();
+        let paths = Paths { root: dir.join("home") };
+        let panel = test_panel(atm10(serde_json::Value::Null), 409).await;
+        let inst = instance_for(&paths, &panel, &server(Some("1.21.1"), None)).unwrap();
+        let own = instance::game_dir(&paths, &inst.id).join("mods/own.jar");
+        std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+        std::fs::write(&own, b"mine").unwrap();
+        assert!(matches!(failing_sync(&paths, &panel).await, Error::NotReady(_)));
+        assert!(own.exists());
+        assert_eq!(instance::list(&paths).unwrap().len(), 1);
     }
 }

@@ -250,6 +250,13 @@ pub mod testing {
         body: Vec<u8>,
         extra: String,
     ) -> (String, Arc<AtomicUsize>, Arc<std::sync::Mutex<Vec<String>>>) {
+        serve_routes(vec![("", status, body, extra)]).await
+    }
+
+    // The first route whose key is part of the request line answers; no match gives 404.
+    pub async fn serve_routes(
+        routes: Vec<(&'static str, u16, Vec<u8>, String)>,
+    ) -> (String, Arc<AtomicUsize>, Arc<std::sync::Mutex<Vec<String>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let hits = Arc::new(AtomicUsize::new(0));
@@ -259,7 +266,7 @@ pub mod testing {
             loop {
                 let (mut sock, _) = listener.accept().await.unwrap();
                 counter.fetch_add(1, Ordering::SeqCst);
-                let (body, extra, recorded) = (body.clone(), extra.clone(), recorded.clone());
+                let (routes, recorded) = (routes.clone(), recorded.clone());
                 tokio::spawn(async move {
                     let mut buf = [0u8; 4096];
                     let mut seen = Vec::new();
@@ -283,7 +290,10 @@ pub mod testing {
                             Ok(n) => seen.extend_from_slice(&buf[..n]),
                         }
                     }
-                    recorded.lock().unwrap().push(head);
+                    recorded.lock().unwrap().push(head.clone());
+                    let line = head.lines().next().unwrap_or_default();
+                    let none = ("", 404, Vec::new(), String::new());
+                    let (_, status, body, extra) = routes.iter().find(|r| line.contains(r.0)).unwrap_or(&none);
                     let head = format!(
                         "HTTP/1.1 {status} X\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
                         body.len()
