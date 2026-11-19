@@ -107,15 +107,22 @@ pub async fn join(
     slug: &str,
     profile: Profile,
     progress: &ProgressTx,
-) -> Result<(std::process::Child, Vec<Manual>)> {
+) -> Result<(std::process::Child, Instance, Vec<Manual>)> {
     let (instance, server, manual) = sync(client, paths, panel, slug, progress).await?;
     check_host(&server.hostname)?;
+    skip_onboarding(&instance::game_dir(paths, &instance.id))?;
     let child = play::start_instance(client, paths, &instance, profile, Some(server.hostname), DEFAULT_MEMORY_MB, progress).await?;
-    Ok((child, manual))
+    Ok((child, instance, manual))
 }
 
-pub fn instance_of(paths: &Paths, panel: &Panel, slug: &str) -> Result<Instance> {
-    find_instance(paths, &panel.id, slug)?.ok_or_else(|| Error::Other(format!("no instance for {}/{slug}", panel.id)))
+// Minecraft shows an accessibility screen on a first start and only then runs quick play.
+fn skip_onboarding(game: &std::path::Path) -> Result<()> {
+    std::fs::create_dir_all(game)?;
+    match std::fs::OpenOptions::new().write(true).create_new(true).open(game.join("options.txt")) {
+        Ok(mut f) => Ok(std::io::Write::write_all(&mut f, b"onboardAccessibility:false\n")?),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 pub async fn all_servers(paths: &Paths) -> Result<Vec<(Panel, Result<Vec<Server>>)>> {
@@ -403,5 +410,16 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].1.as_ref().unwrap()[0].slug, "atm10");
         assert!(all[1].1.as_ref().unwrap_err().to_string().contains("cannot be reached"));
+    }
+
+    #[test]
+    fn a_fresh_game_folder_skips_the_onboarding_but_options_are_kept() {
+        let dir = tmp_dir();
+        let game = dir.join("game");
+        skip_onboarding(&game).unwrap();
+        assert_eq!(std::fs::read_to_string(game.join("options.txt")).unwrap().trim(), "onboardAccessibility:false");
+        std::fs::write(game.join("options.txt"), "mine:1\n").unwrap();
+        skip_onboarding(&game).unwrap();
+        assert_eq!(std::fs::read_to_string(game.join("options.txt")).unwrap(), "mine:1\n");
     }
 }

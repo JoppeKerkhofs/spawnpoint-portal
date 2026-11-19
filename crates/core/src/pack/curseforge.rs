@@ -12,7 +12,7 @@ use crate::sync::{Origin, Wanted};
 use crate::{Error, Paths, Result};
 
 #[derive(Debug, Clone)]
-pub struct Manifest {
+pub(crate) struct Manifest {
     pub minecraft: String,
     pub loader: Option<Loader>,
     pub overrides: String,
@@ -48,7 +48,7 @@ struct RawFile {
     required: Option<bool>,
 }
 
-pub fn parse_manifest(json: &str) -> Result<Manifest> {
+pub(crate) fn parse_manifest(json: &str) -> Result<Manifest> {
     let raw: Raw = serde_json::from_str(json)?;
     check_id(&raw.minecraft.version)?;
     let chosen = raw.minecraft.mod_loaders.iter().find(|l| l.primary).or(raw.minecraft.mod_loaders.first());
@@ -73,7 +73,7 @@ pub fn parse_manifest(json: &str) -> Result<Manifest> {
     })
 }
 
-pub fn wanted(manifest: &Manifest, files: &[PackFile], archive: &Path) -> Result<PackInstall> {
+pub(crate) fn wanted(manifest: &Manifest, files: &[PackFile], archive: &Path) -> Result<PackInstall> {
     let mut out = Vec::new();
     for f in files {
         if f.name.contains(['/', '\\']) {

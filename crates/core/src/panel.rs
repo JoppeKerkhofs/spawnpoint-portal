@@ -36,6 +36,11 @@ pub fn normalize_address(input: &str, allow_http: bool) -> Result<String> {
     Ok(address)
 }
 
+pub fn host(address: &str) -> &str {
+    let rest = address.split_once("://").map_or(address, |(_, r)| r);
+    rest.split('/').next().unwrap_or(rest)
+}
+
 pub fn list(paths: &Paths) -> Result<Vec<Panel>> {
     match std::fs::read(paths.panels_file()) {
         Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
@@ -64,7 +69,7 @@ pub fn add(paths: &Paths, address: &str, name: &str, token: &str, allow_http: bo
         old.name = name.to_string();
         old.clone()
     } else {
-        let authority = address.split("://").nth(1).unwrap_or(&address).split('/').next().unwrap_or_default();
+        let authority = host(&address);
         let host = match authority.rsplit_once(':') {
             Some((h, port)) if port.bytes().all(|b| b.is_ascii_digit()) => h,
             _ => authority,
@@ -349,6 +354,12 @@ pub async fn client_pack_files(panel: &Panel, slug: &str, files: &[u64]) -> Resu
 mod tests {
     use super::*;
     use crate::download::testing::tmp_dir;
+
+    #[test]
+    fn the_host_keeps_its_port() {
+        assert_eq!(host("https://panel.example.org:8443/sub"), "panel.example.org:8443");
+        assert_eq!(host("http://10.0.0.5"), "10.0.0.5");
+    }
 
     #[test]
     fn addresses() {

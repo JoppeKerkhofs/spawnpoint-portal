@@ -95,7 +95,7 @@ fn print_manual(paths: &Paths, instance: &Instance, manual: &[Manual]) {
     let game = instance::game_dir(paths, &instance.id);
     for m in manual {
         let full = game.join(&m.path);
-        println!("fetch by hand: {}  {}  -> {}", m.name, m.page, full.parent().unwrap_or(&game).display());
+        println!("fetch by hand: {}  {}  -> {}", show(&m.name), show(&m.page), full.parent().unwrap_or(&game).display());
     }
 }
 
@@ -110,11 +110,6 @@ fn allow_http(rest: &[String]) -> Result<bool> {
         [f] if f == "--allow-http" => Ok(true),
         _ => Err(Error::Other(format!("unknown or incomplete option: {}", rest.join(" ")))),
     }
-}
-
-fn host_of(address: &str) -> &str {
-    let rest = address.split_once("://").map_or(address, |(_, r)| r);
-    rest.split('/').next().unwrap_or(rest)
 }
 
 fn device_name(computer: Option<String>) -> String {
@@ -141,7 +136,7 @@ async fn panel_add(address: &str, allow_http: bool) -> Result<()> {
             return Err(Error::Other("nobody approved the code in time".into()));
         }
     };
-    let linked = panel::add(&paths, &address, host_of(&address), &token.token, allow_http)?;
+    let linked = panel::add(&paths, &address, panel::host(&address), &token.token, allow_http)?;
     println!("linked {}", linked.name);
     let missing = panel::missing_abilities(&token.abilities);
     if !missing.is_empty() {
@@ -184,9 +179,8 @@ async fn join_server(target: &str, profile: Profile) -> Result<()> {
     let (client, paths) = (http_client(), Paths::new()?);
     let (panel, slug) = join::parse_target(target, &panel::list(&paths)?)?;
     let p = paths.clone();
-    let (panel2, slug2) = (panel.clone(), slug.clone());
-    let (mut child, manual) = with_progress(|tx| async move { join::join(&client, &p, &panel2, &slug2, profile, &tx).await }).await?;
-    print_manual(&paths, &join::instance_of(&paths, &panel, &slug)?, &manual);
+    let (mut child, instance, manual) = with_progress(|tx| async move { join::join(&client, &p, &panel, &slug, profile, &tx).await }).await?;
+    print_manual(&paths, &instance, &manual);
     println!("started, pid {}", child.id());
     std::process::exit(child.wait()?.code().unwrap_or(1));
 }
@@ -246,7 +240,7 @@ async fn run(args: &[String]) -> Result<()> {
                     Source::Pack { pack } => format!("pack {} {} {}", pack.catalogue, pack.project, pack.version),
                     Source::Server { panel, server, .. } => format!("server {panel} {server}"),
                 };
-                println!("{}  {}  {}  {}  {}", i.id, i.name, i.minecraft, loader, source);
+                println!("{}  {}  {}  {}  {}", i.id, show(&i.name), i.minecraft, loader, source);
             }
         }
         [cmd, sub, name, version, rest @ ..] if cmd == "instance" && sub == "create" => {
@@ -320,7 +314,9 @@ async fn run(args: &[String]) -> Result<()> {
 async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Err(e) = run(&args).await {
-        eprintln!("error: {e}");
+        let text = e.to_string();
+        eprintln!("error: {}", text.lines().map(show).collect::<Vec<_>>().join("
+"));
         std::process::exit(1);
     }
 }
@@ -351,8 +347,6 @@ mod tests {
         for bad in [&["--allow-https"][..], &["--allow-http", "x"], &["x"]] {
             assert!(allow_http(&args(bad)).is_err(), "{bad:?}");
         }
-        assert_eq!(host_of("https://panel.example.org:8443/sub"), "panel.example.org:8443");
-        assert_eq!(host_of("http://10.0.0.5"), "10.0.0.5");
         assert_eq!(device_name(Some("DESKTOP-1".into())), "Spawnpoint Portal on DESKTOP-1");
         assert_eq!(device_name(None), "Spawnpoint Portal on this PC");
         assert_eq!(device_name(Some("x".repeat(100))).chars().count(), 60);
