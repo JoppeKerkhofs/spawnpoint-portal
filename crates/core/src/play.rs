@@ -1,5 +1,6 @@
 use crate::download::ProgressTx;
 use crate::gamefiles::{install, version_json};
+use crate::instance::{self, Instance};
 use crate::launch::{arguments, command, extract_natives, LaunchOptions, Profile};
 use crate::loader::{profile, resolve, Loader};
 use crate::version::merge;
@@ -49,4 +50,24 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
     extract_natives(paths, &version)?;
     std::fs::create_dir_all(&game_dir)?;
     Ok(command(&javaw, &args, &game_dir).spawn()?)
+}
+
+pub async fn start_instance(
+    client: &Client,
+    paths: &Paths,
+    instance: &Instance,
+    profile: Profile,
+    server: Option<String>,
+    memory_mb: u32,
+    progress: &ProgressTx,
+) -> Result<std::process::Child> {
+    let request = StartRequest {
+        minecraft: instance.minecraft.clone(),
+        game_dir: instance::game_dir(paths, &instance.id),
+        profile,
+        server,
+        memory_mb,
+        loader: instance.loader.clone(),
+    };
+    start(client, paths, &request, progress).await
 }
