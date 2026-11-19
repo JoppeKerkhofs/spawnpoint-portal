@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Account — Spawnpoint Portal</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1f2328}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@keyframes spinr{to{transform:rotate(360deg)}}
+@keyframes pulse{50%{opacity:.45}}
+.win{position:relative;width:1100px;height:720px;display:flex;flex-direction:column;overflow:hidden;background:#f1f2f3;color:#212529;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.45}
+.tb{height:32px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding-left:12px;background:#1f2328;color:#ffffff;font-size:12px}
+.tb-title{flex:1 1 auto}
+.tb-btn{width:46px;height:32px;border:0;background:transparent;color:#ffffff;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.tb-btn:hover{background:rgba(255,255,255,.12)}
+.tb-close:hover{background:#c42b1c}
+.body{flex:1 1 auto;min-height:0;display:flex}
+.side{width:212px;flex:0 0 auto;background:#ffffff;border-right:1px solid rgba(0,0,0,.175);display:flex;flex-direction:column;padding:14px 10px;gap:4px}
+.brand{display:flex;align-items:center;gap:10px;padding:0 8px 14px;font-weight:700;font-size:15px;color:#1f2328}
+.nav{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;border-radius:6px;color:#212529;text-decoration:none}
+.nav:hover{background:#f1f2f3}
+.nav[aria-current="page"]{background:#1f2328;color:#ffffff;font-weight:600}
+.side-foot{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 8px 0;border-top:1px solid #e6e6e6;text-decoration:none;color:#212529}
+.avatar{width:32px;height:32px;border-radius:50%;background:#e3e6e9;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:#1f2328;flex:0 0 auto}
+.main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.head{flex:0 0 auto;padding:20px 24px 14px;display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.h1{margin:0;font-size:22px;line-height:1.25;font-weight:700;color:#1f2328}
+.sub{margin:2px 0 0;color:#5f666d;font-size:13px}
+.content{flex:1 1 auto;min-height:0;overflow:auto;padding:0 24px 20px;display:flex;flex-direction:column;gap:12px}
+.card{background:#ffffff;border:1px solid rgba(0,0,0,.175);border-radius:6px;overflow:hidden;flex:0 0 auto}
+.card-head{background:#f6f6f6;padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-bottom:1px solid #e6e6e6}
+.card-head + .card-head,.row + .card-head{border-top:1px solid #dee2e6}
+.h2{margin:0;font-size:15px;font-weight:700;color:#1f2328}
+.row{display:flex;align-items:center;gap:14px;padding:10px 14px;border-top:1px solid #eceef0;min-height:40px}
+.card-head + .row{border-top:0}
+.pad{padding:14px}
+.btn{height:34px;padding:0 12px;border-radius:6px;border:1px solid #1f2328;background:#ffffff;color:#1f2328;font:inherit;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;white-space:nowrap;flex:0 0 auto}
+.btn:hover{background:#f1f2f3}
+.btn-primary{background:#1f2328;color:#ffffff}
+.btn-primary:hover{background:#3d434a}
+.btn-danger{border-color:#a12a2f;color:#a12a2f}
+.btn-danger-fill{background:#a12a2f;border-color:#a12a2f;color:#ffffff}
+.btn-sm{height:30px;padding:0 10px}
+.btn:disabled{opacity:.45;cursor:default;background:#ffffff}
+.btn-primary:disabled{background:#1f2328}
+.btn:focus-visible,.nav:focus-visible,.input:focus-visible,.tb-btn:focus-visible,.seg button:focus-visible,.side-foot:focus-visible,a:focus-visible{outline:2px solid #3fa36b;outline-offset:2px}
+.muted{color:#5f666d}
+.small{font-size:12px}
+.mono{font-family:ui-monospace,'Cascadia Mono',Consolas,monospace;font-size:13px}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.02em;border-radius:999px;padding:1px 8px;white-space:nowrap}
+.p-run{color:#1d6b3f;background:#e1f1e7}
+.p-busy{color:#7a4f00;background:#fbefd5}
+.p-off{color:#4f565d;background:#eceef1}
+.p-err{color:#a12a2f;background:#fbe3e3}
+.badge{font-size:11px;font-weight:600;border-radius:4px;padding:1px 6px;white-space:nowrap}
+.b-pack{background:#eceef1;color:#3d434a}
+.b-own{background:#e1f1e7;color:#1d6b3f}
+.b-hand{background:#f1ece0;color:#5e4a1c}
+.label{display:block;font-size:13px;font-weight:600;margin-bottom:4px}
+.input{height:34px;padding:0 10px;border:1px solid #c9ced3;border-radius:6px;font:inherit;color:#212529;background:#ffffff;box-sizing:border-box}
+.bar{height:6px;background:#e3e6e9;border-radius:999px;overflow:hidden;flex:1 1 auto}
+.bar-fill{height:100%;background:#3fa36b;transition:width .15s}
+.status{flex:0 0 auto;height:44px;display:flex;align-items:center;gap:12px;padding:0 16px;background:#ffffff;border-top:1px solid rgba(0,0,0,.175);font-size:13px}
+.status-err{background:#fbe3e3}
+.note{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:6px;flex:0 0 auto}
+.note-warn{background:#fdf7e9;border:1px solid #e6c98a;color:#3d2a00}
+.note-err{background:#fbe3e3;border:1px solid #e9b4b4;color:#5a1518}
+.note-info{background:#ffffff;border:1px solid rgba(0,0,0,.175)}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.spin{width:14px;height:14px;border:2px solid #cfd3d7;border-top-color:#1f2328;border-radius:50%;animation:spinr .8s linear infinite;flex:0 0 auto}
+.skel{background:#e3e6e9;border-radius:4px;animation:pulse 1.4s ease-in-out infinite}
+.dialog-back{position:absolute;inset:32px 0 0 0;background:rgba(20,22,24,.45);display:flex;align-items:center;justify-content:center;z-index:10}
+.dialog{width:440px;background:#ffffff;border-radius:8px;box-shadow:0 12px 40px rgba(0,0,0,.3);padding:20px;display:flex;flex-direction:column;gap:12px}
+.code{font-family:ui-monospace,'Cascadia Mono',Consolas,monospace;font-size:46px;line-height:1;letter-spacing:.14em;font-weight:700;color:#1f2328}
+.tile{width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:0 0 auto}
+.seg{display:inline-flex;border:1px solid #c9ced3;border-radius:6px;overflow:hidden}
+.seg button{height:30px;padding:0 10px;border:0;border-left:1px solid #c9ced3;background:#ffffff;font:inherit;font-size:13px;color:#212529;cursor:pointer}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed="true"]{background:#1f2328;color:#ffffff}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;padding:48px 24px}
+.ok{color:#1d6b3f}
+</style>
+</helmet>
+<div class="win">
+<div class="tb"><svg width="16" height="16" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="7" y="0" width="2" height="1" fill="#141618"/><rect x="5" y="1" width="2" height="1" fill="#141618"/><rect x="7" y="1" width="1" height="1" fill="#a8ea72"/><rect x="8" y="1" width="1" height="1" fill="#78cc45"/><rect x="9" y="1" width="2" height="1" fill="#141618"/><rect x="3" y="2" width="2" height="1" fill="#141618"/><rect x="5" y="2" width="4" height="1" fill="#78cc45"/><rect x="9" y="2" width="1" height="1" fill="#5aa831"/><rect x="10" y="2" width="1" height="1" fill="#78cc45"/><rect x="11" y="2" width="2" height="1" fill="#141618"/><rect x="1" y="3" width="2" height="1" fill="#141618"/><rect x="3" y="3" width="1" height="1" fill="#78cc45"/><rect x="4" y="3" width="1" height="1" fill="#a8ea72"/><rect x="5" y="3" width="1" height="1" fill="#78cc45"/><rect x="6" y="3" width="1" height="1" fill="#5aa831"/><rect x="7" y="3" width="5" height="1" fill="#78cc45"/><rect x="12" y="3" width="1" height="1" fill="#a8ea72"/><rect x="13" y="3" width="2" height="1" fill="#141618"/><rect x="0" y="4" width="1" height="1" fill="#141618"/><rect x="1" y="4" width="2" height="1" fill="#78cc45"/><rect x="3" y="4" width="1" height="1" fill="#5aa831"/><rect x="4" y="4" width="4" height="1" fill="#78cc45"/><rect x="8" y="4" width="1" height="1" fill="#5aa831"/><rect x="9" y="4" width="1" height="1" fill="#78cc45"/><rect x="10" y="4" width="1" height="1" fill="#a8ea72"/><rect x="11" y="4" width="4" height="1" fill="#78cc45"/><rect x="15" y="4" width="1" height="1" fill="#141618"/><rect x="0" y="5" width="1" height="1" fill="#141618"/><rect x="1" y="5" width="1" height="1" fill="#3d8a22"/><rect x="2" y="5" width="4" height="1" fill="#78cc45"/><rect x="6" y="5" width="1" height="1" fill="#a8ea72"/><rect x="7" y="5" width="4" height="1" fill="#78cc45"/><rect x="11" y="5" width="1" height="1" fill="#5aa831"/><rect x="12" y="5" width="2" height="1" fill="#78cc45"/><rect x="14" y="5" width="1" height="1" fill="#2e6f19"/><rect x="15" y="5" width="1" height="1" fill="#141618"/><rect x="0" y="6" width="1" height="1" fill="#141618"/><rect x="1" y="6" width="3" height="1" fill="#3d8a22"/><rect x="4" y="6" width="1" height="1" fill="#78cc45"/><rect x="5" y="6" width="1" height="1" fill="#5aa831"/><rect x="6" y="6" width="3" height="1" fill="#78cc45"/><rect x="9" y="6" width="1" height="1" fill="#a8ea72"/><rect x="10" y="6" width="2" height="1" fill="#78cc45"/><rect x="12" y="6" width="3" height="1" fill="#2e6f19"/><rect x="15" y="6" width="1" height="1" fill="#141618"/><rect x="0" y="7" width="1" height="1" fill="#141618"/><rect x="1" y="7" width="2" height="1" fill="#8a6342"/><rect x="3" y="7" width="3" height="1" fill="#3d8a22"/><rect x="6" y="7" width="4" height="1" fill="#78cc45"/><rect x="10" y="7" width="3" height="1" fill="#2e6f19"/><rect x="13" y="7" width="2" height="1" fill="#3d4146"/><rect x="15" y="7" width="1" height="1" fill="#141618"/><rect x="0" y="8" width="1" height="1" fill="#141618"/><rect x="1" y="8" width="4" height="1" fill="#8a6342"/><rect x="5" y="8" width="3" height="1" fill="#3d8a22"/><rect x="8" y="8" width="3" height="1" fill="#2e6f19"/><rect x="11" y="8" width="2" height="1" fill="#3d4146"/><rect x="13" y="8" width="1" height="1" fill="#86ff5c"/><rect x="14" y="8" width="1" height="1" fill="#3d4146"/><rect x="15" y="8" width="1" height="1" fill="#141618"/><rect x="0" y="9" width="1" height="1" fill="#141618"/><rect x="1" y="9" width="1" height="1" fill="#8a6342"/><rect x="2" y="9" width="1" height="1" fill="#674629"/><rect x="3" y="9" width="2" height="1" fill="#8a6342"/><rect x="5" y="9" width="1" height="1" fill="#674629"/><rect x="6" y="9" width="1" height="1" fill="#8a6342"/><rect x="7" y="9" width="1" height="1" fill="#3d8a22"/><rect x="8" y="9" width="1" height="1" fill="#2e6f19"/><rect x="9" y="9" width="2" height="1" fill="#3d4146"/><rect x="11" y="9" width="2" height="1" fill="#1f2225"/><rect x="13" y="9" width="2" height="1" fill="#3d4146"/><rect x="15" y="9" width="1" height="1" fill="#141618"/><rect x="0" y="10" width="1" height="1" fill="#141618"/><rect x="1" y="10" width="1" height="1" fill="#674629"/><rect x="2" y="10" width="6" height="1" fill="#8a6342"/><rect x="8" y="10" width="1" height="1" fill="#3d4146"/><rect x="9" y="10" width="2" height="1" fill="#1f2225"/><rect x="11" y="10" width="2" height="1" fill="#3d4146"/><rect x="13" y="10" width="1" height="1" fill="#86ff5c"/><rect x="14" y="10" width="1" height="1" fill="#3d4146"/><rect x="15" y="10" width="1" height="1" fill="#141618"/><rect x="0" y="11" width="1" height="1" fill="#141618"/><rect x="1" y="11" width="3" height="1" fill="#8a6342"/><rect x="4" y="11" width="1" height="1" fill="#674629"/><rect x="5" y="11" width="2" height="1" fill="#8a6342"/><rect x="7" y="11" width="1" height="1" fill="#674629"/><rect x="8" y="11" width="3" height="1" fill="#3d4146"/><rect x="11" y="11" width="2" height="1" fill="#1f2225"/><rect x="13" y="11" width="2" height="1" fill="#3d4146"/><rect x="15" y="11" width="1" height="1" fill="#141618"/><rect x="0" y="12" width="2" height="1" fill="#141618"/><rect x="2" y="12" width="1" height="1" fill="#8a6342"/><rect x="3" y="12" width="1" height="1" fill="#674629"/><rect x="4" y="12" width="2" height="1" fill="#8a6342"/><rect x="6" y="12" width="1" height="1" fill="#674629"/><rect x="7" y="12" width="1" height="1" fill="#8a6342"/><rect x="8" y="12" width="1" height="1" fill="#3d4146"/><rect x="9" y="12" width="2" height="1" fill="#1f2225"/><rect x="11" y="12" width="3" height="1" fill="#3d4146"/><rect x="14" y="12" width="2" height="1" fill="#141618"/><rect x="2" y="13" width="2" height="1" fill="#141618"/><rect x="4" y="13" width="4" height="1" fill="#8a6342"/><rect x="8" y="13" width="4" height="1" fill="#3d4146"/><rect x="12" y="13" width="2" height="1" fill="#141618"/><rect x="4" y="14" width="2" height="1" fill="#141618"/><rect x="6" y="14" width="2" height="1" fill="#8a6342"/><rect x="8" y="14" width="2" height="1" fill="#3d4146"/><rect x="10" y="14" width="2" height="1" fill="#141618"/><rect x="6" y="15" width="4" height="1" fill="#141618"/></svg><span class="tb-title">Spawnpoint Portal</span>
+<button type="button" class="tb-btn" aria-label="Minimize"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" stroke="currentColor"/></svg></button>
+<button type="button" class="tb-btn" aria-label="Maximize"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor"/></svg></button>
+<button type="button" class="tb-btn tb-close" aria-label="Close"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0 0 10" stroke="currentColor"/></svg></button>
+</div>
+<div class="body">
+<nav class="side" aria-label="Main">
+<div class="brand"><svg width="26" height="26" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="7" y="0" width="2" height="1" fill="#141618"/><rect x="5" y="1" width="2" height="1" fill="#141618"/><rect x="7" y="1" width="1" height="1" fill="#a8ea72"/><rect x="8" y="1" width="1" height="1" fill="#78cc45"/><rect x="9" y="1" width="2" height="1" fill="#141618"/><rect x="3" y="2" width="2" height="1" fill="#141618"/><rect x="5" y="2" width="4" height="1" fill="#78cc45"/><rect x="9" y="2" width="1" height="1" fill="#5aa831"/><rect x="10" y="2" width="1" height="1" fill="#78cc45"/><rect x="11" y="2" width="2" height="1" fill="#141618"/><rect x="1" y="3" width="2" height="1" fill="#141618"/><rect x="3" y="3" width="1" height="1" fill="#78cc45"/><rect x="4" y="3" width="1" height="1" fill="#a8ea72"/><rect x="5" y="3" width="1" height="1" fill="#78cc45"/><rect x="6" y="3" width="1" height="1" fill="#5aa831"/><rect x="7" y="3" width="5" height="1" fill="#78cc45"/><rect x="12" y="3" width="1" height="1" fill="#a8ea72"/><rect x="13" y="3" width="2" height="1" fill="#141618"/><rect x="0" y="4" width="1" height="1" fill="#141618"/><rect x="1" y="4" width="2" height="1" fill="#78cc45"/><rect x="3" y="4" width="1" height="1" fill="#5aa831"/><rect x="4" y="4" width="4" height="1" fill="#78cc45"/><rect x="8" y="4" width="1" height="1" fill="#5aa831"/><rect x="9" y="4" width="1" height="1" fill="#78cc45"/><rect x="10" y="4" width="1" height="1" fill="#a8ea72"/><rect x="11" y="4" width="4" height="1" fill="#78cc45"/><rect x="15" y="4" width="1" height="1" fill="#141618"/><rect x="0" y="5" width="1" height="1" fill="#141618"/><rect x="1" y="5" width="1" height="1" fill="#3d8a22"/><rect x="2" y="5" width="4" height="1" fill="#78cc45"/><rect x="6" y="5" width="1" height="1" fill="#a8ea72"/><rect x="7" y="5" width="4" height="1" fill="#78cc45"/><rect x="11" y="5" width="1" height="1" fill="#5aa831"/><rect x="12" y="5" width="2" height="1" fill="#78cc45"/><rect x="14" y="5" width="1" height="1" fill="#2e6f19"/><rect x="15" y="5" width="1" height="1" fill="#141618"/><rect x="0" y="6" width="1" height="1" fill="#141618"/><rect x="1" y="6" width="3" height="1" fill="#3d8a22"/><rect x="4" y="6" width="1" height="1" fill="#78cc45"/><rect x="5" y="6" width="1" height="1" fill="#5aa831"/><rect x="6" y="6" width="3" height="1" fill="#78cc45"/><rect x="9" y="6" width="1" height="1" fill="#a8ea72"/><rect x="10" y="6" width="2" height="1" fill="#78cc45"/><rect x="12" y="6" width="3" height="1" fill="#2e6f19"/><rect x="15" y="6" width="1" height="1" fill="#141618"/><rect x="0" y="7" width="1" height="1" fill="#141618"/><rect x="1" y="7" width="2" height="1" fill="#8a6342"/><rect x="3" y="7" width="3" height="1" fill="#3d8a22"/><rect x="6" y="7" width="4" height="1" fill="#78cc45"/><rect x="10" y="7" width="3" height="1" fill="#2e6f19"/><rect x="13" y="7" width="2" height="1" fill="#3d4146"/><rect x="15" y="7" width="1" height="1" fill="#141618"/><rect x="0" y="8" width="1" height="1" fill="#141618"/><rect x="1" y="8" width="4" height="1" fill="#8a6342"/><rect x="5" y="8" width="3" height="1" fill="#3d8a22"/><rect x="8" y="8" width="3" height="1" fill="#2e6f19"/><rect x="11" y="8" width="2" height="1" fill="#3d4146"/><rect x="13" y="8" width="1" height="1" fill="#86ff5c"/><rect x="14" y="8" width="1" height="1" fill="#3d4146"/><rect x="15" y="8" width="1" height="1" fill="#141618"/><rect x="0" y="9" width="1" height="1" fill="#141618"/><rect x="1" y="9" width="1" height="1" fill="#8a6342"/><rect x="2" y="9" width="1" height="1" fill="#674629"/><rect x="3" y="9" width="2" height="1" fill="#8a6342"/><rect x="5" y="9" width="1" height="1" fill="#674629"/><rect x="6" y="9" width="1" height="1" fill="#8a6342"/><rect x="7" y="9" width="1" height="1" fill="#3d8a22"/><rect x="8" y="9" width="1" height="1" fill="#2e6f19"/><rect x="9" y="9" width="2" height="1" fill="#3d4146"/><rect x="11" y="9" width="2" height="1" fill="#1f2225"/><rect x="13" y="9" width="2" height="1" fill="#3d4146"/><rect x="15" y="9" width="1" height="1" fill="#141618"/><rect x="0" y="10" width="1" height="1" fill="#141618"/><rect x="1" y="10" width="1" height="1" fill="#674629"/><rect x="2" y="10" width="6" height="1" fill="#8a6342"/><rect x="8" y="10" width="1" height="1" fill="#3d4146"/><rect x="9" y="10" width="2" height="1" fill="#1f2225"/><rect x="11" y="10" width="2" height="1" fill="#3d4146"/><rect x="13" y="10" width="1" height="1" fill="#86ff5c"/><rect x="14" y="10" width="1" height="1" fill="#3d4146"/><rect x="15" y="10" width="1" height="1" fill="#141618"/><rect x="0" y="11" width="1" height="1" fill="#141618"/><rect x="1" y="11" width="3" height="1" fill="#8a6342"/><rect x="4" y="11" width="1" height="1" fill="#674629"/><rect x="5" y="11" width="2" height="1" fill="#8a6342"/><rect x="7" y="11" width="1" height="1" fill="#674629"/><rect x="8" y="11" width="3" height="1" fill="#3d4146"/><rect x="11" y="11" width="2" height="1" fill="#1f2225"/><rect x="13" y="11" width="2" height="1" fill="#3d4146"/><rect x="15" y="11" width="1" height="1" fill="#141618"/><rect x="0" y="12" width="2" height="1" fill="#141618"/><rect x="2" y="12" width="1" height="1" fill="#8a6342"/><rect x="3" y="12" width="1" height="1" fill="#674629"/><rect x="4" y="12" width="2" height="1" fill="#8a6342"/><rect x="6" y="12" width="1" height="1" fill="#674629"/><rect x="7" y="12" width="1" height="1" fill="#8a6342"/><rect x="8" y="12" width="1" height="1" fill="#3d4146"/><rect x="9" y="12" width="2" height="1" fill="#1f2225"/><rect x="11" y="12" width="3" height="1" fill="#3d4146"/><rect x="14" y="12" width="2" height="1" fill="#141618"/><rect x="2" y="13" width="2" height="1" fill="#141618"/><rect x="4" y="13" width="4" height="1" fill="#8a6342"/><rect x="8" y="13" width="4" height="1" fill="#3d4146"/><rect x="12" y="13" width="2" height="1" fill="#141618"/><rect x="4" y="14" width="2" height="1" fill="#141618"/><rect x="6" y="14" width="2" height="1" fill="#8a6342"/><rect x="8" y="14" width="2" height="1" fill="#3d4146"/><rect x="10" y="14" width="2" height="1" fill="#141618"/><rect x="6" y="15" width="4" height="1" fill="#141618"/></svg><span>Spawnpoint Portal</span></div>
+<a href="PortalServers.dc.html" class="nav"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v5H4zM4 14h16v5H4z"/><path d="M8 7.5h.01M8 16.5h.01"/></svg><span>Servers</span></a><a href="PortalInstances.dc.html" class="nav"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg><span>Instances</span></a><a href="PortalPanels.dc.html" class="nav"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg><span>Panels</span></a><a href="PortalAccount.dc.html" class="nav" aria-current="page"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/></svg><span>Account</span></a>
+<a href="PortalAccount.dc.html" class="side-foot"><span class="avatar" aria-hidden="true">JK</span><span style="min-width: 0"><span style="display: block; font-weight: 700" class="mc-name">JoppeK</span><span class="muted small" style="display: block">Offline name</span></span></a>
+</nav>
+<div class="main">
+<div class="head">
+<div style="flex: 1 1 auto; min-width: 0">
+<h1 class="h1">Account</h1>
+<p class="sub">Who you are when you join a server.</p>
+</div>
+</div>
+<div class="content" style="max-width: 760px">
+
+<form class="card" onSubmit="{{ save }}" aria-labelledby="name-h">
+<div class="card-head"><h2 class="h2" id="name-h">Player name</h2><span class="badge b-pack">Offline</span></div>
+<div class="pad" style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap">
+<div style="flex: 1 1 260px"><label class="label" for="pname">Name other players see</label><input id="pname" class="input" style="width: 100%" value="{{ name }}" onInput="{{ onName }}" maxlength="16" aria-describedby="pname-help" aria-invalid="{{ invalid }}" autocomplete="off"/></div>
+<button type="submit" class="btn btn-primary" disabled="{{ saveDisabled }}">{{ saveLabel }}</button>
+</div>
+<div id="pname-help" class="small" style="color: {{ helpColor }}">{{ help }}</div>
+</div>
+</form>
+
+<div class="note note-warn" role="note"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17.5v.5"/></svg><div><strong>Servers in online mode will refuse this name.</strong> Without a Microsoft sign-in, you can only join servers that allow offline players. If a server turns you away with “Failed to verify username”, ask its owner to turn online mode off.</div></div>
+
+<section class="card" aria-labelledby="ms-h">
+<div class="card-head"><h2 class="h2" id="ms-h">Microsoft account</h2><span class="badge b-hand">Coming later</span></div>
+<div class="pad" style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap">
+<div style="flex: 1 1 380px; display: flex; flex-direction: column; gap: 6px">
+<p style="margin: 0">Sign in with the Microsoft account that owns Minecraft to join any server under your real name.</p>
+<p class="muted" style="margin: 0">It will work like linking a panel: Portal shows a code in large type, you enter it on Microsoft’s page, and Portal notices when you’re done. One account at a time.</p>
+</div>
+<button type="button" class="btn" disabled="">Sign in with Microsoft</button>
+</div>
+</section>
+
+</div>
+</div>
+</div>
+<div class="status" role="status" aria-live="polite"><span class="dot" style="background: #3fa36b"></span><span style="font-weight: 700">Playing Homestead</span><span class="muted">since 14:06 · as {{ savedName }}</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview": {"width": 1100, "height": 720}}'>
+class Component extends DCLogic {
+get(k, f) { return this.state && this.state[k] !== undefined ? this.state[k] : f; }
+renderVals() {
+const saved = this.get('saved', 'JoppeK');
+const name = this.get('name', saved);
+const ok = /^[A-Za-z0-9_]{3,16}$/.test(name);
+const changed = name !== saved;
+let help = 'Letters, numbers and _ only, 3 to 16 characters. Takes effect the next time you start a game.';
+if (!ok) help = name.length < 3 ? 'Use at least 3 characters.' : 'Only letters, numbers and _ are allowed.';
+if (ok && !changed && this.get('justSaved', false)) help = 'Saved. Your next game uses this name.';
+return {
+name, savedName: saved,
+invalid: ok ? 'false' : 'true',
+help, helpColor: ok ? 'inherit' : '#a12a2f',
+saveDisabled: !ok || !changed,
+saveLabel: !changed && this.get('justSaved', false) ? 'Saved' : 'Save',
+onName: (e) => this.setState({ name: e.target.value, justSaved: false }),
+save: (e) => { e.preventDefault(); if (ok) this.setState({ saved: name, justSaved: true }); }
+};
+}
+}
+</script>
+</body>
+</html>
