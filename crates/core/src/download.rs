@@ -26,7 +26,7 @@ pub struct Download {
     pub path: PathBuf,
     pub hash: Option<Hash>,
     pub size: Option<u64>,
-    // Panel token: only with a client that does not follow redirects.
+    // Panel token: fetch sends it only through the no-redirect panel client.
     pub bearer: Option<String>,
 }
 
@@ -124,6 +124,13 @@ async fn fetch_once(client: &Client, item: &Download) -> Result<()> {
     if let Some(dir) = item.path.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }
+    let panel;
+    let client = if item.bearer.is_some() {
+        panel = crate::panel_client();
+        &panel
+    } else {
+        client
+    };
     let mut resp = get_with(client, &item.url, item.bearer.as_deref()).await?;
     let mut file = tokio::fs::File::create(&part).await?;
     while let Some(chunk) = resp.chunk().await? {
@@ -413,5 +420,18 @@ mod tests {
         assert!(heads[0].to_lowercase().contains("authorization: bearer t"));
         assert!(!heads[1].to_lowercase().contains("authorization"));
         assert!(format!("{with:?}").contains("Some(\"***\")"));
+    }
+
+    #[tokio::test]
+    async fn a_bearer_never_follows_a_redirect_whatever_the_client() {
+        for status in [302, 307] {
+            let (other, other_hits) = serve(200, b"abc").await;
+            let (url, _, _) = serve_full(status, vec![], format!("Location: {other}/x\r\n")).await;
+            let dir = tmp_dir();
+            let it = Download { bearer: Some("t".into()), ..item(url, dir.join("a"), None) };
+            assert!(fetch(&http_client(), &it).await.is_err());
+            assert_eq!(other_hits.load(Ordering::SeqCst), 0);
+            assert!(!dir.join("a").exists());
+        }
     }
 }

@@ -1,10 +1,11 @@
-use reqwest::{Client, Method, Response};
+use reqwest::{Method, Response};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::instance::slug;
 use crate::paths::check_id;
-use crate::{Error, Paths, Result, secrets};
+use crate::sync::Origin;
+use crate::{Error, Paths, Result, panel_client, secrets};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Panel {
@@ -16,13 +17,20 @@ pub struct Panel {
 pub fn normalize_address(input: &str, allow_http: bool) -> Result<String> {
     let input = input.trim();
     let full = if input.contains("://") { input.to_string() } else { format!("https://{input}") };
-    let lower = full.to_ascii_lowercase();
-    if !lower.starts_with("http://") && !lower.starts_with("https://") {
+    let (scheme, rest) = full.split_once("://").unwrap_or_default();
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
         return Err(Error::Other(format!("{input} is not an http(s) address")));
     }
-    let trimmed = full.trim_end_matches('/');
-    let address = trimmed.strip_suffix("/api/v1").unwrap_or(trimmed).trim_end_matches('/').to_string();
-    if lower.starts_with("http://") && !allow_http {
+    let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    if authority.is_empty() || authority.contains('@') || rest.contains(['?', '#']) {
+        return Err(Error::Other(format!("{input} must be a plain address: a host, an optional port and path, no login, query or fragment")));
+    }
+    let path = path.trim_end_matches('/');
+    let cut = path.len().saturating_sub("/api/v1".len());
+    let path = if path.len() >= 7 && path[cut..].eq_ignore_ascii_case("/api/v1") { &path[..cut] } else { path };
+    let address = format!("{scheme}://{}{}", authority.to_ascii_lowercase(), path.trim_end_matches('/'));
+    if scheme == "http" && !allow_http {
         return Err(Error::Other(format!("{address} is not https; pass --allow-http to link it anyway")));
     }
     Ok(address)
@@ -49,21 +57,26 @@ fn account(id: &str) -> String {
     format!("panel:{id}")
 }
 
-pub fn add(paths: &Paths, address: &str, name: &str, token: &str) -> Result<Panel> {
+pub fn add(paths: &Paths, address: &str, name: &str, token: &str, allow_http: bool) -> Result<Panel> {
+    let address = normalize_address(address, allow_http)?;
     let mut panels = list(paths)?;
     let panel = if let Some(old) = panels.iter_mut().find(|p| p.address == address) {
         old.name = name.to_string();
         old.clone()
     } else {
-        let host = address.split("://").nth(1).unwrap_or(address);
-        let base = slug(host.split('/').next().unwrap_or(host));
+        let authority = address.split("://").nth(1).unwrap_or(&address).split('/').next().unwrap_or_default();
+        let host = match authority.rsplit_once(':') {
+            Some((h, port)) if port.bytes().all(|b| b.is_ascii_digit()) => h,
+            _ => authority,
+        };
+        let base = slug(host);
         let mut id = base.clone();
         let mut n = 2;
         while panels.iter().any(|p| p.id == id) {
             id = format!("{base}-{n}");
             n += 1;
         }
-        let panel = Panel { id, address: address.to_string(), name: name.to_string() };
+        let panel = Panel { id, address, name: name.to_string() };
         panels.push(panel.clone());
         panel
     };
@@ -87,6 +100,7 @@ pub fn token(panel: &Panel) -> Result<String> {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Pairing {
     pub code: String,
+    #[serde(skip_serializing)]
     pub secret: String,
     pub expires_at: String,
     pub interval: u64,
@@ -192,9 +206,8 @@ fn panel_error(panel: &str, message: impl Into<String>) -> Error {
     Error::Panel { panel: panel.into(), message: message.into() }
 }
 
-// The token goes in the header only. `client` must not follow redirects (`panel_client`).
+// The token goes in the header only, and only through the no-redirect client.
 async fn send(
-    client: &Client,
     name: &str,
     address: &str,
     token: Option<&str>,
@@ -202,7 +215,7 @@ async fn send(
     path: &str,
     body: Option<serde_json::Value>,
 ) -> Result<Response> {
-    let mut req = client.request(method, format!("{address}/api/v1{path}"));
+    let mut req = panel_client().request(method, format!("{address}/api/v1{path}"));
     if let Some(token) = token {
         req = req.bearer_auth(token);
     }
@@ -224,14 +237,13 @@ async fn send(
 }
 
 async fn call(
-    client: &Client,
     panel: &Panel,
     method: Method,
     path: &str,
     body: Option<serde_json::Value>,
 ) -> Result<Response> {
     let token = token(panel)?;
-    send(client, &panel.name, &panel.address, Some(&token), method, path, body).await
+    send(&panel.name, &panel.address, Some(&token), method, path, body).await
 }
 
 fn ok(resp: Response) -> Result<Response> {
@@ -250,19 +262,19 @@ async fn data<T: DeserializeOwned>(resp: Response) -> Result<T> {
     Ok(serde_json::from_value(v)?)
 }
 
-pub async fn pair_start(client: &Client, address: &str, device_name: &str) -> Result<Pairing> {
+pub async fn pair_start(address: &str, device_name: &str) -> Result<Pairing> {
     let name: String = device_name.chars().take(60).collect();
     let body = serde_json::json!({ "device_name": name });
-    let resp = send(client, address, address, None, Method::POST, "/pair", Some(body)).await?;
+    let resp = send(address, address, None, Method::POST, "/pair", Some(body)).await?;
     if resp.status().as_u16() == 429 {
         return Err(Error::Other("too many pairings started; wait a minute".into()));
     }
     data(resp).await
 }
 
-pub async fn pair_poll(client: &Client, address: &str, pairing: &Pairing) -> Result<Option<PairToken>> {
+pub async fn pair_poll(address: &str, pairing: &Pairing) -> Result<Option<PairToken>> {
     let body = serde_json::json!({ "code": pairing.code, "secret": pairing.secret });
-    let resp = send(client, address, address, None, Method::POST, "/pair/token", Some(body)).await?;
+    let resp = send(address, address, None, Method::POST, "/pair/token", Some(body)).await?;
     match resp.status().as_u16() {
         202 => Ok(None),
         404 => Err(Error::Other("the pairing code expired or was already used".into())),
@@ -270,18 +282,18 @@ pub async fn pair_poll(client: &Client, address: &str, pairing: &Pairing) -> Res
     }
 }
 
-pub async fn servers(client: &Client, panel: &Panel) -> Result<Vec<Server>> {
-    data(call(client, panel, Method::GET, "/servers", None).await?).await
+pub async fn servers(panel: &Panel) -> Result<Vec<Server>> {
+    data(call(panel, Method::GET, "/servers", None).await?).await
 }
 
-pub async fn server(client: &Client, panel: &Panel, slug: &str) -> Result<Server> {
+pub async fn server(panel: &Panel, slug: &str) -> Result<Server> {
     check_id(slug)?;
-    data(call(client, panel, Method::GET, &format!("/servers/{}", encode(slug)), None).await?).await
+    data(call(panel, Method::GET, &format!("/servers/{}", encode(slug)), None).await?).await
 }
 
-pub async fn client_mods(client: &Client, panel: &Panel, slug: &str) -> Result<ClientMods> {
+pub async fn client_mods(panel: &Panel, slug: &str) -> Result<ClientMods> {
     check_id(slug)?;
-    let resp = call(client, panel, Method::GET, &format!("/servers/{}/client-mods", encode(slug)), None).await?;
+    let resp = call(panel, Method::GET, &format!("/servers/{}/client-mods", encode(slug)), None).await?;
     match resp.status().as_u16() {
         404 => Ok(ClientMods::default()),
         409 => Err(Error::NotReady("the server is still installing its pack".into())),
@@ -289,30 +301,38 @@ pub async fn client_mods(client: &Client, panel: &Panel, slug: &str) -> Result<C
     }
 }
 
-pub fn client_mod_url(panel: &Panel, slug: &str, file: &str) -> String {
-    format!("{}/api/v1/servers/{}/client-mods/{}", panel.address, encode(slug), encode(file))
+pub fn client_mod_url(panel: &Panel, slug: &str, file: &str) -> Result<String> {
+    check_id(slug)?;
+    if matches!(file, "" | "." | "..") || file.contains(['/', '\\']) {
+        return Err(Error::Other(format!("{file:?} is not a plain file name")));
+    }
+    Ok(format!("{}/api/v1/servers/{}/client-mods/{}", panel.address, encode(slug), encode(file)))
+}
+
+pub fn panel_file(panel: &Panel, slug: &str, file: &str) -> Result<Origin> {
+    Ok(Origin::PanelFile { url: client_mod_url(panel, slug, file)?, bearer: token(panel)? })
 }
 
 fn no_key(panel: &Panel) -> Error {
     Error::Other(format!("the panel {} has no CurseForge key", panel.name))
 }
 
-pub async fn client_pack(client: &Client, panel: &Panel, slug: &str) -> Result<ClientPack> {
+pub async fn client_pack(panel: &Panel, slug: &str) -> Result<ClientPack> {
     check_id(slug)?;
-    let resp = call(client, panel, Method::GET, &format!("/servers/{}/client-pack", encode(slug)), None).await?;
+    let resp = call(panel, Method::GET, &format!("/servers/{}/client-pack", encode(slug)), None).await?;
     if resp.status().as_u16() == 409 {
         return Err(no_key(panel));
     }
     data(resp).await
 }
 
-pub async fn client_pack_files(client: &Client, panel: &Panel, slug: &str, files: &[u64]) -> Result<Vec<PackFile>> {
+pub async fn client_pack_files(panel: &Panel, slug: &str, files: &[u64]) -> Result<Vec<PackFile>> {
     check_id(slug)?;
     let path = format!("/servers/{}/client-pack/files", encode(slug));
     let mut out = Vec::new();
     for chunk in files.chunks(2000) {
         let body = serde_json::json!({ "files": chunk });
-        let resp = call(client, panel, Method::POST, &path, Some(body)).await?;
+        let resp = call(panel, Method::POST, &path, Some(body)).await?;
         if resp.status().as_u16() == 409 {
             return Err(no_key(panel));
         }
@@ -333,37 +353,94 @@ mod tests {
         assert!(normalize_address("http://10.0.0.5:8080", false).is_err());
         assert_eq!(normalize_address("http://10.0.0.5:8080", true).unwrap(), "http://10.0.0.5:8080");
         assert!(normalize_address("ftp://x", true).is_err());
+        for bad in ["https://user:pw@panel.example.org", "https://panel.example.org/?x=1", "https://panel.example.org/#f", "https://panel.example.org/a?b", "https://"] {
+            assert!(normalize_address(bad, true).is_err(), "{bad}");
+        }
+        assert_eq!(normalize_address("HTTPS://Panel.Example.org/API/V1/", false).unwrap(), "https://panel.example.org");
+        assert_eq!(normalize_address("https://panel.example.org:8443/sub/", false).unwrap(), "https://panel.example.org:8443/sub");
+        assert_eq!(normalize_address("https://panel.example.org/Sub/api/v1", false).unwrap(), "https://panel.example.org/Sub");
+    }
+
+    struct Cleanup(Paths);
+
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            for p in list(&self.0).unwrap_or_default() {
+                let _ = remove(&self.0, &p.id);
+            }
+        }
+    }
+
+    fn unique_host() -> String {
+        format!("{}.example.org", &secrets::test_account()[5..].replace(':', "-"))
     }
 
     #[test]
     fn panels_file_has_no_token() {
         let dir = tmp_dir();
         let paths = Paths { root: dir.join("home") };
-        let host = format!("{}.example.org", &secrets::test_account()[5..].replace(':', "-"));
-        let address = format!("https://{host}");
-        let p = add(&paths, &address, "Home", "tok-123").unwrap();
+        let _cleanup = Cleanup(paths.clone());
+        let address = format!("https://{}", unique_host());
+        let p = add(&paths, &address, "Home", "tok-123", false).unwrap();
         assert!(!std::fs::read_to_string(paths.panels_file()).unwrap().contains("tok-123"));
         assert_eq!(token(&p).unwrap(), "tok-123");
-        add(&paths, &address, "Home again", "tok-456").unwrap();
+        add(&paths, &format!("{address}/"), "Home again", "tok-456", false).unwrap();
         assert_eq!(list(&paths).unwrap().len(), 1);
         remove(&paths, &p.id).unwrap();
         assert!(token(&p).is_err() && list(&paths).unwrap().is_empty());
     }
 
     #[test]
-    fn a_taken_id_is_numbered() {
+    fn a_taken_id_is_numbered_and_the_id_is_the_host_only() {
         let dir = tmp_dir();
         let paths = Paths { root: dir.join("home") };
-        let host = format!("{}.example.org", &secrets::test_account()[5..].replace(':', "-"));
-        let a = add(&paths, &format!("https://{host}"), "A", "t").unwrap();
-        let b = add(&paths, &format!("http://{host}"), "B", "t").unwrap();
+        let _cleanup = Cleanup(paths.clone());
+        let host = unique_host();
+        let a = add(&paths, &format!("https://{}/", host.to_uppercase()), "A", "t", false).unwrap();
+        assert_eq!(a.id, host.replace('.', "-"));
+        assert_eq!(a.address, format!("https://{host}"));
+        let b = add(&paths, &format!("https://{host}:8443/sub/"), "B", "t", false).unwrap();
         assert_eq!(b.id, format!("{}-2", a.id));
-        remove(&paths, &a.id).unwrap();
-        remove(&paths, &b.id).unwrap();
+        assert_eq!(b.address, format!("https://{host}:8443/sub"));
+    }
+
+    #[test]
+    fn add_enforces_https() {
+        let dir = tmp_dir();
+        let paths = Paths { root: dir.join("home") };
+        let _cleanup = Cleanup(paths.clone());
+        let address = format!("http://{}", unique_host());
+        assert!(add(&paths, &address, "A", "t", false).is_err());
+        assert!(list(&paths).unwrap().is_empty());
+        assert!(add(&paths, &address, "A", "t", true).unwrap().address.starts_with("http://"));
+    }
+
+    #[test]
+    fn a_pairing_secret_is_never_serialized() {
+        let p = Pairing { code: "ABCD".into(), secret: "pair-SECRET".into(), expires_at: "t".into(), interval: 1 };
+        assert!(!serde_json::to_string(&p).unwrap().contains("pair-SECRET"));
+        assert!(!format!("{p:?}").contains("pair-SECRET"));
+    }
+
+    #[test]
+    fn a_mod_url_refuses_what_could_climb_out() {
+        let panel = Panel { id: "x".into(), address: "https://panel.example.org".into(), name: "Home".into() };
+        for (slug, file) in [("atm10", ""), ("atm10", "."), ("atm10", ".."), ("atm10", "a/b"), ("atm10", "a\\b"), ("..", "a.jar"), ("a/b", "a.jar"), ("", "a.jar")] {
+            assert!(client_mod_url(&panel, slug, file).is_err(), "{slug} {file}");
+        }
+    }
+
+    #[test]
+    fn a_panel_file_is_built_from_the_panel() {
+        let l = link("https://panel.example.org", "tok-SECRET-1");
+        let Origin::PanelFile { url, bearer } = panel_file(&l.panel, "atm10", "a b.jar").unwrap() else { panic!() };
+        assert_eq!(url, "https://panel.example.org/api/v1/servers/atm10/client-mods/a%20b.jar");
+        assert_eq!(bearer, "tok-SECRET-1");
+        assert!(panel_file(&l.panel, "atm10", "..").is_err());
     }
 
     use crate::download::testing::{serve, serve_full};
-    use crate::panel_client;
+    use crate::sync::Origin;
     use std::sync::atomic::Ordering;
 
     const SERVERS: &str = include_str!("../tests/fixtures/panel-servers.json");
@@ -421,7 +498,7 @@ mod tests {
     fn mod_urls_are_encoded() {
         let panel = Panel { id: "x".into(), address: "https://panel.example.org".into(), name: "Home".into() };
         assert_eq!(
-            client_mod_url(&panel, "atm10", "my mod+1.jar"),
+            client_mod_url(&panel, "atm10", "my mod+1.jar").unwrap(),
             "https://panel.example.org/api/v1/servers/atm10/client-mods/my%20mod%2B1.jar"
         );
     }
@@ -430,7 +507,7 @@ mod tests {
     async fn servers_come_from_the_data_list() {
         let (url, _, heads) = serve_full(200, SERVERS.as_bytes().to_vec(), String::new()).await;
         let l = link(&url, "tok-1");
-        let list = servers(&panel_client(), &l.panel).await.unwrap();
+        let list = servers(&l.panel).await.unwrap();
         assert_eq!(list.len(), 3);
         let head = heads.lock().unwrap()[0].to_lowercase();
         assert!(head.starts_with("get /api/v1/servers "), "{head}");
@@ -442,39 +519,39 @@ mod tests {
         let one = br#"{"data":{"slug":"lobby","name":"Lobby","hostname":"lobby.mc.example.org","state":"offline"}}"#;
         let (url, _) = serve(200, one).await;
         let l = link(&url, "tok-1");
-        let s = server(&panel_client(), &l.panel, "lobby").await.unwrap();
+        let s = server(&l.panel, "lobby").await.unwrap();
         assert_eq!(s.slug, "lobby");
-        assert!(server(&panel_client(), &l.panel, "../x").await.is_err());
+        assert!(server(&l.panel, "../x").await.is_err());
     }
 
     #[tokio::test]
     async fn pending_pairing_is_none() {
         let (url, _) = serve(202, b"").await;
         let pairing = Pairing { code: "ABCD".into(), secret: "s".into(), expires_at: "t".into(), interval: 1 };
-        assert!(pair_poll(&panel_client(), &url, &pairing).await.unwrap().is_none());
+        assert!(pair_poll(&url, &pairing).await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn a_pairing_starts_and_completes() {
         let body = br#"{"data":{"code":"ABCD","secret":"s","expires_at":"t","interval":2}}"#.to_vec();
         let (url, _, heads) = serve_full(201, body, String::new()).await;
-        let p = pair_start(&panel_client(), &url, &"n".repeat(80)).await.unwrap();
+        let p = pair_start(&url, &"n".repeat(80)).await.unwrap();
         assert_eq!((p.code.as_str(), p.interval), ("ABCD", 2));
         assert!(!heads.lock().unwrap()[0].to_lowercase().contains("authorization"));
         let (url, _) = serve(200, br#"{"data":{"token":"tok","abilities":["servers:read"],"user":{"name":"Jo"}}}"#).await;
-        let t = pair_poll(&panel_client(), &url, &p).await.unwrap().unwrap();
+        let t = pair_poll(&url, &p).await.unwrap().unwrap();
         assert_eq!((t.token.as_str(), t.user.name.as_deref()), ("tok", Some("Jo")));
         let (url, _) = serve(404, b"").await;
-        assert!(pair_poll(&panel_client(), &url, &p).await.err().unwrap().to_string().contains("expired"));
+        assert!(pair_poll(&url, &p).await.err().unwrap().to_string().contains("expired"));
         let (url, _) = serve(429, b"").await;
-        assert!(pair_start(&panel_client(), &url, "n").await.unwrap_err().to_string().contains("too many"));
+        assert!(pair_start(&url, "n").await.unwrap_err().to_string().contains("too many"));
     }
 
     #[tokio::test]
     async fn a_revoked_token_says_link_again() {
         let (url, _) = serve(401, b"").await;
         let l = link(&url, "tok-SECRET-123");
-        let err = servers(&panel_client(), &l.panel).await.unwrap_err();
+        let err = servers(&l.panel).await.unwrap_err();
         assert!(matches!(err, Error::Panel { .. }));
         assert!(err.to_string().contains("link it again"));
     }
@@ -483,11 +560,11 @@ mod tests {
     async fn a_missing_ability_names_the_page() {
         let (url, _) = serve(403, b"").await;
         let l = link(&url, "tok-1");
-        let msg = servers(&panel_client(), &l.panel).await.unwrap_err().to_string();
+        let msg = servers(&l.panel).await.unwrap_err().to_string();
         assert!(msg.contains("servers:join") && msg.contains(&format!("{url}/settings/api-tokens")), "{msg}");
         let (url, _) = serve(502, b"").await;
         let l = link(&url, "tok-1");
-        assert!(servers(&panel_client(), &l.panel).await.unwrap_err().to_string().contains("host service"));
+        assert!(servers(&l.panel).await.unwrap_err().to_string().contains("host service"));
     }
 
     #[tokio::test]
@@ -499,13 +576,13 @@ mod tests {
         let dead = dead_address();
         for address in [unauthorized, dead.clone(), broken, junk] {
             let l = link(&address, token);
-            let err = servers(&panel_client(), &l.panel).await.unwrap_err();
+            let err = servers(&l.panel).await.unwrap_err();
             for text in [err.to_string(), format!("{err:?}")] {
                 assert!(!text.contains(token), "{text}");
             }
         }
         let l = link(&dead, token);
-        let err = servers(&panel_client(), &l.panel).await.unwrap_err();
+        let err = servers(&l.panel).await.unwrap_err();
         assert!(err.to_string().contains("cannot be reached"));
     }
 
@@ -514,7 +591,7 @@ mod tests {
         let (other, other_hits) = serve(200, b"{}").await;
         let (url, _, _) = serve_full(302, vec![], format!("Location: {other}/stolen\r\n")).await;
         let l = link(&url, "tok-1");
-        let err = servers(&panel_client(), &l.panel).await.unwrap_err();
+        let err = servers(&l.panel).await.unwrap_err();
         assert!(err.to_string().contains("redirect"), "{err}");
         assert_eq!(other_hits.load(Ordering::SeqCst), 0);
     }
@@ -523,26 +600,26 @@ mod tests {
     async fn no_mods_is_empty_and_409_is_not_ready() {
         let (url, _) = serve(404, b"").await;
         let l = link(&url, "tok-1");
-        let m = client_mods(&panel_client(), &l.panel, "atm10").await.unwrap();
+        let m = client_mods(&l.panel, "atm10").await.unwrap();
         assert!(m.mods.is_empty() && m.removed.is_empty());
         let (url, _) = serve(409, b"").await;
         let l = link(&url, "tok-1");
-        let err = client_mods(&panel_client(), &l.panel, "atm10").await.unwrap_err();
+        let err = client_mods(&l.panel, "atm10").await.unwrap_err();
         assert!(matches!(err, Error::NotReady(_)));
         let (url, _) = serve(200, MODS.as_bytes()).await;
         let l = link(&url, "tok-1");
-        assert_eq!(client_mods(&panel_client(), &l.panel, "atm10").await.unwrap().mods.len(), 2);
+        assert_eq!(client_mods(&l.panel, "atm10").await.unwrap().mods.len(), 2);
     }
 
     #[tokio::test]
     async fn the_pack_needs_a_curseforge_key() {
         let (url, _) = serve(409, b"").await;
         let l = link(&url, "tok-1");
-        let err = client_pack(&panel_client(), &l.panel, "atm10").await.unwrap_err();
+        let err = client_pack(&l.panel, "atm10").await.unwrap_err();
         assert_eq!(err.to_string(), "the panel Home has no CurseForge key");
         let (url, _) = serve(200, br#"{"data":{"project":1,"file":2,"archive":null,"page":"https://x/y"}}"#).await;
         let l = link(&url, "tok-1");
-        let p = client_pack(&panel_client(), &l.panel, "atm10").await.unwrap();
+        let p = client_pack(&l.panel, "atm10").await.unwrap();
         assert_eq!((p.project, p.file, p.archive), (1, 2, None));
     }
 
@@ -551,8 +628,22 @@ mod tests {
         let (url, hits) = serve(200, br#"{"data":[{"project":1,"file":2,"name":"a","url":null,"page":"p"}]}"#).await;
         let l = link(&url, "tok-1");
         let ids: Vec<u64> = (0..4500).collect();
-        let files = client_pack_files(&panel_client(), &l.panel, "atm10", &ids).await.unwrap();
+        let files = client_pack_files(&l.panel, "atm10", &ids).await.unwrap();
         assert_eq!(hits.load(Ordering::SeqCst), 3);
         assert_eq!(files.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn no_request_follows_a_redirect() {
+        for status in [302, 307, 308] {
+            let (other, other_hits) = serve(200, b"{}").await;
+            let (url, _, _) = serve_full(status, vec![], format!("Location: {other}/x\r\n")).await;
+            let l = link(&url, "tok-1");
+            let pairing = Pairing { code: "ABCD".into(), secret: "s".into(), expires_at: "t".into(), interval: 1 };
+            assert!(servers(&l.panel).await.is_err());
+            assert!(pair_poll(&url, &pairing).await.is_err());
+            assert!(pair_start(&url, "n").await.is_err());
+            assert_eq!(other_hits.load(Ordering::SeqCst), 0, "{status}");
+        }
     }
 }

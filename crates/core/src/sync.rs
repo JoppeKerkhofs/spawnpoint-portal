@@ -23,6 +23,7 @@ pub enum Origin {
     Url(String),
     Bytes(Vec<u8>),
     Manual { name: String, page: String },
+    // Build it with `panel::panel_file`, which ties the bearer to the panel's own address.
     PanelFile { url: String, bearer: String },
 }
 

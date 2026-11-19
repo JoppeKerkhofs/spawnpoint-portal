@@ -38,7 +38,14 @@ mod tests {
 
     #[test]
     fn secrets_round_trip() {
+        struct Cleanup(String);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = delete(&self.0);
+            }
+        }
         let account = test_account();
+        let _cleanup = Cleanup(account.clone());
         assert_eq!(get(&account).unwrap(), None);
         set(&account, "s3cret").unwrap();
         assert_eq!(get(&account).unwrap().as_deref(), Some("s3cret"));
