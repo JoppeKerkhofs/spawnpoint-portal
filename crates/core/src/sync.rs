@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::download::{Download, Hash, ProgressTx, fetch_all, file_matches, sha1_file};
+use crate::download::{Download, Hash, ProgressTx, fetch_all, file_matches, part_path, sha1_file};
 use crate::instance::{self, Instance, ManagedFile};
 use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
@@ -34,15 +35,27 @@ pub struct Manual {
 #[derive(Debug, Clone)]
 pub struct SyncPlan {
     pub write: Vec<Wanted>,
-    pub delete: Vec<String>,
+    pub delete: Vec<ManagedFile>,
     pub managed: Vec<ManagedFile>,
     pub manual: Vec<Manual>,
+    // SHA-1 of the file that was at each write target when planned; absent = nothing was there
+    pub replaces: HashMap<String, String>,
+}
+
+const RESERVED: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+
+fn is_device_name(segment: &str) -> bool {
+    let stem = segment.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let numbered = |p: &str| stem.strip_prefix(p).is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9']));
+    RESERVED.contains(&stem.as_str()) || numbered("COM") || numbered("LPT")
 }
 
 pub fn safe_path(path: &str) -> Result<String> {
     let norm = path.replace('\\', "/");
     let norm = norm.strip_prefix("./").unwrap_or(&norm);
-    let bad_segment = norm.split('/').any(|s| s.is_empty() || s == "." || s == "..");
+    let bad_segment = norm.split('/').any(|s| {
+        s.is_empty() || s == "." || s == ".." || s.ends_with(['.', ' ']) || is_device_name(s)
+    });
     if norm.contains(':') || bad_segment || check_relative(norm).is_err() {
         return Err(Error::Other(format!("unsafe path in pack: {path}")));
     }
@@ -53,12 +66,20 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
     let mut list: Vec<Wanted> = Vec::new();
     for mut w in wanted {
         w.path = safe_path(&w.path)?;
-        list.retain(|o| o.path != w.path);
+        list.retain(|o| o.path.to_lowercase() != w.path.to_lowercase());
         list.push(w);
     }
-    let managed_sha = |p: &str| managed.iter().find(|m| m.path == p).map(|m| m.sha1.as_str());
-    let wanted_paths: Vec<String> = list.iter().map(|w| w.path.clone()).collect();
-    let mut out = SyncPlan { write: vec![], delete: vec![], managed: vec![], manual: vec![] };
+    let managed_sha = |p: &str| {
+        managed.iter().find(|m| m.path.to_lowercase() == p.to_lowercase()).map(|m| m.sha1.as_str())
+    };
+    let wanted_paths: Vec<String> = list.iter().map(|w| w.path.to_lowercase()).collect();
+    let mut out = SyncPlan {
+        write: vec![],
+        delete: vec![],
+        managed: vec![],
+        manual: vec![],
+        replaces: HashMap::new(),
+    };
 
     for w in list {
         let full = game_dir.join(&w.path);
@@ -79,6 +100,7 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
         if right || (ours && (manual || w.hash.is_none())) {
             out.managed.push(ManagedFile { path: w.path, sha1 });
         } else if ours {
+            out.replaces.insert(w.path.clone(), sha1);
             out.write.push(w);
         }
     }
@@ -86,14 +108,23 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
     for m in managed {
         let Ok(p) = safe_path(&m.path) else { continue };
         let full = game_dir.join(&p);
-        if !wanted_paths.contains(&p)
+        if !wanted_paths.contains(&p.to_lowercase())
             && full.is_file()
             && sha1_file(&full)?.eq_ignore_ascii_case(&m.sha1)
         {
-            out.delete.push(p);
+            out.delete.push(ManagedFile { path: p, sha1: m.sha1.clone() });
         }
     }
     Ok(out)
+}
+
+fn still_ours(file: &Path, w: &Wanted, replaces: &HashMap<String, String>) -> bool {
+    if !file.exists() {
+        return true;
+    }
+    let Ok(sha1) = sha1_file(file) else { return false };
+    replaces.get(&w.path).is_some_and(|r| r.eq_ignore_ascii_case(&sha1))
+        || w.hash.as_ref().is_some_and(|h| file_matches(file, h))
 }
 
 pub async fn apply(
@@ -105,10 +136,14 @@ pub async fn apply(
 ) -> Result<Vec<Manual>> {
     let game = instance::game_dir(paths, &instance.id);
     let target = |p: &str| safe_path(p).map(|p| game.join(p));
-    let deletes = plan.delete.iter().map(|p| target(p)).collect::<Result<Vec<_>>>()?;
+    let deletes = plan.delete.iter().map(|d| target(&d.path)).collect::<Result<Vec<_>>>()?;
     let writes = plan.write.iter().map(|w| target(&w.path)).collect::<Result<Vec<_>>>()?;
 
-    for file in deletes {
+    for (d, file) in plan.delete.iter().zip(deletes) {
+        let unchanged = file.is_file() && sha1_file(&file).is_ok_and(|s| s.eq_ignore_ascii_case(&d.sha1));
+        if !unchanged {
+            continue;
+        }
         match tokio::fs::remove_file(&file).await {
             Ok(()) => {}
             Err(e) if e.kind() == ErrorKind::NotFound => continue,
@@ -123,9 +158,15 @@ pub async fn apply(
         }
     }
 
+    let old = std::mem::take(&mut instance.managed);
     let mut downloads = Vec::new();
+    let mut attempted = vec![false; writes.len()];
     let mut result = Ok(());
-    for (w, file) in plan.write.iter().zip(&writes) {
+    for (i, (w, file)) in plan.write.iter().zip(&writes).enumerate() {
+        if !still_ours(file, w, &plan.replaces) {
+            continue;
+        }
+        attempted[i] = true;
         match &w.from {
             Origin::Bytes(bytes) if result.is_ok() => result = write_bytes(file, bytes).await,
             Origin::Url(url) => downloads.push(Download {
@@ -142,10 +183,14 @@ pub async fn apply(
     }
 
     instance.managed = plan.managed;
-    for (w, file) in plan.write.iter().zip(&writes) {
-        let arrived = file.is_file() && w.hash.as_ref().is_none_or(|h| file_matches(file, h));
-        if arrived {
-            let sha1 = sha1_file(file)?;
+    for ((w, file), tried) in plan.write.iter().zip(&writes).zip(attempted) {
+        if !file.is_file() {
+            continue;
+        }
+        let arrived = tried && w.hash.as_ref().is_none_or(|h| file_matches(file, h));
+        let old_sha = old.iter().find(|m| m.path.to_lowercase() == w.path.to_lowercase()).map(|m| m.sha1.as_str());
+        let Ok(sha1) = sha1_file(file) else { continue };
+        if arrived || old_sha.is_some_and(|o| o.eq_ignore_ascii_case(&sha1)) {
             instance.managed.retain(|m| m.path != w.path);
             instance.managed.push(ManagedFile { path: w.path.clone(), sha1 });
         }
@@ -159,9 +204,7 @@ async fn write_bytes(file: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(dir) = file.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }
-    let mut part = file.as_os_str().to_owned();
-    part.push(".part");
-    let part = PathBuf::from(part);
+    let part = part_path(file);
     tokio::fs::write(&part, bytes).await?;
     tokio::fs::rename(&part, file).await?;
     Ok(())
@@ -206,7 +249,7 @@ mod tests {
     fn parts(p: &SyncPlan) -> [Vec<&str>; 4] {
         [
             p.write.iter().map(|w| w.path.as_str()).collect(),
-            p.delete.iter().map(String::as_str).collect(),
+            p.delete.iter().map(|d| d.path.as_str()).collect(),
             p.managed.iter().map(|m| m.path.as_str()).collect(),
             p.manual.iter().map(|m| m.path.as_str()).collect(),
         ]
@@ -219,7 +262,7 @@ mod tests {
     #[test]
     fn safe_paths() {
         assert_eq!(safe_path(r".\mods\a.jar").unwrap(), "mods/a.jar");
-        for bad in ["", "/etc/x", r"C:\Windows\x", "mods/../../x", "..", r"..\x", "a//b", "a/./b"] {
+        for bad in ["", "/etc/x", r"C:\Windows\x", "mods/../../x", "..", r"..\x", "a//b", "a/./b", "a.", "mods/a.jar.", "a /b", "NUL", "nul.txt", "mods/Con.jar", "COM1", "lpt9.x", "aux"] {
             assert!(safe_path(bad).is_err(), "{bad}");
         }
         let err = safe_path("../x").unwrap_err().to_string();
@@ -239,6 +282,14 @@ mod tests {
         let p = plan(&d, &[], vec![w("a", b"1")]).unwrap();
         expect(&p, &[], &[], &["a"], &[]);
         assert_eq!(p.managed[0].sha1, sha(b"1"));
+    }
+
+    #[test]
+    fn a_delete_carries_its_sha1_and_a_replace_records_the_old_one() {
+        let d = disk(&[("a", b"1"), ("b", b"1")]);
+        let p = plan(&d, &[m("a", b"1"), m("b", b"1")], vec![w("b", b"2")]).unwrap();
+        assert_eq!(p.delete, vec![m("a", b"1")]);
+        assert_eq!(p.replaces.get("b"), Some(&sha(b"1")));
     }
 
     #[test]
@@ -324,6 +375,24 @@ mod tests {
         expect(&p, &[], &[], &["b"], &[]);
     }
 
+    #[test]
+    fn a_missing_unwanted_managed_file_is_dropped() {
+        let p = plan(&disk(&[]), &[m("gone", b"1")], vec![]).unwrap();
+        expect(&p, &[], &[], &[], &[]);
+    }
+
+    #[test]
+    fn paths_compare_without_case() {
+        let d = disk(&[("mods/a.jar", b"1")]);
+        let upper = |b: &[u8]| w("Mods/A.jar", b);
+        let p = plan(&d, &[m("mods/a.jar", b"1")], vec![upper(b"1")]).unwrap();
+        expect(&p, &[], &[], &["Mods/A.jar"], &[]);
+        let p = plan(&d, &[m("mods/a.jar", b"1")], vec![upper(b"2")]).unwrap();
+        expect(&p, &["Mods/A.jar"], &[], &[], &[]);
+        let p = plan(&d, &[], vec![w("x", b"1"), w("X", b"1")]).unwrap();
+        expect(&p, &["X"], &[], &[], &[]);
+    }
+
     fn setup() -> (Tmp, Paths, Instance) {
         let t = tmp_dir();
         let paths = Paths { root: t.join("root") };
@@ -348,9 +417,10 @@ mod tests {
                 url_w("mods/new.jar", &url, b"new"),
                 Wanted { from: Origin::Bytes(b"x=1".to_vec()), ..w("config/a.toml", b"x=1") },
             ],
-            delete: vec!["old/old.jar".into()],
+            delete: vec![m("old/old.jar", b"old")],
             managed: vec![],
             manual: vec![Manual { path: "m".into(), name: "M".into(), page: String::new() }],
+            replaces: Default::default(),
         };
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let manual = apply(&http_client(), &paths, &mut inst, plan, &tx).await.unwrap();
@@ -375,6 +445,7 @@ mod tests {
             delete: vec![],
             managed: vec![],
             manual: vec![],
+            replaces: Default::default(),
         };
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         assert!(apply(&http_client(), &paths, &mut inst, plan, &tx).await.is_err());
@@ -389,12 +460,94 @@ mod tests {
         std::fs::write(game.join("a"), b"1").unwrap();
         let plan = SyncPlan {
             write: vec![],
-            delete: vec!["a".into(), "../instance.json".into()],
+            delete: vec![m("a", b"1"), m("../instance.json", b"1")],
             managed: vec![],
             manual: vec![],
+            replaces: Default::default(),
         };
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         assert!(apply(&http_client(), &paths, &mut inst, plan, &tx).await.is_err());
         assert!(game.join("a").is_file());
+    }
+
+    #[tokio::test]
+    async fn a_failed_replacement_keeps_the_old_file_managed() {
+        let (_t, paths, mut inst) = setup();
+        let game = instance::game_dir(&paths, &inst.id);
+        std::fs::write(game.join("a.jar"), b"old").unwrap();
+        inst.managed = vec![m("a.jar", b"old")];
+        let (bad, _) = serve(404, b"").await;
+        let plan = SyncPlan {
+            write: vec![url_w("a.jar", &bad, b"new")],
+            delete: vec![],
+            managed: vec![],
+            manual: vec![],
+            replaces: [("a.jar".to_string(), sha(b"old"))].into(),
+        };
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        assert!(apply(&http_client(), &paths, &mut inst, plan, &tx).await.is_err());
+        assert_eq!(std::fs::read(game.join("a.jar")).unwrap(), b"old");
+        assert_eq!(instance::load(&paths, &inst.id).unwrap().managed, vec![m("a.jar", b"old")]);
+    }
+
+    async fn run(paths: &Paths, inst: &mut Instance, plan: SyncPlan) -> Result<Vec<Manual>> {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        apply(&http_client(), paths, inst, plan, &tx).await
+    }
+
+    #[tokio::test]
+    async fn a_delete_target_changed_after_plan_is_not_deleted() {
+        let (_t, paths, mut inst) = setup();
+        let game = instance::game_dir(&paths, &inst.id);
+        std::fs::write(game.join("a.jar"), b"player edit").unwrap();
+        let plan = SyncPlan {
+            write: vec![],
+            delete: vec![m("a.jar", b"old")],
+            managed: vec![],
+            manual: vec![],
+            replaces: Default::default(),
+        };
+        run(&paths, &mut inst, plan).await.unwrap();
+        assert_eq!(std::fs::read(game.join("a.jar")).unwrap(), b"player edit");
+        assert!(inst.managed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_replace_target_changed_after_plan_is_not_overwritten() {
+        let (_t, paths, mut inst) = setup();
+        let game = instance::game_dir(&paths, &inst.id);
+        std::fs::write(game.join("a.jar"), b"player edit").unwrap();
+        let wanted = Wanted { from: Origin::Bytes(b"new".to_vec()), ..w("a.jar", b"new") };
+        let plan = SyncPlan {
+            write: vec![wanted],
+            delete: vec![],
+            managed: vec![],
+            manual: vec![],
+            replaces: [("a.jar".to_string(), sha(b"old"))].into(),
+        };
+        run(&paths, &mut inst, plan).await.unwrap();
+        assert_eq!(std::fs::read(game.join("a.jar")).unwrap(), b"player edit");
+        assert!(inst.managed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_file_that_appears_at_a_new_target_is_not_overwritten() {
+        let (_t, paths, mut inst) = setup();
+        let game = instance::game_dir(&paths, &inst.id);
+        std::fs::write(game.join("a.jar"), b"player's").unwrap();
+        let wanted = Wanted { from: Origin::Bytes(b"new".to_vec()), ..w("a.jar", b"new") };
+        let unhashed = Wanted { hash: None, ..wanted.clone() };
+        for wanted in [wanted, unhashed] {
+            let plan = SyncPlan {
+                write: vec![wanted],
+                delete: vec![],
+                managed: vec![],
+                manual: vec![],
+                replaces: Default::default(),
+            };
+            run(&paths, &mut inst, plan).await.unwrap();
+            assert_eq!(std::fs::read(game.join("a.jar")).unwrap(), b"player's");
+            assert!(inst.managed.is_empty());
+        }
     }
 }

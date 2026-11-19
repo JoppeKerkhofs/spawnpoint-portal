@@ -70,6 +70,12 @@ pub fn file_matches(path: &Path, hash: &Hash) -> bool {
     actual.is_ok_and(|a| a.eq_ignore_ascii_case(expected))
 }
 
+pub fn part_path(path: &Path) -> PathBuf {
+    let mut part = path.as_os_str().to_owned();
+    part.push(".portal-part");
+    PathBuf::from(part)
+}
+
 fn is_current(item: &Download) -> bool {
     match &item.hash {
         Some(hash) => file_matches(&item.path, hash),
@@ -88,9 +94,7 @@ pub async fn get_ok(client: &Client, url: &str) -> Result<reqwest::Response> {
 }
 
 async fn fetch_once(client: &Client, item: &Download) -> Result<()> {
-    let mut part = item.path.clone().into_os_string();
-    part.push(".part");
-    let part = PathBuf::from(part);
+    let part = part_path(&item.path);
     if let Some(dir) = item.path.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }
@@ -288,7 +292,7 @@ mod tests {
         let err = fetch(&http_client(), &it).await.unwrap_err();
         assert!(matches!(err, Error::Hash { .. }));
         assert!(!path.exists());
-        assert!(!PathBuf::from(format!("{}.part", path.display())).exists());
+        assert!(!part_path(&path).exists());
     }
 
     #[tokio::test]
@@ -296,10 +300,20 @@ mod tests {
         let (url, _) = serve(200, b"abc").await;
         let dir = tmp_dir();
         let path = dir.join("x");
-        std::fs::write(format!("{}.part", path.display()), b"stale and longer").unwrap();
+        std::fs::write(part_path(&path), b"stale and longer").unwrap();
         let it = item(url, path.clone(), None);
         fetch(&http_client(), &it).await.unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"abc");
+    }
+
+    #[tokio::test]
+    async fn a_players_part_file_survives() {
+        let (url, _) = serve(200, b"abc").await;
+        let dir = tmp_dir();
+        let path = dir.join("x");
+        std::fs::write(dir.join("x.part"), b"mine").unwrap();
+        fetch(&http_client(), &item(url, path, None)).await.unwrap();
+        assert_eq!(std::fs::read(dir.join("x.part")).unwrap(), b"mine");
     }
 
     #[tokio::test]

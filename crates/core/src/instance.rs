@@ -111,6 +111,9 @@ pub fn load(paths: &Paths, id: &str) -> Result<Instance> {
 }
 
 pub fn save(paths: &Paths, instance: &Instance) -> Result<()> {
+    if instance.id != slug(&instance.id) {
+        return Err(Error::Other(format!("{:?} is not an instance id", instance.id)));
+    }
     let folder = dir(paths, &instance.id);
     let tmp = folder.join("instance.json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(instance)?)?;
@@ -127,7 +130,7 @@ pub fn list(paths: &Paths) -> Result<Vec<Instance>> {
     let mut all = Vec::new();
     for entry in entries {
         if let Some(id) = entry?.file_name().to_str() {
-            all.extend(load(paths, id).ok());
+            all.extend(load(paths, id).ok().filter(|i| i.id == id));
         }
     }
     all.sort_by(|a, b| a.name.cmp(&b.name));
@@ -148,7 +151,12 @@ fn has_ext(name: &str, ext: &str) -> bool {
 
 pub fn mods(paths: &Paths, instance: &Instance) -> Result<Vec<ModFile>> {
     let mut out = Vec::new();
-    for entry in std::fs::read_dir(game_dir(paths, &instance.id).join("mods"))? {
+    let entries = match std::fs::read_dir(game_dir(paths, &instance.id).join("mods")) {
+        Ok(e) => e,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(out),
+        Err(e) => return Err(e.into()),
+    };
+    for entry in entries {
         let entry = entry?;
         let meta = entry.metadata()?;
         let Some(name) = entry.file_name().to_str().map(String::from) else { continue };
@@ -248,6 +256,27 @@ mod tests {
         assert!(load(&p, "../my-pack-2").is_err());
         assert!(delete(&p, "..").is_err());
         assert!(delete(&p, "My Pack").is_err());
+    }
+
+    #[test]
+    fn a_tampered_id_is_refused() {
+        let (_t, p) = tmp();
+        let mut a = create(&p, "A", "1.21.1", None, Source::Manual).unwrap();
+        a.id = "../x".into();
+        assert!(save(&p, &a).is_err());
+        assert!(!p.instances().join("../x").exists());
+        let mut other = create(&p, "B", "1.21.1", None, Source::Manual).unwrap();
+        other.id = "a".into();
+        std::fs::write(p.instances().join("b").join("instance.json"), serde_json::to_vec(&other).unwrap()).unwrap();
+        assert_eq!(list(&p).unwrap().iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["a"]);
+    }
+
+    #[test]
+    fn a_missing_mods_folder_is_an_empty_list() {
+        let (_t, p) = tmp();
+        let inst = create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        std::fs::remove_dir_all(game_dir(&p, "m").join("mods")).unwrap();
+        assert!(mods(&p, &inst).unwrap().is_empty());
     }
 
     #[test]
