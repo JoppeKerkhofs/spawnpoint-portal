@@ -40,6 +40,10 @@ impl Paths {
         self.root.join("meta").join("natives").join(version_id)
     }
 
+    pub fn installers(&self) -> PathBuf {
+        self.root.join("meta").join("installers")
+    }
+
     pub fn java(&self) -> PathBuf {
         self.root.join("java")
     }

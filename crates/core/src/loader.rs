@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Error, Result};
 
 pub mod fabric;
+pub mod forge;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
