@@ -65,6 +65,25 @@
    }
   },
   {
+   "id": 2149467999,
+   "version": "0",
+   "path": "./",
+   "url": "https://files.feed-the-beast.com/blob/7a/7aca6b2f6c22b1c216a97ebc543ead77573f396da3485068d14a4cd1bfbc2c21.txt",
+   "mirrors": [],
+   "tags": [],
+   "sha1": "593ad26ae4143f529a63cc63b96c6430ebba67c3",
+   "hashes": {
+    "sha1": "593ad26ae4143f529a63cc63b96c6430ebba67c3"
+   },
+   "size": 10,
+   "clientonly": false,
+   "serveronly": false,
+   "optional": false,
+   "name": "options.txt",
+   "type": "mod",
+   "updated": 1793896200
+  },
+  {
    "id": 2149467283,
    "version": "0",
    "path": "./mods",
