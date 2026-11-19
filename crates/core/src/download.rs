@@ -164,20 +164,35 @@ mod tests {
 
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-    fn tmp_dir() -> PathBuf {
+    struct Tmp(PathBuf);
+
+    impl std::ops::Deref for Tmp {
+        type Target = PathBuf;
+        fn deref(&self) -> &PathBuf {
+            &self.0
+        }
+    }
+
+    impl Drop for Tmp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn tmp_dir() -> Tmp {
         let dir = std::env::temp_dir().join(format!(
             "portal-dl-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::SeqCst)
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        Tmp(dir)
     }
 
-    fn tmp_with(bytes: &[u8]) -> PathBuf {
-        let path = tmp_dir().join("f");
-        std::fs::write(&path, bytes).unwrap();
-        path
+    fn tmp_with(bytes: &[u8]) -> Tmp {
+        let dir = tmp_dir();
+        std::fs::write(dir.join("f"), bytes).unwrap();
+        dir
     }
 
     // Answers every request with `status` and `body`; returns the base url and a request counter.
@@ -219,13 +234,15 @@ mod tests {
 
     #[test]
     fn hashes_a_file() {
-        assert_eq!(sha1_file(&tmp_with(b"abc")).unwrap(), ABC_SHA1);
+        let dir = tmp_with(b"abc");
+        assert_eq!(sha1_file(&dir.join("f")).unwrap(), ABC_SHA1);
     }
 
     #[tokio::test]
     async fn a_right_file_is_not_fetched_again() {
         let (url, hits) = serve(200, b"abc").await;
-        let path = tmp_with(b"abc");
+        let dir = tmp_with(b"abc");
+        let path = dir.join("f");
         let it = item(url, path, Some(Hash::Sha1(ABC_SHA1.into())));
         fetch(&http_client(), &it).await.unwrap();
         assert_eq!(hits.load(Ordering::SeqCst), 0);
@@ -234,7 +251,8 @@ mod tests {
     #[tokio::test]
     async fn a_wrong_file_is_replaced() {
         let (url, hits) = serve(200, b"abc").await;
-        let path = tmp_with(b"other");
+        let dir = tmp_with(b"other");
+        let path = dir.join("f");
         let it = item(url, path.clone(), Some(Hash::Sha1(ABC_SHA1.into())));
         fetch(&http_client(), &it).await.unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"abc");
@@ -244,7 +262,8 @@ mod tests {
     #[tokio::test]
     async fn a_wrong_hash_leaves_no_file() {
         let (url, _) = serve(200, b"abc").await;
-        let path = tmp_dir().join("sub").join("f");
+        let dir = tmp_dir();
+        let path = dir.join("sub").join("f");
         let it = item(url, path.clone(), Some(Hash::Sha1("0".repeat(40))));
         let err = fetch(&http_client(), &it).await.unwrap_err();
         assert!(matches!(err, Error::Hash { .. }));
@@ -255,7 +274,8 @@ mod tests {
     #[tokio::test]
     async fn a_leftover_part_file_is_overwritten() {
         let (url, _) = serve(200, b"abc").await;
-        let path = tmp_dir().join("x");
+        let dir = tmp_dir();
+        let path = dir.join("x");
         std::fs::write(format!("{}.part", path.display()), b"stale and longer").unwrap();
         let it = item(url, path.clone(), None);
         fetch(&http_client(), &it).await.unwrap();
@@ -283,7 +303,8 @@ mod tests {
     #[tokio::test]
     async fn a_404_is_not_retried() {
         let (url, hits) = serve(404, b"").await;
-        let it = item(url, tmp_dir().join("f"), None);
+        let dir = tmp_dir();
+        let it = item(url, dir.join("f"), None);
         let err = fetch(&http_client(), &it).await.unwrap_err();
         assert!(matches!(err, Error::Status { status: 404, .. }));
         assert_eq!(hits.load(Ordering::SeqCst), 1);
