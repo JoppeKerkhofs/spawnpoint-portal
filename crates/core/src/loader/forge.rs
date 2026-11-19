@@ -4,10 +4,10 @@ use std::path::{Component, Path, PathBuf};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::download::{fetch, get_ok, Download};
+use crate::download::{fetch, fetch_all, file_matches, get_ok, Download, Hash, Progress, ProgressTx};
 use crate::loader::LoaderKind;
 use crate::paths::check_relative;
-use crate::version::{maven_path, Library};
+use crate::version::{library_files, maven_path, Library, LibraryFile, VersionJson};
 use crate::{Error, Paths, Result};
 
 const NEOFORGE_VERSIONS: &str = "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge";
@@ -215,6 +215,134 @@ pub fn steps(profile: &InstallProfile, ctx: &Context) -> Result<Vec<Step>> {
         .collect()
 }
 
+fn is_done(step: &Step) -> bool {
+    !step.outputs.is_empty() && step.outputs.iter().all(|(path, sha1)| file_matches(path, &Hash::Sha1(sha1.clone())))
+}
+
+fn manifest_main_class(manifest: &str) -> Option<String> {
+    let unfolded = manifest.replace("\r\n", "\n").replace("\n ", "");
+    unfolded.lines().find_map(|l| l.strip_prefix("Main-Class:")).map(|v| v.trim().to_string())
+}
+
+fn last_lines(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(n)..].join("\n")
+}
+
+type Installer = zip::ZipArchive<std::fs::File>;
+
+fn read_json<T: serde::de::DeserializeOwned>(zip: &mut Installer, name: &str) -> Result<T> {
+    Ok(serde_json::from_reader(zip.by_name(name)?)?)
+}
+
+// Returns false when the installer has no such entry.
+fn copy_out(zip: &mut Installer, name: &str, dest: &Path) -> Result<bool> {
+    let mut entry = match zip.by_name(name) {
+        Ok(e) => e,
+        Err(zip::result::ZipError::FileNotFound) => return Ok(false),
+        Err(e) => return Err(e.into()),
+    };
+    if let Some(dir) = dest.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::io::copy(&mut entry, &mut std::fs::File::create(dest)?)?;
+    Ok(true)
+}
+
+fn main_class(jar: &Path) -> Result<String> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(jar)?)?;
+    let mut manifest = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("META-INF/MANIFEST.MF")?, &mut manifest)?;
+    manifest_main_class(&manifest).ok_or_else(|| Error::Other(format!("{} has no Main-Class", jar.display())))
+}
+
+async fn run_step(java: &Path, step: &Step, cwd: &Path, loader: &str, number: usize) -> Result<()> {
+    let classpath = std::iter::once(&step.jar).chain(&step.classpath).map(|p| text(p)).collect::<Vec<_>>().join(";");
+    let out = tokio::process::Command::new(java)
+        .arg("-cp")
+        .arg(classpath)
+        .arg(main_class(&step.jar)?)
+        .args(&step.args)
+        .current_dir(cwd)
+        .output()
+        .await?;
+    if !out.status.success() {
+        let all = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        return Err(Error::Other(format!("{loader} installer step {number} failed: {}", last_lines(&all, 20))));
+    }
+    for (path, sha1) in &step.outputs {
+        if !file_matches(path, &Hash::Sha1(sha1.clone())) {
+            return Err(Error::Other(format!("{loader} installer step {number} wrote a wrong {}", path.display())));
+        }
+    }
+    Ok(())
+}
+
+// The profile's libraries, plus those of version.json that only the installer holds.
+fn installer_libraries(profile: &InstallProfile, loader_json: &VersionJson) -> Result<Vec<LibraryFile>> {
+    let listed = VersionJson { libraries: profile.libraries.clone(), ..loader_json.clone() };
+    let mut files = library_files(&listed)?;
+    files.extend(library_files(loader_json)?.into_iter().filter(|l| l.url.is_empty()));
+    Ok(files)
+}
+
+pub async fn install(
+    client: &Client,
+    paths: &Paths,
+    kind: LoaderKind,
+    minecraft: &str,
+    version: Option<&str>,
+    java: &Path,
+    progress: &ProgressTx,
+) -> Result<VersionJson> {
+    let (version, jar) = installer(client, paths, kind, minecraft, version).await?;
+    let mut zip: Installer = zip::ZipArchive::new(std::fs::File::open(&jar)?)?;
+    let profile: InstallProfile = read_json(&mut zip, "install_profile.json")?;
+    let loader_json: VersionJson = read_json(&mut zip, "version.json")?;
+    loader_json.check_ids()?;
+    let file = paths.versions().join(&loader_json.id).join(format!("{}.json", loader_json.id));
+    std::fs::create_dir_all(file.parent().unwrap_or(&paths.versions()))?;
+    std::fs::write(&file, serde_json::to_vec(&loader_json)?)?;
+
+    let libraries = paths.libraries();
+    let extracted = paths.installers().join(format!("{}-{minecraft}-{version}", kind.as_str()));
+    let minecraft_jar = paths.versions().join(&profile.minecraft).join(format!("{}.jar", profile.minecraft));
+    let ctx = Context { libraries: &libraries, minecraft_jar: &minecraft_jar, installer: &jar, extracted: &extracted };
+    let steps = steps(&profile, &ctx)?;
+    let mut downloads = Vec::new();
+    for lib in installer_libraries(&profile, &loader_json)? {
+        let dest = under(&libraries, &lib.path)?;
+        if !lib.url.is_empty() {
+            downloads.push(Download { url: lib.url, path: dest, hash: lib.sha1.map(Hash::Sha1), size: lib.size });
+        } else if !dest.exists() {
+            copy_out(&mut zip, &format!("maven/{}", lib.path), &dest)?;
+        }
+    }
+    // Most NeoForge processors declare no outputs, so a marker records that all of them ran.
+    let marker = extracted.join("done");
+    if marker.exists() || steps.iter().all(is_done) {
+        return Ok(loader_json);
+    }
+    fetch_all(client, "loader", downloads, progress).await?;
+
+    for entry in profile.data.values() {
+        if let Some(inner) = entry.client.strip_prefix('/') {
+            copy_out(&mut zip, inner, &under(&extracted, inner)?)?;
+        }
+    }
+
+    let meta = paths.root.join("meta");
+    let total = steps.len() as u64;
+    for (i, step) in steps.iter().enumerate() {
+        if !is_done(step) {
+            run_step(java, step, &meta, kind.as_str(), i + 1).await?;
+        }
+        let _ = progress.send(Progress { stage: "loader".into(), done: i as u64 + 1, total });
+    }
+    std::fs::write(&marker, "")?;
+    Ok(loader_json)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,5 +462,60 @@ mod tests {
         let jars: Vec<String> = steps(&p, &ctx()).unwrap().iter().map(|s| text(&s.jar)).collect();
         assert_eq!(jars.len(), 2);
         assert!(jars[0].contains("client") && jars[1].contains("both"), "{jars:?}");
+    }
+
+    fn step_with(outputs: Vec<(PathBuf, String)>) -> Step {
+        Step { jar: PathBuf::new(), classpath: vec![], args: vec![], outputs }
+    }
+
+    #[test]
+    fn a_step_with_right_outputs_is_skipped() {
+        let file = std::env::temp_dir().join(format!("portal-forge-{}.txt", std::process::id()));
+        std::fs::write(&file, "abc").unwrap();
+        let sha = "a9993e364706816aba3e25717850c26c9cd0d89d".to_string();
+        let result = (
+            is_done(&step_with(vec![(file.clone(), sha.clone())])),
+            is_done(&step_with(vec![(file.clone(), "0".repeat(40))])),
+            is_done(&step_with(vec![(file.clone(), sha.clone()), (file.with_extension("missing"), sha)])),
+            is_done(&step_with(vec![])),
+        );
+        let _ = std::fs::remove_file(&file);
+        assert_eq!(result, (true, false, false, false));
+    }
+
+    #[test]
+    fn main_class_survives_wrapped_manifest_lines() {
+        let m = "Manifest-Version: 1.0
+Main-Class: net.neoforged.installertools.
+ ConsoleTool
+Other: x
+";
+        assert_eq!(manifest_main_class(m).as_deref(), Some("net.neoforged.installertools.ConsoleTool"));
+        assert_eq!(manifest_main_class("Manifest-Version: 1.0
+"), None);
+    }
+
+    #[test]
+    fn version_json_libraries_held_by_the_installer_are_listed() {
+        let profile = fixture("forge-1.16.5-install_profile.json");
+        let version: VersionJson = serde_json::from_value(serde_json::json!({
+            "id": "x", "libraries": [
+                { "name": "a:forge:1", "downloads": { "artifact": { "path": "a/forge/1/forge-1.jar", "url": "" } } },
+                { "name": "a:other:1", "downloads": { "artifact": { "path": "a/other/1/other-1.jar", "url": "http://u" } } }
+            ]
+        }))
+        .unwrap();
+        let paths: Vec<String> = installer_libraries(&profile, &version).unwrap().into_iter().map(|l| l.path).collect();
+        assert!(paths.contains(&"a/forge/1/forge-1.jar".to_string()));
+        assert!(!paths.contains(&"a/other/1/other-1.jar".to_string()));
+    }
+
+    #[test]
+    fn the_last_lines_of_output_are_kept() {
+        let text = (1..=30).map(|n| format!("l{n}")).collect::<Vec<_>>().join("
+");
+        let tail = last_lines(&text, 20);
+        assert!(tail.starts_with("l11
+") && tail.ends_with("l30"));
     }
 }

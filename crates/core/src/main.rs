@@ -2,6 +2,7 @@ use portal_core::download::{Progress, ProgressTx};
 use portal_core::gamefiles::{install, manifest, version_json};
 use portal_core::java;
 use portal_core::launch::{Profile, DEFAULT_MEMORY_MB};
+use portal_core::loader::Loader;
 use portal_core::play::{start, StartRequest};
 use portal_core::{http_client, Paths, Result};
 use std::io::Write;
@@ -9,6 +10,7 @@ use std::io::Write;
 const USAGE: &str = "usage:\n  portal versions         list the release versions, newest first\n  portal files <version>  download the game files of a version
   portal java <component> download a Java runtime, e.g. java-runtime-delta
   portal launch <version> --dir <folder> [--name <player>] [--server <host>] [--memory <MB>]
+                 [--loader <fabric|neoforge|forge>[:<version>]]
                           start the game offline, wait for it to exit";
 
 async fn with_progress<T, F: std::future::Future<Output = Result<T>>>(work: impl FnOnce(ProgressTx) -> F) -> Result<T> {
@@ -26,7 +28,7 @@ async fn with_progress<T, F: std::future::Future<Output = Result<T>>>(work: impl
 }
 
 fn launch_request(version: &str, rest: &[String]) -> Result<StartRequest> {
-    let (mut dir, mut name, mut server, mut memory) = (None, "Player".to_string(), None, DEFAULT_MEMORY_MB);
+    let (mut dir, mut name, mut server, mut memory, mut loader) = (None, "Player".to_string(), None, DEFAULT_MEMORY_MB, None);
     let mut it = rest.iter();
     while let Some(f) = it.next() {
         let bad = || portal_core::Error::Other(format!("unknown or incomplete option: {f}"));
@@ -36,11 +38,12 @@ fn launch_request(version: &str, rest: &[String]) -> Result<StartRequest> {
             "--name" => name = value.clone(),
             "--server" => server = Some(value.clone()),
             "--memory" => memory = value.parse().map_err(|_| portal_core::Error::Other(format!("invalid --memory: {value}")))?,
+            "--loader" => loader = Some(Loader::parse(value)?),
             _ => return Err(bad()),
         }
     }
     let dir = dir.ok_or_else(|| portal_core::Error::Other("--dir is required".into()))?;
-    Ok(StartRequest { minecraft: version.to_string(), game_dir: dir.into(), profile: Profile::offline(&name), server, memory_mb: memory })
+    Ok(StartRequest { minecraft: version.to_string(), game_dir: dir.into(), profile: Profile::offline(&name), server, memory_mb: memory, loader })
 }
 
 async fn run(args: &[String]) -> Result<()> {
@@ -98,6 +101,10 @@ mod tests {
         let r = launch_request("1.21.1", &args(&["--dir", "x y", "--name", "Bob", "--server", "mc.test", "--memory", "2048"])).unwrap();
         assert_eq!((r.game_dir, r.profile.name, r.server, r.memory_mb), ("x y".into(), "Bob".into(), Some("mc.test".into()), 2048));
         assert_eq!(launch_request("1.21.1", &args(&["--dir", "x"])).unwrap().memory_mb, DEFAULT_MEMORY_MB);
+        let l = launch_request("1.21.1", &args(&["--dir", "x", "--loader", "neoforge:21.1.1"])).unwrap().loader.unwrap();
+        assert_eq!((l.kind.as_str(), l.version.as_deref()), ("neoforge", Some("21.1.1")));
+        assert!(launch_request("1.21.1", &args(&["--dir", "x"])).unwrap().loader.is_none());
+        assert!(launch_request("1.21.1", &args(&["--dir", "x", "--loader", "rift"])).is_err());
         for bad in [&["--dir", "x", "--server"][..], &["--dir", "x", "--srever", "h"], &["--dir", "x", "--memory=8"], &["--name", "--dir", "x"], &["--dir"], &[]] {
             assert!(launch_request("1.21.1", &args(bad)).is_err(), "{bad:?}");
         }

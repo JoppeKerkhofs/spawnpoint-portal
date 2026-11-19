@@ -1,5 +1,5 @@
 use crate::download::{fetch, fetch_all, get_ok, Download, Hash, ProgressTx};
-use crate::version::{library_files, VersionJson};
+use crate::version::{library_files, LibraryFile, VersionJson};
 use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
 use reqwest::Client;
@@ -97,6 +97,18 @@ fn once_per_path(items: Vec<Download>) -> Vec<Download> {
     items.into_iter().filter(|d| seen.insert(d.path.clone())).collect()
 }
 
+// A library without a URL comes from a loader's installer and must already be on disk.
+fn library_download(lib: LibraryFile, libraries: &Path, id: &str) -> Result<Option<Download>> {
+    let path = libraries.join(PathBuf::from(&lib.path));
+    if lib.url.is_empty() {
+        return match path.exists() {
+            true => Ok(None),
+            false => Err(Error::Other(format!("{} is missing; the {id} install did not complete", lib.path))),
+        };
+    }
+    Ok(Some(Download { url: lib.url, path, hash: lib.sha1.map(Hash::Sha1), size: lib.size }))
+}
+
 pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, progress: &ProgressTx) -> Result<()> {
     let missing = |what: &str| Error::Other(format!("version {} has no {what}", version.id));
     let client_jar = &version.downloads.as_ref().ok_or_else(|| missing("client download"))?.client;
@@ -107,12 +119,7 @@ pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, prog
         size: client_jar.size,
     }];
     for lib in library_files(version)? {
-        files.push(Download {
-            url: lib.url,
-            path: paths.libraries().join(PathBuf::from(lib.path)),
-            hash: lib.sha1.map(Hash::Sha1),
-            size: lib.size,
-        });
+        files.extend(library_download(lib, &paths.libraries(), &version.id)?);
     }
     fetch_all(client, "libraries", once_per_path(files), progress).await?;
 
@@ -176,6 +183,16 @@ mod tests {
         let h = "aa".repeat(20);
         let index = format!(r#"{{"objects":{{"a":{{"hash":"{h}","size":1}},"b":{{"hash":"{h}","size":1}}}}}}"#);
         assert_eq!(asset_downloads(&index, Path::new("A")).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn libraries_without_a_url_are_never_downloaded() {
+        let lib = |path: &str, url: &str| LibraryFile { path: path.into(), url: url.into(), sha1: None, size: None, native: false };
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        assert!(library_download(lib("Cargo.toml", ""), dir, "x").unwrap().is_none());
+        let err = library_download(lib("nope.jar", ""), dir, "neoforge-1").unwrap_err();
+        assert_eq!(err.to_string(), "nope.jar is missing; the neoforge-1 install did not complete");
+        assert!(library_download(lib("nope.jar", "http://u"), dir, "x").unwrap().is_some());
     }
 
     #[test]

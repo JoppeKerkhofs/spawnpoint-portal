@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, Result};
+use crate::download::ProgressTx;
+use crate::version::VersionJson;
+use crate::{Error, Paths, Result};
+use reqwest::Client;
+use std::path::Path;
 
 pub mod fabric;
 pub mod forge;
@@ -48,5 +52,20 @@ impl Loader {
                 Ok(Loader { kind: LoaderKind::parse(name)?, version: Some(version.into()) })
             }
         }
+    }
+}
+
+pub async fn profile(
+    client: &Client,
+    paths: &Paths,
+    minecraft: &str,
+    loader: &Loader,
+    java: &Path,
+    progress: &ProgressTx,
+) -> Result<VersionJson> {
+    let version = loader.version.as_deref();
+    match loader.kind {
+        LoaderKind::Fabric => fabric::profile(client, paths, minecraft, version).await,
+        kind => forge::install(client, paths, kind, minecraft, version, java, progress).await,
     }
 }
