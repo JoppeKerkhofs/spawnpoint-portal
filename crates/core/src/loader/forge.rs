@@ -132,7 +132,7 @@ pub struct Processor {
     pub outputs: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Step {
     pub jar: PathBuf,
     pub classpath: Vec<PathBuf>,
@@ -372,7 +372,7 @@ pub async fn install(
     if installed(&marker, &produced) || steps.iter().all(is_done) {
         return Ok(loader_json);
     }
-    fetch_all(client, "loader", downloads, progress).await?;
+    fetch_all(client, "loader libraries", downloads, progress).await?;
 
     for entry in profile.data.values() {
         if let Some(inner) = entry.client.strip_prefix('/') {

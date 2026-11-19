@@ -239,6 +239,14 @@ mod tests {
     }
 
     #[test]
+    fn neoforge_on_1_21_1_leaves_no_placeholder_and_ignores_the_client_jar() {
+        let neoforge: VersionJson = serde_json::from_str(include_str!("../tests/fixtures/neoforge-version.json")).unwrap();
+        let a = arguments(&paths(), &crate::version::merge(v("1.21.1"), neoforge), &opts(None)).unwrap();
+        assert!(!a.iter().any(|x| x.contains("${")));
+        assert!(a.iter().any(|x| x.starts_with("-DignoreList=") && x.ends_with("1.21.1.jar")));
+    }
+
+    #[test]
     fn vanilla_1_16_5_has_no_placeholders_left() {
         let a = arguments(&paths(), &v("1.16.5"), &opts(None)).unwrap();
         assert!(!a.iter().any(|x| x.contains("${")));
