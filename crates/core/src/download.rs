@@ -211,33 +211,60 @@ pub mod testing {
 
     // Answers every request with `status` and `body`; returns the base url and a request counter.
     pub async fn serve(status: u16, body: &'static [u8]) -> (String, Arc<AtomicUsize>) {
+        let (url, hits, _) = serve_full(status, body.to_vec(), String::new()).await;
+        (url, hits)
+    }
+
+    // Like `serve`, with extra raw header lines and the raw head of every request seen.
+    pub async fn serve_full(
+        status: u16,
+        body: Vec<u8>,
+        extra: String,
+    ) -> (String, Arc<AtomicUsize>, Arc<std::sync::Mutex<Vec<String>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let hits = Arc::new(AtomicUsize::new(0));
-        let counter = hits.clone();
+        let heads = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (counter, recorded) = (hits.clone(), heads.clone());
         tokio::spawn(async move {
             loop {
                 let (mut sock, _) = listener.accept().await.unwrap();
                 counter.fetch_add(1, Ordering::SeqCst);
+                let (body, extra, recorded) = (body.clone(), extra.clone(), recorded.clone());
                 tokio::spawn(async move {
                     let mut buf = [0u8; 4096];
                     let mut seen = Vec::new();
-                    while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let end = loop {
+                        if let Some(i) = seen.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break i + 4;
+                        }
+                        match sock.read(&mut buf).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => seen.extend_from_slice(&buf[..n]),
+                        }
+                    };
+                    let head = String::from_utf8_lossy(&seen[..end]).to_string();
+                    let length = head
+                        .lines()
+                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                        .unwrap_or(0);
+                    while seen.len() < end + length {
                         match sock.read(&mut buf).await {
                             Ok(0) | Err(_) => return,
                             Ok(n) => seen.extend_from_slice(&buf[..n]),
                         }
                     }
+                    recorded.lock().unwrap().push(head);
                     let head = format!(
-                        "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        "HTTP/1.1 {status} X\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
                         body.len()
                     );
                     let _ = sock.write_all(head.as_bytes()).await;
-                    let _ = sock.write_all(body).await;
+                    let _ = sock.write_all(&body).await;
                 });
             }
         });
-        (url, hits)
+        (url, hits, heads)
     }
 }
 

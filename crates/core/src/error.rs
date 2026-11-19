@@ -11,6 +11,8 @@ pub enum Error {
     Hash { path: PathBuf, expected: String, actual: String },
     Unsupported(String),
     Secret(String),
+    NotReady(String),
+    Panel { panel: String, message: String },
     Other(String),
 }
 
@@ -30,7 +32,8 @@ impl fmt::Display for Error {
                 path.display()
             ),
             Error::Secret(m) => write!(f, "credential store error: {m}"),
-            Error::Unsupported(m) | Error::Other(m) => f.write_str(m),
+            Error::Panel { panel, message } => write!(f, "panel {panel}: {message}"),
+            Error::NotReady(m) | Error::Unsupported(m) | Error::Other(m) => f.write_str(m),
         }
     }
 }

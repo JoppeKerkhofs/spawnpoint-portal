@@ -23,3 +23,13 @@ pub fn http_client() -> reqwest::Client {
         .build()
         .expect("static client configuration is valid")
 }
+
+// Never follows redirects: a bearer token must not reach any host but the panel's.
+pub fn panel_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(concat!("spawnpoint-portal/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("static client configuration is valid")
+}

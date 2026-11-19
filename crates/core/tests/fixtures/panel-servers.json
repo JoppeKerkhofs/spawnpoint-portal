@@ -1,0 +1,53 @@
+{
+  "service_online": true,
+  "data": [
+    {
+      "slug": "atm10",
+      "name": "All the Mods 10",
+      "hostname": "atm10.mc.example.org",
+      "server_type": "FTB",
+      "mc_version": "1.21.1",
+      "game_version": "1.21.1",
+      "modpack": { "catalogue": "ftb", "project": "119", "version": "1042", "version_name": "5.1.0" },
+      "loader": { "name": "neoforge", "version": "21.1.90" },
+      "state": "running",
+      "detail": null,
+      "players": { "online": 2, "max": 20, "names": ["Alex", "Sam"] },
+      "usage": { "at": 1763500000, "cpu": 31.5, "memory": 6442450944, "memory_limit": 8589934592, "mspt": 12.4 },
+      "disk_bytes": 3221225472,
+      "last_backup": 1763400000
+    },
+    {
+      "slug": "survival",
+      "name": "Survival",
+      "hostname": "survival.mc.example.org",
+      "server_type": "FABRIC",
+      "mc_version": "1.21.10",
+      "game_version": "1.21.10",
+      "modpack": null,
+      "loader": { "name": "fabric", "version": "0.17.2" },
+      "state": "offline",
+      "detail": null,
+      "players": null,
+      "usage": null,
+      "disk_bytes": null,
+      "last_backup": null
+    },
+    {
+      "slug": "lobby",
+      "name": "Lobby",
+      "hostname": "lobby.mc.example.org",
+      "server_type": "PAPER",
+      "mc_version": "LATEST",
+      "game_version": "1.21.10",
+      "modpack": null,
+      "loader": null,
+      "state": "starting",
+      "detail": "Preparing spawn area",
+      "players": { "online": 0, "max": 50, "names": [] },
+      "usage": null,
+      "disk_bytes": 1073741824,
+      "last_backup": null
+    }
+  ]
+}
