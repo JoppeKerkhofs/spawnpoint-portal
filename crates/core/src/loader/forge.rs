@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::download::{fetch, fetch_all, file_matches, get_ok, Download, Hash, Progress, ProgressTx};
+use crate::download::{fetch, fetch_all, file_matches, get_ok, sha1_file, Download, Hash, Progress, ProgressTx};
 use crate::loader::LoaderKind;
 use crate::paths::check_relative;
 use crate::version::{library_files, maven_path, Library, LibraryFile, VersionJson};
@@ -75,6 +75,14 @@ pub async fn newest_version(client: &Client, kind: LoaderKind, minecraft: &str) 
     }
 }
 
+fn display_name(kind: LoaderKind) -> &'static str {
+    match kind {
+        LoaderKind::NeoForge => "NeoForge",
+        LoaderKind::Forge => "Forge",
+        LoaderKind::Fabric => "Fabric",
+    }
+}
+
 pub async fn installer(
     client: &Client,
     paths: &Paths,
@@ -82,11 +90,10 @@ pub async fn installer(
     minecraft: &str,
     version: &str,
 ) -> Result<(String, PathBuf)> {
-    let name = match kind {
-        LoaderKind::NeoForge => "NeoForge",
-        LoaderKind::Forge => "Forge",
-        LoaderKind::Fabric => return Err(Error::Other("Fabric has no installer".into())),
-    };
+    if kind == LoaderKind::Fabric {
+        return Err(Error::Other("Fabric has no installer".into()));
+    }
+    let name = display_name(kind);
     check_relative(minecraft)?;
     check_relative(version)?;
     let path = paths.installers().join(format!("{}-{minecraft}-{version}.jar", kind.as_str()));
@@ -236,8 +243,15 @@ fn read_json<T: serde::de::DeserializeOwned>(zip: &mut Installer, name: &str) ->
     Ok(serde_json::from_reader(zip.by_name(name)?)?)
 }
 
-// Returns false when the installer has no such entry.
-fn copy_out(zip: &mut Installer, name: &str, dest: &Path) -> Result<bool> {
+// Copies unless dest already matches; Ok(false) when the installer has no such entry.
+fn copy_out(zip: &mut Installer, name: &str, dest: &Path, sha1: Option<&str>) -> Result<bool> {
+    let current = match sha1 {
+        Some(h) => file_matches(dest, &Hash::Sha1(h.into())),
+        None => dest.exists(),
+    };
+    if current {
+        return Ok(true);
+    }
     let mut entry = match zip.by_name(name) {
         Ok(e) => e,
         Err(zip::result::ZipError::FileNotFound) => return Ok(false),
@@ -246,8 +260,30 @@ fn copy_out(zip: &mut Installer, name: &str, dest: &Path) -> Result<bool> {
     if let Some(dir) = dest.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::io::copy(&mut entry, &mut std::fs::File::create(dest)?)?;
+    let mut part = dest.as_os_str().to_owned();
+    part.push(".part");
+    let part = PathBuf::from(part);
+    std::io::copy(&mut entry, &mut std::fs::File::create(&part)?)?;
+    if let Some(expected) = sha1 {
+        let actual = sha1_file(&part)?;
+        if !actual.eq_ignore_ascii_case(expected) {
+            let _ = std::fs::remove_file(&part);
+            return Err(Error::Hash { path: dest.to_path_buf(), expected: expected.into(), actual });
+        }
+    }
+    std::fs::rename(&part, dest)?;
     Ok(true)
+}
+
+fn check_minecraft(loader: &str, version: &str, installer_minecraft: &str, requested: &str) -> Result<()> {
+    match installer_minecraft == requested {
+        true => Ok(()),
+        false => Err(Error::Other(format!("{loader} {version} is for Minecraft {installer_minecraft}, not {requested}"))),
+    }
+}
+
+fn installed(marker: &Path, produced: &[PathBuf]) -> bool {
+    marker.exists() && produced.iter().all(|p| p.exists())
 }
 
 fn main_class(jar: &Path) -> Result<String> {
@@ -305,6 +341,7 @@ pub async fn install(
     let mut zip: Installer = zip::ZipArchive::new(std::fs::File::open(&jar)?)?;
     let profile: InstallProfile = read_json(&mut zip, "install_profile.json")?;
     let loader_json: VersionJson = read_json(&mut zip, "version.json")?;
+    check_minecraft(display_name(kind), &version, &profile.minecraft, minecraft)?;
     loader_json.check_ids()?;
     let file = paths.versions().join(&loader_json.id).join(format!("{}.json", loader_json.id));
     std::fs::create_dir_all(file.parent().unwrap_or(&paths.versions()))?;
@@ -320,20 +357,28 @@ pub async fn install(
         let dest = under(&libraries, &lib.path)?;
         if !lib.url.is_empty() {
             downloads.push(Download { url: lib.url, path: dest, hash: lib.sha1.map(Hash::Sha1), size: lib.size });
-        } else if !dest.exists() {
-            copy_out(&mut zip, &format!("maven/{}", lib.path), &dest)?;
+        } else {
+            copy_out(&mut zip, &format!("maven/{}", lib.path), &dest, lib.sha1.as_deref())?;
         }
     }
     // Most NeoForge processors declare no outputs, so a marker records that all of them ran.
     let marker = extracted.join("done");
-    if marker.exists() || steps.iter().all(is_done) {
+    let produced = profile
+        .data
+        .values()
+        .filter_map(|e| e.client.strip_prefix('[')?.strip_suffix(']'))
+        .map(|coordinate| library(&ctx, coordinate))
+        .collect::<Result<Vec<_>>>()?;
+    if installed(&marker, &produced) || steps.iter().all(is_done) {
         return Ok(loader_json);
     }
     fetch_all(client, "loader", downloads, progress).await?;
 
     for entry in profile.data.values() {
         if let Some(inner) = entry.client.strip_prefix('/') {
-            copy_out(&mut zip, inner, &under(&extracted, inner)?)?;
+            if !copy_out(&mut zip, inner, &under(&extracted, inner)?, None)? {
+                return Err(Error::Other(format!("the installer has no {inner}")));
+            }
         }
     }
 
@@ -345,6 +390,7 @@ pub async fn install(
         }
         let _ = progress.send(Progress { stage: "loader".into(), done: i as u64 + 1, total });
     }
+    std::fs::create_dir_all(&extracted)?;
     std::fs::write(&marker, "")?;
     Ok(loader_json)
 }
@@ -519,6 +565,75 @@ Other: x
     #[test]
     fn processors_run_with_the_console_java() {
         assert_eq!(console_java(Path::new(r"C:\j\bin\javaw.exe")), PathBuf::from(r"C:\j\bin\java.exe"));
+    }
+
+    struct Tmp(PathBuf);
+
+    impl Drop for Tmp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn tmp(name: &str) -> Tmp {
+        let dir = std::env::temp_dir().join(format!("portal-forge-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        Tmp(dir)
+    }
+
+    fn installer_with(dir: &Path, entry: &str, body: &[u8]) -> Installer {
+        let path = dir.join("installer.jar");
+        let mut w = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        w.start_file(entry, zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut w, body).unwrap();
+        w.finish().unwrap();
+        zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap()
+    }
+
+    const ABC: &str = "a9993e364706816aba3e25717850c26c9cd0d89d";
+
+    #[test]
+    fn files_copied_out_of_the_installer_are_checked() {
+        let dir = tmp("copy");
+        let mut zip = installer_with(&dir.0, "maven/a/b.jar", b"abc");
+        let dest = dir.0.join("out").join("b.jar");
+        let wrong = "0".repeat(40);
+        assert!(matches!(copy_out(&mut zip, "maven/a/b.jar", &dest, Some(&wrong)), Err(Error::Hash { .. })));
+        assert!(!dest.exists());
+
+        assert!(copy_out(&mut zip, "maven/a/b.jar", &dest, Some(ABC)).unwrap());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"abc");
+
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1000);
+        std::fs::File::options().write(true).open(&dest).unwrap().set_modified(old).unwrap();
+        copy_out(&mut zip, "maven/a/b.jar", &dest, Some(ABC)).unwrap();
+        assert_eq!(std::fs::metadata(&dest).unwrap().modified().unwrap(), old);
+
+        std::fs::write(&dest, "cut sh").unwrap();
+        copy_out(&mut zip, "maven/a/b.jar", &dest, Some(ABC)).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"abc");
+
+        assert!(!copy_out(&mut zip, "maven/none.jar", &dir.0.join("none.jar"), None).unwrap());
+    }
+
+    #[test]
+    fn the_installer_must_be_for_the_requested_minecraft() {
+        assert!(check_minecraft("NeoForge", "21.1.267", "1.21.1", "1.21.1").is_ok());
+        let err = check_minecraft("NeoForge", "21.1.267", "1.21.1", "1.20.4").unwrap_err();
+        assert_eq!(err.to_string(), "NeoForge 21.1.267 is for Minecraft 1.21.1, not 1.20.4");
+    }
+
+    #[test]
+    fn a_marker_with_a_missing_file_is_not_done() {
+        let dir = tmp("done");
+        let (marker, jar) = (dir.0.join("done"), dir.0.join("client.jar"));
+        assert!(!installed(&marker, &[jar.clone()]));
+        std::fs::write(&marker, "").unwrap();
+        assert!(!installed(&marker, &[jar.clone()]));
+        std::fs::write(&jar, "x").unwrap();
+        assert!(installed(&marker, &[jar.clone()]));
+        std::fs::remove_file(&marker).unwrap();
+        assert!(!installed(&marker, &[jar]));
     }
 
     #[test]
