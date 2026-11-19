@@ -327,3 +327,21 @@ Expected: title screen with the pack's mods; files from `overrides` are in `game
 
 - [ ] **Step 4:** Update the README's command list.
 - [ ] **Step 5: Commit** `Install FTB and Modrinth packs into instances`.
+
+---
+
+## Carried over from plans 1 and 2
+
+Found while building and reviewing the earlier plans; none blocks this plan, each is picked up where it is first felt.
+
+- Interfaces as built: `loader::resolve(client, minecraft, &Loader) -> Result<Loader>` turns a loader without a version into one with it, before anything is downloaded; `play::start` calls it. An instance created with a loader stores the resolved version, so it does not move to a newer loader on a later launch. `StartRequest` has `loader: Option<Loader>`.
+- Every name from a downloaded JSON or archive that becomes a path goes through `paths::check_relative` (or `enclosed_name()` for zip entries); this plan's `sync::safe_path` is the same rule for game-folder paths, so build it on `check_relative` rather than beside it. `check_relative` lets `?`, `#`, `%` and `:` inside a name through: a pack id or version put into a URL must be checked for those too.
+- `download::get_ok` is the one status-checked GET; `download::fetch` the one hash-checked download (a file without a hash is only checked for existing).
+- `Error::Hash`'s message names no algorithm (Modrinth files are SHA-512).
+- A modded launch installs the vanilla files and then the merged version, so vanilla assets are hashed twice; split the library part out of `gamefiles::install` when it is felt (plan 5).
+- Processors are started with `java.exe`; from a window that needs `CREATE_NO_WINDOW` (plan 5). Hashing, zip reading and natives extraction block the async runtime; `spawn_blocking` if progress stalls (plan 5).
+- `java::ensure` needs the network even when the runtime is installed; decide before plan 5. `Error` is not `Serialize` (plan 5).
+- `launch::fill` replaces placeholders one after another; make it a single pass before real tokens arrive (plan 6).
+- `play.rs` has a `_ => version` arm that cannot be reached after `resolve`; remove it or make it an error when that code is next touched.
+- NeoForge version resolving only filters `-beta` builds; `library_files` skips names ending in `-arm64` or `-x86`.
+- `cargo fmt` has not been run on the crate.
