@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -186,6 +186,15 @@ fn resolve(value: &str, profile: &InstallProfile, ctx: &Context, in_data: bool) 
     }
 }
 
+fn output_path(key: &str, profile: &InstallProfile, ctx: &Context) -> Result<PathBuf> {
+    let path = PathBuf::from(resolve(key, profile, ctx, false)?);
+    let inside = path.starts_with(ctx.libraries) || path.starts_with(ctx.extracted);
+    if !inside || path.components().any(|c| c == Component::ParentDir) {
+        return Err(Error::Other(format!("output {key:?} is outside the launcher's folders")));
+    }
+    Ok(path)
+}
+
 pub fn steps(profile: &InstallProfile, ctx: &Context) -> Result<Vec<Step>> {
     profile
         .processors
@@ -199,7 +208,7 @@ pub fn steps(profile: &InstallProfile, ctx: &Context) -> Result<Vec<Step>> {
                 outputs: p
                     .outputs
                     .iter()
-                    .map(|(k, v)| Ok((PathBuf::from(resolve(k, profile, ctx, false)?), resolve(v, profile, ctx, false)?)))
+                    .map(|(k, v)| Ok((output_path(k, profile, ctx)?, resolve(v, profile, ctx, false)?)))
                     .collect::<Result<_>>()?,
             })
         })
@@ -292,5 +301,38 @@ mod tests {
     fn coordinates_cannot_leave_the_libraries_folder() {
         assert!(steps(&one_processor("a:b:../../x", "x"), &ctx()).is_err());
         assert!(steps(&one_processor("a:b:1", "[a:b:..:x]"), &ctx()).is_err());
+    }
+
+    fn with_outputs(key: &str) -> InstallProfile {
+        serde_json::from_value(serde_json::json!({
+            "minecraft": "1.21.1", "libraries": [], "data": {},
+            "processors": [{ "jar": "a:b:1", "classpath": [], "args": [], "outputs": { key: "'abc'" } }]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn output_keys_stay_inside_the_launcher_folders() {
+        for bad in [r"C:\Windows\x", r"..\..\x", "{ROOT}/../x", "{LIBRARY_DIR}/../x"] {
+            assert!(steps(&with_outputs(bad), &ctx()).is_err(), "{bad}");
+        }
+        assert!(steps(&with_outputs("[a:b:1]"), &ctx()).is_ok());
+        assert!(steps(&with_outputs("{LIBRARY_DIR}/a/b.jar"), &ctx()).is_ok());
+    }
+
+    #[test]
+    fn processors_are_filtered_by_side() {
+        let p: InstallProfile = serde_json::from_value(serde_json::json!({
+            "minecraft": "1.21.1", "libraries": [], "data": {},
+            "processors": [
+                { "sides": ["server"], "jar": "a:server:1", "classpath": [], "args": [] },
+                { "sides": ["client"], "jar": "a:client:1", "classpath": [], "args": [] },
+                { "jar": "a:both:1", "classpath": [], "args": [] }
+            ]
+        }))
+        .unwrap();
+        let jars: Vec<String> = steps(&p, &ctx()).unwrap().iter().map(|s| text(&s.jar)).collect();
+        assert_eq!(jars.len(), 2);
+        assert!(jars[0].contains("client") && jars[1].contains("both"), "{jars:?}");
     }
 }
