@@ -1,6 +1,7 @@
 pub mod download;
 pub mod error;
 pub mod paths;
+pub mod version;
 
 pub use error::{Error, Result};
 pub use paths::Paths;
