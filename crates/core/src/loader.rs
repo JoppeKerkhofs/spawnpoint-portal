@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::download::ProgressTx;
+use crate::paths::check_relative;
 use crate::version::VersionJson;
 use crate::{Error, Paths, Result};
 use reqwest::Client;
@@ -55,17 +56,43 @@ impl Loader {
     }
 }
 
+pub async fn resolve(client: &Client, minecraft: &str, loader: &Loader) -> Result<Loader> {
+    check_relative(minecraft)?;
+    let version = match &loader.version {
+        Some(v) => v.clone(),
+        None if loader.kind == LoaderKind::Fabric => fabric::newest_version(client, minecraft).await?,
+        None => forge::newest_version(client, loader.kind, minecraft).await?,
+    };
+    check_relative(&version)?;
+    Ok(Loader { kind: loader.kind, version: Some(version) })
+}
+
 pub async fn profile(
     client: &Client,
     paths: &Paths,
     minecraft: &str,
-    loader: &Loader,
+    kind: LoaderKind,
+    version: &str,
     java: &Path,
     progress: &ProgressTx,
 ) -> Result<VersionJson> {
-    let version = loader.version.as_deref();
-    match loader.kind {
+    match kind {
         LoaderKind::Fabric => fabric::profile(client, paths, minecraft, version).await,
         kind => forge::install(client, paths, kind, minecraft, version, java, progress).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loader_names() {
+        assert_eq!(Loader::parse("Fabric:0.16.5").unwrap().version.as_deref(), Some("0.16.5"));
+        assert_eq!(Loader::parse("fabric").unwrap().version, None);
+        assert!(Loader::parse("fabric:").is_err());
+        assert!(matches!(LoaderKind::parse("NeoForge").unwrap(), LoaderKind::NeoForge));
+        assert!(matches!(LoaderKind::parse("quilt"), Err(Error::Unsupported(_))));
+        assert!(LoaderKind::parse("rift").is_err());
     }
 }

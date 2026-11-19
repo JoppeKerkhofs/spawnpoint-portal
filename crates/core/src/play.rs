@@ -1,7 +1,7 @@
 use crate::download::ProgressTx;
 use crate::gamefiles::{install, version_json};
 use crate::launch::{arguments, command, extract_natives, LaunchOptions, Profile};
-use crate::loader::{profile, Loader};
+use crate::loader::{profile, resolve, Loader};
 use crate::version::merge;
 use crate::{java, Paths, Result};
 use reqwest::Client;
@@ -29,17 +29,21 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
     };
     // Refuses Minecraft older than 1.13 before anything is downloaded.
     arguments(paths, &version, &opts)?;
+    let loader = match &request.loader {
+        Some(l) => Some(resolve(client, &request.minecraft, l).await?),
+        None => None,
+    };
     let component = version.java_version.as_ref().map_or("jre-legacy", |j| j.component.as_str());
     let javaw = java::ensure(client, paths, component, progress).await?;
     install(client, paths, &version, progress).await?;
-    let version = match &request.loader {
-        Some(loader) => {
-            let loader_json = profile(client, paths, &request.minecraft, loader, &javaw, progress).await?;
+    let version = match &loader {
+        Some(Loader { kind, version: Some(loader_version) }) => {
+            let loader_json = profile(client, paths, &request.minecraft, *kind, loader_version, &javaw, progress).await?;
             let merged = merge(version, loader_json);
             install(client, paths, &merged, progress).await?;
             merged
         }
-        None => version,
+        _ => version,
     };
     let args = arguments(paths, &version, &opts)?;
     extract_natives(paths, &version)?;

@@ -67,12 +67,20 @@ pub fn installer_url(kind: LoaderKind, minecraft: &str, version: &str) -> String
     }
 }
 
+pub async fn newest_version(client: &Client, kind: LoaderKind, minecraft: &str) -> Result<String> {
+    match kind {
+        LoaderKind::Forge => newest_forge(&get_ok(client, FORGE_PROMOTIONS).await?.text().await?, minecraft),
+        LoaderKind::NeoForge => newest_neoforge(&get_ok(client, NEOFORGE_VERSIONS).await?.text().await?, minecraft),
+        LoaderKind::Fabric => Err(Error::Other("Fabric has no installer".into())),
+    }
+}
+
 pub async fn installer(
     client: &Client,
     paths: &Paths,
     kind: LoaderKind,
     minecraft: &str,
-    version: Option<&str>,
+    version: &str,
 ) -> Result<(String, PathBuf)> {
     let name = match kind {
         LoaderKind::NeoForge => "NeoForge",
@@ -80,23 +88,16 @@ pub async fn installer(
         LoaderKind::Fabric => return Err(Error::Other("Fabric has no installer".into())),
     };
     check_relative(minecraft)?;
-    let version = match version {
-        Some(v) => v.to_string(),
-        None if kind == LoaderKind::Forge => {
-            newest_forge(&get_ok(client, FORGE_PROMOTIONS).await?.text().await?, minecraft)?
-        }
-        None => newest_neoforge(&get_ok(client, NEOFORGE_VERSIONS).await?.text().await?, minecraft)?,
-    };
-    check_relative(&version)?;
+    check_relative(version)?;
     let path = paths.installers().join(format!("{}-{minecraft}-{version}.jar", kind.as_str()));
-    let item = Download { url: installer_url(kind, minecraft, &version), path: path.clone(), hash: None, size: None };
+    let item = Download { url: installer_url(kind, minecraft, version), path: path.clone(), hash: None, size: None };
     fetch(client, &item).await.map_err(|e| match e {
         Error::Status { status: 404, .. } => {
             Error::Other(format!("{name} {version} does not exist for Minecraft {minecraft}"))
         }
         e => e,
     })?;
-    Ok((version, path))
+    Ok((version.to_string(), path))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,7 +297,7 @@ pub async fn install(
     paths: &Paths,
     kind: LoaderKind,
     minecraft: &str,
-    version: Option<&str>,
+    version: &str,
     java: &Path,
     progress: &ProgressTx,
 ) -> Result<VersionJson> {
