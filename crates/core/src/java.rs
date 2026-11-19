@@ -1,4 +1,4 @@
-use crate::download::{fetch_all, Download, Hash, ProgressTx};
+use crate::download::{fetch, fetch_all, Download, Hash, ProgressTx};
 use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
 use reqwest::Client;
@@ -7,12 +7,13 @@ use std::path::{Path, PathBuf};
 
 pub const RUNTIMES_URL: &str = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
-pub fn runtime_manifest_url(all_json: &str, component: &str) -> Result<String> {
+pub fn runtime_manifest(all_json: &str, component: &str) -> Result<(String, String)> {
     let all: Value = serde_json::from_str(all_json)?;
-    all["windows-x64"][component][0]["manifest"]["url"]
-        .as_str()
-        .map(String::from)
-        .ok_or_else(|| Error::Other(format!("no Java runtime {component} for Windows")))
+    let manifest = &all["windows-x64"][component][0]["manifest"];
+    match (manifest["url"].as_str(), manifest["sha1"].as_str()) {
+        (Some(url), Some(sha1)) => Ok((url.into(), sha1.into())),
+        _ => Err(Error::Other(format!("no Java runtime {component} for Windows"))),
+    }
 }
 
 pub fn runtime_downloads(files_json: &str, dir: &Path) -> Result<Vec<Download>> {
@@ -47,10 +48,12 @@ async fn get_text(client: &Client, url: &str) -> Result<String> {
 }
 
 pub async fn ensure(client: &Client, paths: &Paths, component: &str, progress: &ProgressTx) -> Result<PathBuf> {
-    let url = runtime_manifest_url(&get_text(client, RUNTIMES_URL).await?, component)?;
     check_relative(component)?;
+    let (url, sha1) = runtime_manifest(&get_text(client, RUNTIMES_URL).await?, component)?;
+    let list = paths.java().join(format!("{component}.json"));
+    fetch(client, &Download { url, path: list.clone(), hash: Some(Hash::Sha1(sha1)), size: None }).await?;
     let dir = paths.java().join(component);
-    let items = runtime_downloads(&get_text(client, &url).await?, &dir)?;
+    let items = runtime_downloads(&tokio::fs::read_to_string(&list).await?, &dir)?;
     fetch_all(client, "java", items, progress).await?;
     Ok(dir.join("bin").join("javaw.exe"))
 }
@@ -63,9 +66,10 @@ mod tests {
 
     #[test]
     fn finds_the_runtime() {
-        let url = runtime_manifest_url(include_str!("../tests/fixtures/java-all.json"), "java-runtime-delta").unwrap();
+        let (url, sha1) = runtime_manifest(include_str!("../tests/fixtures/java-all.json"), "java-runtime-delta").unwrap();
         assert!(url.starts_with("https://piston-meta.mojang.com/v1/packages/"));
-        assert!(runtime_manifest_url(include_str!("../tests/fixtures/java-all.json"), "nope").is_err());
+        assert!(sha1.len() == 40 && sha1.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert!(runtime_manifest(include_str!("../tests/fixtures/java-all.json"), "nope").is_err());
     }
 
     #[test]
