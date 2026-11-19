@@ -3,6 +3,7 @@ use crate::sync::Wanted;
 use crate::{Error, Result};
 
 pub mod ftb;
+pub mod modrinth;
 
 #[derive(Debug, Clone)]
 pub struct PackInstall {

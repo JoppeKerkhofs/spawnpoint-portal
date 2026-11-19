@@ -44,6 +44,10 @@ impl Paths {
         self.root.join("meta").join("installers")
     }
 
+    pub fn packs(&self) -> PathBuf {
+        self.root.join("meta").join("packs")
+    }
+
     pub fn java(&self) -> PathBuf {
         self.root.join("java")
     }
