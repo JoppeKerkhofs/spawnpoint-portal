@@ -1,10 +1,145 @@
-use crate::download::Hash;
-use crate::loader::{Loader, LoaderKind};
-use crate::pack::PackInstall;
+use reqwest::Client;
+use tokio::task::JoinSet;
+
+use crate::download::{Hash, ProgressTx};
+use crate::instance::{self, Instance, PackRef, Source};
+use crate::launch::{DEFAULT_MEMORY_MB, Profile};
+use crate::loader::{self, Loader, LoaderKind};
+use crate::pack::{self, PackInstall, curseforge};
 use crate::panel::{self, ClientMods, Panel, Server};
 use crate::paths::check_id;
-use crate::sync::{Origin, Wanted, safe_path};
-use crate::{Error, Result};
+use crate::sync::{Manual, Origin, Wanted, safe_path};
+use crate::{Error, Paths, Result, play};
+
+fn find_instance(paths: &Paths, panel_id: &str, slug: &str) -> Result<Option<Instance>> {
+    Ok(instance::list(paths)?.into_iter().find(|i| matches!(&i.source, Source::Server { panel, server, .. } if panel == panel_id && server == slug)))
+}
+
+pub fn instance_for(paths: &Paths, panel: &Panel, server: &Server) -> Result<Instance> {
+    if let Some(found) = find_instance(paths, &panel.id, &server.slug)? {
+        return Ok(found);
+    }
+    let source = Source::Server { panel: panel.id.clone(), server: server.slug.clone(), pack: None };
+    instance::create(paths, &server.name, "", None, source)
+}
+
+// The hostname becomes a game argument: host only, no port, nothing that parses as an option.
+pub fn check_host(host: &str) -> Result<()> {
+    let plain = host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
+    if host.is_empty() || host.len() > 253 || !plain || host.starts_with(['-', '.']) {
+        return Err(Error::Other(format!("the panel sent a server address that is not a host name: {host:?}")));
+    }
+    Ok(())
+}
+
+pub fn parse_target(arg: &str, panels: &[Panel]) -> Result<(Panel, String)> {
+    let (id, slug) = match arg.split_once('/') {
+        Some((id, slug)) => (Some(id), slug),
+        None => (None, arg),
+    };
+    if slug.is_empty() || slug.contains('/') {
+        return Err(Error::Other(format!("{arg:?} is not <panel id>/<server>")));
+    }
+    let panel = match (id, panels) {
+        (Some(id), _) => panels.iter().find(|p| p.id == id).ok_or_else(|| Error::Other(format!("no linked panel {id}")))?,
+        (None, [only]) => only,
+        (None, []) => return Err(Error::Other("no panel is linked; run \"portal panel add <address>\"".into())),
+        (None, _) => return Err(Error::Other(format!("{arg:?} needs a panel: <panel id>/<server>"))),
+    };
+    Ok((panel.clone(), slug.to_string()))
+}
+
+async fn install(
+    client: &Client,
+    paths: &Paths,
+    panel: &Panel,
+    server: &Server,
+    instance: &mut Instance,
+    progress: &ProgressTx,
+) -> Result<Vec<Manual>> {
+    let pack = match &server.modpack {
+        None => None,
+        Some(mp) => {
+            let version = mp.version.clone().ok_or_else(|| Error::NotReady("the server is still installing its pack".into()))?;
+            let pack_ref = PackRef { catalogue: mp.catalogue.clone(), project: mp.project.clone(), version };
+            let resolved = if mp.catalogue == "curseforge" {
+                curseforge::resolve(client, paths, panel, &server.slug).await?
+            } else {
+                pack::resolve(client, paths, &pack_ref).await?
+            };
+            Some((pack_ref, resolved))
+        }
+    };
+    let mods = panel::client_mods(panel, &server.slug).await?;
+    let (pack_ref, resolved) = match pack {
+        Some((r, p)) => (Some(r), Some(p)),
+        None => (None, None),
+    };
+    let mut wanted = desired(panel, server, resolved, mods)?;
+    if let Some(l) = &wanted.loader {
+        wanted.loader = Some(loader::resolve(client, &wanted.minecraft, l).await?);
+    }
+    instance.source = Source::Server { panel: panel.id.clone(), server: server.slug.clone(), pack: pack_ref };
+    pack::install(client, paths, instance, wanted, progress).await
+}
+
+pub async fn sync(
+    client: &Client,
+    paths: &Paths,
+    panel: &Panel,
+    slug: &str,
+    progress: &ProgressTx,
+) -> Result<(Instance, Server, Vec<Manual>)> {
+    let server = panel::server(panel, slug).await?;
+    let mut instance = instance_for(paths, panel, &server)?;
+    match install(client, paths, panel, &server, &mut instance, progress).await {
+        Ok(manual) => Ok((instance, server, manual)),
+        Err(e) => {
+            // An empty version means nothing was written for this new instance.
+            if instance.minecraft.is_empty() {
+                let _ = instance::delete(paths, &instance.id);
+            }
+            Err(e)
+        }
+    }
+}
+
+pub async fn join(
+    client: &Client,
+    paths: &Paths,
+    panel: &Panel,
+    slug: &str,
+    profile: Profile,
+    progress: &ProgressTx,
+) -> Result<(std::process::Child, Vec<Manual>)> {
+    let (instance, server, manual) = sync(client, paths, panel, slug, progress).await?;
+    check_host(&server.hostname)?;
+    let child = play::start_instance(client, paths, &instance, profile, Some(server.hostname), DEFAULT_MEMORY_MB, progress).await?;
+    Ok((child, manual))
+}
+
+pub fn instance_of(paths: &Paths, panel: &Panel, slug: &str) -> Result<Instance> {
+    find_instance(paths, &panel.id, slug)?.ok_or_else(|| Error::Other(format!("no instance for {}/{slug}", panel.id)))
+}
+
+pub async fn all_servers(paths: &Paths) -> Result<Vec<(Panel, Result<Vec<Server>>)>> {
+    let panels = panel::list(paths)?;
+    let mut set = JoinSet::new();
+    for (i, p) in panels.iter().cloned().enumerate() {
+        set.spawn(async move { (i, panel::servers(&p).await) });
+    }
+    let mut results: Vec<Option<Result<Vec<Server>>>> = panels.iter().map(|_| None).collect();
+    while let Some(done) = set.join_next().await {
+        if let Ok((i, r)) = done {
+            results[i] = Some(r);
+        }
+    }
+    Ok(panels
+        .into_iter()
+        .zip(results)
+        .map(|(p, r)| (p, r.unwrap_or_else(|| Err(Error::Other("the request was cancelled".into())))))
+        .collect())
+}
 
 pub fn desired(panel: &Panel, server: &Server, pack: Option<PackInstall>, mods: ClientMods) -> Result<PackInstall> {
     build(server, pack, mods, |file| panel::panel_file(panel, &server.slug, file))
@@ -146,6 +281,52 @@ mod tests {
         let mods = ClientMods { mods: vec![cm("a.jar", "a", Some("http://cdn/a.jar"))], removed: vec![] };
         let err = run(&server(Some("1.21.1"), None), None, mods).unwrap_err();
         assert!(err.to_string().contains("a.jar"));
+    }
+
+    fn panel(id: &str) -> Panel {
+        Panel { id: id.into(), address: format!("https://{id}.example.org"), name: id.into() }
+    }
+
+    #[test]
+    fn an_instance_belongs_to_a_panel_and_a_server() {
+        let dir = crate::download::testing::tmp_dir();
+        let paths = Paths { root: dir.join("home") };
+        let s = server(Some("1.21.1"), None);
+        let a = instance_for(&paths, &panel("one"), &s).unwrap();
+        assert_eq!(a.name, "ATM");
+        assert_eq!(instance_for(&paths, &panel("one"), &s).unwrap().id, a.id);
+        let b = instance_for(&paths, &panel("two"), &s).unwrap();
+        assert_ne!(b.id, a.id);
+        let mut other = server(Some("1.21.1"), None);
+        other.slug = "lobby".into();
+        assert_ne!(instance_for(&paths, &panel("one"), &other).unwrap().id, a.id);
+        assert_eq!(crate::instance::list(&paths).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn hostnames() {
+        for ok in ["mc.example.org", "10.0.0.5", "a-b.c", "localhost"] {
+            assert!(check_host(ok).is_ok(), "{ok}");
+        }
+        for bad in ["", "-demo", ".x", "a b", "a:25565", "a/b", "x;y", "a\nb", "ä.org", &"a".repeat(254)] {
+            assert!(check_host(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn targets() {
+        let one = [panel("home")];
+        let two = [panel("home"), panel("work")];
+        let t = |arg: &str, panels: &[Panel]| parse_target(arg, panels).map(|(p, s)| format!("{}/{s}", p.id));
+        assert_eq!(t("home/atm10", &two).unwrap(), "home/atm10");
+        assert_eq!(t("work/atm10", &two).unwrap(), "work/atm10");
+        assert_eq!(t("atm10", &one).unwrap(), "home/atm10");
+        assert_eq!(t("home/atm10", &one).unwrap(), "home/atm10");
+        assert!(t("atm10", &two).is_err());
+        assert!(t("atm10", &[]).is_err());
+        assert!(t("gone/atm10", &two).is_err());
+        assert!(t("home/", &two).is_err());
+        assert!(t("home/a/b", &two).is_err());
     }
 
     #[test]

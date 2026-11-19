@@ -2,7 +2,9 @@ use portal_core::download::{Progress, ProgressTx};
 use portal_core::gamefiles::{install, manifest, version_json};
 use portal_core::instance::{self, Instance, PackRef, Source};
 use portal_core::java;
+use portal_core::join;
 use portal_core::launch::{Profile, DEFAULT_MEMORY_MB};
+use portal_core::panel;
 use portal_core::loader::{self, Loader};
 use portal_core::pack::{self, PackInstall};
 use portal_core::play::start_instance;
@@ -26,6 +28,14 @@ const USAGE: &str = "usage:
   portal pack install ftb <pack> <version> [--name <name>]
   portal pack install modrinth <version id> [--name <name>]
   portal pack update <id> <version>        install another version of the instance's pack
+  portal panel add <address> [--allow-http]  link a Spawnpoint panel; approve the code it shows
+  portal panel list                        id, name and address of each linked panel
+  portal panel remove <id>                 unlink a panel and forget its token
+  portal servers                           <panel id>/<server>, name, state, version, loader or pack
+  portal sync <panel id>/<server>          make the server's instance match the server
+  portal join <panel id>/<server> [--name <player>]
+                                           sync, then start the game on that server
+                                           (the panel id may be left out when one panel is linked)
   portal launch <id> [--name <player>] [--server <host>] [--memory <MB>]
                                            start the game offline, wait for it to exit";
 
@@ -87,6 +97,98 @@ fn print_manual(paths: &Paths, instance: &Instance, manual: &[Manual]) {
         let full = game.join(&m.path);
         println!("fetch by hand: {}  {}  -> {}", m.name, m.page, full.parent().unwrap_or(&game).display());
     }
+}
+
+// Text from a panel goes to the screen: no control characters, so no escape sequences.
+fn show(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
+}
+
+fn allow_http(rest: &[String]) -> Result<bool> {
+    match rest {
+        [] => Ok(false),
+        [f] if f == "--allow-http" => Ok(true),
+        _ => Err(Error::Other(format!("unknown or incomplete option: {}", rest.join(" ")))),
+    }
+}
+
+fn host_of(address: &str) -> &str {
+    let rest = address.split_once("://").map_or(address, |(_, r)| r);
+    rest.split('/').next().unwrap_or(rest)
+}
+
+fn device_name(computer: Option<String>) -> String {
+    let name = format!("Spawnpoint Portal on {}", computer.as_deref().unwrap_or("this PC"));
+    name.chars().take(60).collect()
+}
+
+fn join_profile(rest: &[String]) -> Result<Profile> {
+    Ok(Profile::offline(&options(rest, &["--name"])?.remove("--name").unwrap_or_else(|| "Player".into())))
+}
+
+async fn panel_add(address: &str, allow_http: bool) -> Result<()> {
+    let paths = Paths::new()?;
+    let address = panel::normalize_address(address, allow_http)?;
+    let pairing = panel::pair_start(&address, &device_name(std::env::var("COMPUTERNAME").ok())).await?;
+    println!("Approve the code {} at {address}/settings/api-tokens", show(&pairing.code));
+    let started = std::time::Instant::now();
+    let token = loop {
+        tokio::time::sleep(std::time::Duration::from_secs(pairing.interval.max(1))).await;
+        if let Some(t) = panel::pair_poll(&address, &pairing).await? {
+            break t;
+        }
+        if started.elapsed() > std::time::Duration::from_secs(15 * 60) {
+            return Err(Error::Other("nobody approved the code in time".into()));
+        }
+    };
+    let linked = panel::add(&paths, &address, host_of(&address), &token.token, allow_http)?;
+    println!("linked {}", linked.name);
+    let missing = panel::missing_abilities(&token.abilities);
+    if !missing.is_empty() {
+        eprintln!("warning: the token lacks {}; grant them at {address}/settings/api-tokens", missing.join(" and "));
+    }
+    Ok(())
+}
+
+async fn servers() -> Result<()> {
+    for (p, result) in join::all_servers(&Paths::new()?).await? {
+        match result {
+            Err(e) => println!("{}: {}", p.id, show(&e.to_string())),
+            Ok(list) => {
+                for s in list {
+                    let what = match (&s.modpack, &s.loader) {
+                        (Some(m), _) => format!("pack {} {}", m.catalogue, m.version_name.as_deref().or(m.version.as_deref()).unwrap_or(&m.project)),
+                        (None, Some(l)) => format!("{}:{}", l.name, l.version.as_deref().unwrap_or("?")),
+                        (None, None) => "-".into(),
+                    };
+                    let line = format!("{}/{}  {}  {}  {}  {}", p.id, s.slug, s.name, s.state, s.game_version.as_deref().unwrap_or("?"), what);
+                    println!("{}", show(&line));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn sync_server(target: &str) -> Result<()> {
+    let (client, paths) = (http_client(), Paths::new()?);
+    let (panel, slug) = join::parse_target(target, &panel::list(&paths)?)?;
+    let p = paths.clone();
+    let (instance, _, manual) = with_progress(|tx| async move { join::sync(&client, &p, &panel, &slug, &tx).await }).await?;
+    println!("instance {}", instance.id);
+    print_manual(&paths, &instance, &manual);
+    Ok(())
+}
+
+async fn join_server(target: &str, profile: Profile) -> Result<()> {
+    let (client, paths) = (http_client(), Paths::new()?);
+    let (panel, slug) = join::parse_target(target, &panel::list(&paths)?)?;
+    let p = paths.clone();
+    let (panel2, slug2) = (panel.clone(), slug.clone());
+    let (mut child, manual) = with_progress(|tx| async move { join::join(&client, &p, &panel2, &slug2, profile, &tx).await }).await?;
+    print_manual(&paths, &join::instance_of(&paths, &panel, &slug)?, &manual);
+    println!("started, pid {}", child.id());
+    std::process::exit(child.wait()?.code().unwrap_or(1));
 }
 
 async fn install_pack(client: &Client, paths: &Paths, instance: &mut Instance, resolved: PackInstall) -> Result<()> {
@@ -187,6 +289,16 @@ async fn run(args: &[String]) -> Result<()> {
             instance.source = Source::Pack { pack };
             install_pack(&client, &paths, &mut instance, resolved).await?;
         }
+        [cmd, sub, address, rest @ ..] if cmd == "panel" && sub == "add" => panel_add(address, allow_http(rest)?).await?,
+        [cmd, sub] if cmd == "panel" && sub == "list" => {
+            for p in panel::list(&Paths::new()?)? {
+                println!("{}  {}  {}", p.id, show(&p.name), p.address);
+            }
+        }
+        [cmd, sub, id] if cmd == "panel" && sub == "remove" => panel::remove(&Paths::new()?, id)?,
+        [cmd] if cmd == "servers" => servers().await?,
+        [cmd, target] if cmd == "sync" => sync_server(target).await?,
+        [cmd, target, rest @ ..] if cmd == "join" => join_server(target, join_profile(rest)?).await?,
         [cmd, id, rest @ ..] if cmd == "launch" => {
             let (profile, server, memory) = launch_options(rest)?;
             let (client, paths) = (http_client(), Paths::new()?);
@@ -229,6 +341,30 @@ mod tests {
         assert_eq!((p.name.as_str(), server, memory), ("Player", None, DEFAULT_MEMORY_MB));
         for bad in [&["--server"][..], &["--srever", "h"], &["--memory=8"], &["--name", "--server", "x"], &["--memory", "lots"], &["--dir", "x"], &["--loader", "fabric"]] {
             assert!(launch_options(&args(bad)).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn panel_command_options() {
+        assert!(!allow_http(&[]).unwrap());
+        assert!(allow_http(&args(&["--allow-http"])).unwrap());
+        for bad in [&["--allow-https"][..], &["--allow-http", "x"], &["x"]] {
+            assert!(allow_http(&args(bad)).is_err(), "{bad:?}");
+        }
+        assert_eq!(host_of("https://panel.example.org:8443/sub"), "panel.example.org:8443");
+        assert_eq!(host_of("http://10.0.0.5"), "10.0.0.5");
+        assert_eq!(device_name(Some("DESKTOP-1".into())), "Spawnpoint Portal on DESKTOP-1");
+        assert_eq!(device_name(None), "Spawnpoint Portal on this PC");
+        assert_eq!(device_name(Some("x".repeat(100))).chars().count(), 60);
+        assert_eq!(show("a\u{1b}[31mb\n"), "a [31mb ");
+    }
+
+    #[test]
+    fn join_options() {
+        assert_eq!(join_profile(&args(&["--name", "Bob"])).unwrap().name, "Bob");
+        assert_eq!(join_profile(&[]).unwrap().name, "Player");
+        for bad in [&["--name"][..], &["--server", "x"], &["--memory", "1"], &["Bob"]] {
+            assert!(join_profile(&args(bad)).is_err(), "{bad:?}");
         }
     }
 

@@ -25,3 +25,14 @@ A Minecraft launcher. `portal-core` is its library; the `portal` command-line to
     portal launch <id> [--name <player>] [--server <host>] [--memory <MB>]
                                        start the game offline (name defaults to Player, memory to 4096),
                                        wait for it to exit
+    portal panel add <address> [--allow-http]
+                                       link a Spawnpoint panel: approve the code it prints at
+                                       <address>/settings/api-tokens (the token goes in the
+                                       Windows Credential Manager, never in a file)
+    portal panel list                  id, name and address of each linked panel
+    portal panel remove <id>           unlink a panel and forget its token
+    portal servers                     <panel id>/<server>, name, state, version, loader or pack
+    portal sync <panel id>/<server>    make the server's instance match the server
+    portal join <panel id>/<server> [--name <player>]
+                                       sync, then start the game on that server; the panel id
+                                       may be left out when one panel is linked
