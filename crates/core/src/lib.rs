@@ -1,6 +1,7 @@
 pub mod download;
 pub mod gamefiles;
 pub mod instance;
+pub mod join;
 pub mod java;
 pub mod launch;
 pub mod loader;
