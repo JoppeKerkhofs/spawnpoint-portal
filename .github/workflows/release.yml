@@ -10,6 +10,7 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    environment: release
     defaults:
       run:
         shell: bash

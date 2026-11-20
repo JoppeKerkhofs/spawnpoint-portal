@@ -3,6 +3,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 vi.mock("../api", () => ({ updateCheck: vi.fn(), updateInstall: vi.fn() }));
 
 import { updateCheck, updateInstall } from "../api";
+import { busy } from "./operation";
 import { availableVersion, canInstall, checkForUpdate, installBlock, installUpdate, update } from "./update";
 
 const err = { kind: "other", message: "no network" };
@@ -80,4 +81,15 @@ test("the version shows in the sidebar and status bar only once one was found", 
   expect(availableVersion({ phase: "idle" })).toBeNull();
   expect(availableVersion({ phase: "failed", error: err, version: null })).toBeNull();
   expect(availableVersion({ phase: "installing", version: "0.2.0" })).toBe("0.2.0");
+});
+
+test("the window is busy while the update installs and free again if it fails", async () => {
+  let fail: (e: unknown) => void = () => {};
+  mocked(updateInstall).mockReturnValueOnce(new Promise((_, r) => (fail = r)));
+  update.value = { phase: "available", version: "0.2.0" };
+  const run = installUpdate();
+  expect(busy.value).toBe(true);
+  fail(err);
+  await run;
+  expect(busy.value).toBe(false);
 });

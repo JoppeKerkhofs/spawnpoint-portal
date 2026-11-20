@@ -1,6 +1,11 @@
-use crate::state::{AppState, CmdResult, CommandError, claim, may_install, refuse_while_playing};
+use crate::instances::record_open_runs;
+use crate::state::{AppState, CmdResult, CommandError, claim, may_install};
 use tauri::{AppHandle, State};
 use tauri_plugin_updater::UpdaterExt;
+
+fn sorry<E>(_: E) -> CommandError {
+    failed("Could not check for updates. Try again later.")
+}
 
 fn failed(e: impl ToString) -> CommandError {
     CommandError { kind: "other".into(), message: e.to_string() }
@@ -13,17 +18,19 @@ pub async fn app_version(app: AppHandle) -> CmdResult<String> {
 
 #[tauri::command]
 pub async fn update_check(app: AppHandle) -> CmdResult<Option<String>> {
-    Ok(app.updater().map_err(failed)?.check().await.map_err(failed)?.map(|u| u.version))
+    Ok(app.updater().map_err(sorry)?.check().await.map_err(sorry)?.map(|u| u.version))
 }
 
 #[tauri::command]
 pub async fn update_install(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
-    may_install(&state.running, &state.busy)?;
-    let _claim = claim(&state.busy, "update")?;
+    may_install(&state.running, &state.busy, &state.pairing)?;
+    let held = claim(&state.busy, "update")?;
     let Some(update) = app.updater().map_err(failed)?.check().await.map_err(failed)? else { return Ok(()) };
     let bytes = update.download(|_, _| {}, || {}).await.map_err(failed)?;
-    // A game may have been started during the download.
-    refuse_while_playing(&state.running)?;
+    // The install ends in a hard exit: nothing may have started during the download.
+    drop(held);
+    may_install(&state.running, &state.busy, &state.pairing)?;
+    record_open_runs(&app);
     update.install(bytes).map_err(failed)?;
     app.restart()
 }

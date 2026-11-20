@@ -27,15 +27,17 @@ The version is the `version` line in `package.json`; `tauri.conf.json` follows i
 
 ## Releasing
 
-1. Change the `version` line in `package.json` (`tauri.conf.json` follows it) and commit.
+1. Run `npm version <x.y.z> --no-git-tag-version` (it updates `package.json` and `package-lock.json` together; `tauri.conf.json` follows) and commit.
 2. Tag it and push the tag: `git tag v1.2.3` then `git push origin v1.2.3`.
 
 The workflow in `.github/workflows/release.yml` checks that the tag matches the version, runs the tests, builds and signs the installer, keeps it as a workflow artifact for 30 days, and uploads it to the panel. The panel answers 409 when the version is not newer than the published one.
 
-It needs two repository secrets:
+It needs two secrets, kept in a GitHub environment named `release` (Settings, Environments):
 
 - `TAURI_SIGNING_PRIVATE_KEY`: the content of the update signing key, `C:\Users\joppe\.tauri\spawnpoint-portal.key` on the owner's PC. It has no password. Never commit it; the matching public key is in `src-tauri/tauri.conf.json`.
 - `PANEL_RELEASE_TOKEN`: a panel API token with the ability `portal:release`.
+
+Adding required reviewers to that environment makes every release wait for approval. A tag ruleset for `v*` (Settings, Rules) limits who can start a release.
 
 Addresses: the app checks `https://spawnpoint.joppek.be/portal/latest.json`, releases are uploaded with `PUT https://spawnpoint.joppek.be/api/v1/portal/releases/<version>`, and players download from `https://spawnpoint.joppek.be/portal/download`.
 

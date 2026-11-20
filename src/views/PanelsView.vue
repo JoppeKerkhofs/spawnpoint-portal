@@ -15,7 +15,7 @@ import ViewHead from "../components/ViewHead.vue";
 import { countdown, errorText } from "../logic/format";
 import { canGetCode, linkedStatus, missingText, needsConsent } from "../logic/pairing";
 import { pairingFlow } from "../logic/pairingFlow";
-import { view } from "../logic/operation";
+import { busy, view } from "../logic/operation";
 
 type Phase = "form" | "code" | "linked" | "expired";
 
@@ -38,7 +38,7 @@ const removing = ref<Panel | null>(null);
 const removeError = ref<CommandError | null>(null);
 
 const httpAddress = computed(() => needsConsent(address.value));
-const canStart = computed(() => canGetCode(address.value, consent.value) && !starting.value);
+const canStart = computed(() => canGetCode(address.value, consent.value) && !starting.value && !busy.value);
 const left = computed(() => (pairing.value ? countdown(Date.parse(pairing.value.expires_at) - now.value) : ""));
 const status = (p: Panel) => linkedStatus(answers.value?.find((a) => a.panel.id === p.id));
 
@@ -236,7 +236,7 @@ onUnmounted(() => flow.leave());
             <div v-if="linked.missing.length > 0" class="mt-1">{{ missingText(linked.missing) }}</div>
           </div>
           <AppButton variant="primary" icon="server" @click="view = 'servers'">Go to Servers</AppButton>
-          <AppButton variant="secondary" @click="another">Link another</AppButton>
+          <AppButton variant="secondary" :disabled="busy" @click="another">Link another</AppButton>
         </div>
 
         <div v-else-if="phase === 'expired'" role="alert" class="flex flex-wrap items-center gap-3">
@@ -246,7 +246,7 @@ onUnmounted(() => flow.leave());
             <div class="text-(--muted)">Codes last a few minutes. Get a new one and approve it in your panel.</div>
             <div v-if="startError" class="mt-1 text-(--destructive)">{{ errorText(startError) }}</div>
           </div>
-          <AppButton variant="primary" :disabled="starting" @click="start">Get a new code</AppButton>
+          <AppButton variant="primary" :disabled="starting || busy" @click="start">Get a new code</AppButton>
         </div>
       </div>
     </section>

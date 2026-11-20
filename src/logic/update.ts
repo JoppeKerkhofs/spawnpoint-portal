@@ -1,5 +1,6 @@
 import { ref, type Ref } from "vue";
 import { updateCheck, updateInstall } from "../api";
+import { op } from "./operation";
 import { normalizeError, type CommandError } from "./errors";
 
 export type Update =
@@ -41,9 +42,11 @@ export async function installUpdate(): Promise<void> {
   const version = availableVersion(update.value);
   if (!version || update.value.phase === "installing") return;
   update.value = { phase: "installing", version };
+  op.value = { phase: "preparing", name: "the update", step: 0, steps: 0, stage: "", done: 0, total: 0 };
   try {
     await updateInstall();
   } catch (e) {
+    op.value = { phase: "idle" };
     update.value = { phase: "failed", error: normalizeError(e), version };
   }
 }

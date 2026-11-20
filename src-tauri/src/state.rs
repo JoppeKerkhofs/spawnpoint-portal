@@ -69,17 +69,16 @@ pub fn claim<'a>(busy: &'a Mutex<HashSet<String>>, key: &str) -> CmdResult<Claim
     Ok(Claim { busy, key: key.to_string() })
 }
 
-pub fn refuse_while_playing(running: &Mutex<HashMap<String, u64>>) -> CmdResult<()> {
+pub fn may_install(running: &Mutex<HashMap<String, u64>>, busy: &Mutex<HashSet<String>>, pairing: &Mutex<Option<Kept>>) -> CmdResult<()> {
+    let refuse = |message: &str| Err(CommandError { kind: "busy".into(), message: message.into() });
     if !running.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
-        return Err(CommandError { kind: "busy".into(), message: "Close your game before updating.".into() });
+        return refuse("Close your game before updating.");
     }
-    Ok(())
-}
-
-pub fn may_install(running: &Mutex<HashMap<String, u64>>, busy: &Mutex<HashSet<String>>) -> CmdResult<()> {
-    refuse_while_playing(running)?;
     if !busy.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
-        return Err(CommandError { kind: "busy".into(), message: "Wait for the current task to finish.".into() });
+        return refuse("Wait for the current task to finish.");
+    }
+    if pairing.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+        return refuse("Finish or cancel linking the panel before updating.");
     }
     Ok(())
 }
@@ -290,18 +289,29 @@ mod tests {
     }
 
     #[test]
-    fn an_update_waits_for_games_and_tasks() {
+    fn an_update_waits_for_games_tasks_and_a_pairing() {
         let running = Mutex::new(HashMap::new());
         let busy = Mutex::new(HashSet::new());
-        assert!(may_install(&running, &busy).is_ok());
+        let pairing = Mutex::new(None);
+        let check = |running: &Mutex<HashMap<String, u64>>, busy: &Mutex<HashSet<String>>, pairing: &Mutex<Option<Kept>>| may_install(running, busy, pairing).err().map(|e| e.message);
+        assert_eq!(check(&running, &busy, &pairing), None);
+        let game = "Close your game before updating.";
+        let task = "Wait for the current task to finish.";
+        let link = "Finish or cancel linking the panel before updating.";
         busy.lock().unwrap().insert("atm10".to_string());
-        assert_eq!(may_install(&running, &busy).unwrap_err(), CommandError { kind: "busy".into(), message: "Wait for the current task to finish.".into() });
+        assert_eq!(check(&running, &busy, &pairing).as_deref(), Some(task));
         running.lock().unwrap().insert("atm10".to_string(), 100);
-        assert_eq!(may_install(&running, &busy).unwrap_err(), CommandError { kind: "busy".into(), message: "Close your game before updating.".into() });
+        assert_eq!(check(&running, &busy, &pairing).as_deref(), Some(game));
         busy.lock().unwrap().clear();
-        assert_eq!(may_install(&running, &busy).unwrap_err().message, "Close your game before updating.");
+        assert_eq!(check(&running, &busy, &pairing).as_deref(), Some(game));
         running.lock().unwrap().clear();
-        assert!(may_install(&running, &busy).is_ok());
+        *pairing.lock().unwrap() = Some(Kept { address: "https://panel.example.org".into(), pairing: Pairing { code: "7ABR547C".into(), secret: "s".into(), expires_at: "2026-11-20T14:10:00Z".into(), interval: 3 }, allow_http: false, number: 1 });
+        assert_eq!(check(&running, &busy, &pairing).as_deref(), Some(link));
+        busy.lock().unwrap().insert("pairing".to_string());
+        assert_eq!(check(&running, &busy, &pairing).as_deref(), Some(task));
+        busy.lock().unwrap().clear();
+        forget_pairing(&pairing, 1);
+        assert_eq!(check(&running, &busy, &pairing), None);
     }
 
     #[test]
