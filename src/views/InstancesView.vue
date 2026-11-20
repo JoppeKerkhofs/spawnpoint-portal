@@ -209,7 +209,7 @@ onMounted(load);
         <span class="w-[160px] shrink-0 min-[1000px]:w-[230px]">Comes from</span>
         <span class="w-[150px] shrink-0" />
       </div>
-      <div v-for="i in list!.instances" :key="i.id" class="row">
+      <div v-for="i in list!.instances" :key="i.id" class="row row-link" @click="openInstance(i.id)">
         <span v-if="blocky" class="flex w-[34px] shrink-0 items-center justify-center">
           <BlockCube :texture="instanceTexture(i)" :size="26" />
         </span>
@@ -228,7 +228,7 @@ onMounted(load);
           <KindBadge :kind="kindTone(i)">{{ kindOf(i) }}</KindBadge>
           <div class="mt-[3px] truncate text-xs text-(--muted)" :title="sourceText(i, knownPanels)">{{ sourceText(i, knownPanels) }}</div>
         </div>
-        <div class="flex w-[150px] shrink-0 justify-end gap-1.5">
+        <div class="flex w-[150px] shrink-0 justify-end gap-1.5" @click.stop>
           <AppButton variant="secondary" size="small" :aria-label="`Open ${i.name}`" @click="openInstance(i.id)">Open</AppButton>
           <AppButton variant="primary" size="small" icon="play" :disabled="button(i).disabled" :aria-label="button(i).aria" @click="play(i)">{{
             button(i).label

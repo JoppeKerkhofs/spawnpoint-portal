@@ -377,6 +377,8 @@ html[data-theme="blocky"] .badge { padding: 0 6px; border: 2px solid var(--borde
 .card-body { padding: 14px; }
 .row { display: flex; align-items: center; gap: 14px; min-height: 40px; padding: 10px 16px; border-top: 1px solid var(--divider); }
 .card-head + .row { border-top: 0; }
+.row-link { cursor: pointer; }
+.row-link:hover { background: var(--nav-hover); }
 html[data-theme="blocky"] .card-head { padding: 9px 16px; border-bottom: 3px solid var(--border); }
 html[data-theme="blocky"] .card > .card-head:not(:first-child) { border-top: 3px solid var(--border); }
 
