@@ -41,14 +41,9 @@ pub struct Installed {
     pub title: Option<String>,
     pub icon: Option<String>,
     pub update: bool,
+    pub disabled: bool,
     #[serde(skip)]
     hash: String,
-}
-
-impl Installed {
-    fn disabled(&self) -> bool {
-        self.file.to_lowercase().ends_with(".disabled")
-    }
 }
 
 #[derive(Debug, Serialize)]
@@ -197,7 +192,7 @@ pub async fn installed(client: &Client, api: &str, paths: &Paths, instance: &Ins
         let dir = instance::game_dir(&p, &i.id).join("mods");
         instance::mods(&p, &i)?
             .into_iter()
-            .map(|m| Ok(Installed { hash: sha512_cached(&dir.join(&m.name))?, file: m.name, managed: m.managed, project: None, title: None, icon: None, update: false }))
+            .map(|m| Ok(Installed { hash: sha512_cached(&dir.join(&m.name))?, disabled: m.name.to_lowercase().ends_with(".disabled"), file: m.name, managed: m.managed, project: None, title: None, icon: None, update: false }))
             .collect()
     })
     .await?;
@@ -217,7 +212,7 @@ pub async fn installed(client: &Client, api: &str, paths: &Paths, instance: &Ins
             let project = names.get(&k.project_id);
             jar.title = project.map(|p| p.title.clone());
             jar.icon = project.and_then(|p| p.icon_url.clone()).filter(|i| crate::panel::picture(i).is_some());
-            jar.update = !jar.managed && !jar.disabled() && newer.get(&jar.hash).is_some_and(|n| n.date_published > k.date_published);
+            jar.update = !jar.managed && !jar.disabled && newer.get(&jar.hash).is_some_and(|n| n.date_published > k.date_published);
             jar.project = Some(k.project_id.clone());
         }
     }
@@ -281,7 +276,7 @@ async fn put(client: &Client, api: &str, mods: &Path, target: (&str, &str), have
     if have.iter().any(|j| j.managed) {
         return Ok(Err("it comes from the pack, and the sync manages it".into()));
     }
-    if !have.is_empty() && have.iter().all(|j| j.disabled()) {
+    if !have.is_empty() && have.iter().all(|j| j.disabled) {
         return Ok(Err(format!("{} is in this instance but disabled.", have[0].title.as_deref().unwrap_or("It"))));
     }
     let params = [("loaders", json!([loader]).to_string()), ("game_versions", json!([minecraft]).to_string()), ("include_changelog", "false".into())];
@@ -313,7 +308,7 @@ async fn put(client: &Client, api: &str, mods: &Path, target: (&str, &str), have
     let item = Download { url: file.url.clone(), path: dest, hash: Some(Hash::Sha512(file.hashes.sha512.clone())), size: file.size, bearer: None };
     fetch(client, &item).await?;
     let mut kept = Vec::new();
-    for old in have.iter().filter(|j| !j.disabled() && !same_name(&j.file, &name)) {
+    for old in have.iter().filter(|j| !j.disabled && !same_name(&j.file, &name)) {
         let reason = match remove_if_unchanged(&mods.join(&old.file), &old.hash).await {
             Ok(true) => continue,
             Ok(false) => "you changed it meanwhile, so it was left in place".to_string(),
@@ -791,6 +786,8 @@ mod tests {
         let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI", &quiet()).await.unwrap();
         assert!(out.installed.is_empty());
         assert_eq!(out.failed[0].reason, "Sodium is in this instance but disabled.");
+        let seen = installed(&http_client(), &url, &w.paths, &w.inst).await.unwrap();
+        assert_eq!(seen.iter().map(|j| (j.file.as_str(), j.disabled)).collect::<Vec<_>>(), [("sodium.jar.disabled", true)]);
         assert_eq!((w.read("sodium.jar.disabled").unwrap(), w.read("sodium-new.jar")), (b"switched off".to_vec(), None));
         assert_eq!((file_hits.load(Ordering::SeqCst), requests(&heads, "/project/AANobbMI/version")), (0, 0));
 

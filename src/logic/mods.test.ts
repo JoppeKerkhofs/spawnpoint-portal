@@ -43,7 +43,7 @@ test('links and memory', () => {
   expect(memoryOptions([4096, 6144], 5120)).toEqual([4096, 5120, 6144])
 })
 
-const im = (extra: Partial<InstalledMod>): InstalledMod => ({ file: 'a.jar', managed: false, project: 'P1', title: 'Sodium', icon: null, update: false, ...extra })
+const im = (extra: Partial<InstalledMod>): InstalledMod => ({ file: 'a.jar', managed: false, project: 'P1', title: 'Sodium', icon: null, update: false, disabled: false, ...extra })
 test('which control a result gets', () => {
   expect(resultControl('P1', null)).toBe('install')
   expect(resultControl('P1', [])).toBe('install')
@@ -52,6 +52,10 @@ test('which control a result gets', () => {
   expect(resultControl('P1', [im({ update: true })])).toBe('update')
   expect(resultControl('P1', [im({ managed: true })])).toBe('pack')
   expect(resultControl('P1', [im({ update: true }), im({ file: 'b.jar', managed: true })])).toBe('pack')
+  expect(resultControl('P1', [im({ file: 'a.jar.disabled', disabled: true })])).toBe('disabled')
+  expect(resultControl('P1', [im({ file: 'a.jar.disabled', disabled: true }), im({ file: 'b.jar' })])).toBe('installed')
+  expect(resultControl('P1', [im({ file: 'a.jar.disabled', disabled: true }), im({ file: 'b.jar', update: true })])).toBe('update')
+  expect(resultControl('P1', [im({ file: 'a.jar.disabled', disabled: true, managed: true })])).toBe('pack')
 })
 test('which mod gets an Update button', () => {
   const known = [im({ file: 'a.jar', update: true }), im({ file: 'b.jar', update: false }), im({ file: 'c.jar', update: true, project: null }), im({ file: 'p.jar', update: true, managed: true })]

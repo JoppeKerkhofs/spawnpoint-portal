@@ -92,6 +92,7 @@ onUnmounted(() => clearTimeout(timer));
           <template v-for="control in [resultControl(h.project_id, installed)]" :key="control">
             <KindBadge v-if="control === 'pack'" kind="pack">From the pack</KindBadge>
             <KindBadge v-else-if="control === 'installed'" kind="own">Installed</KindBadge>
+            <KindBadge v-else-if="control === 'disabled'" kind="hand">Disabled</KindBadge>
             <AppButton
               v-else
               variant="secondary"

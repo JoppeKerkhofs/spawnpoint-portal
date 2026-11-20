@@ -56,12 +56,13 @@ export function deleteBody(i: Instance, mods: ModFile[] | null): string {
 export const memoryOptions = (choices: number[], current: number): number[] =>
   [...new Set([...choices, current])].sort((a, b) => a - b);
 
-export type ResultControl = "install" | "pack" | "installed" | "update";
+export type ResultControl = "install" | "pack" | "installed" | "update" | "disabled";
 
 export function resultControl(project: string, installed: InstalledMod[] | null): ResultControl {
   const mine = (installed ?? []).filter((m) => m.project === project);
   if (mine.some((m) => m.managed)) return "pack";
   if (mine.length === 0) return "install";
+  if (mine.every((m) => m.disabled)) return "disabled";
   return mine.some((m) => m.update) ? "update" : "installed";
 }
 

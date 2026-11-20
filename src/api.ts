@@ -86,6 +86,7 @@ export interface InstalledMod {
   title: string | null;
   icon: string | null;
   update: boolean;
+  disabled: boolean;
 }
 
 export interface ModInstall {
