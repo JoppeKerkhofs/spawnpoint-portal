@@ -46,7 +46,7 @@ import {
   skippedName,
   type ModFilter,
 } from "../logic/mods";
-import { lastPlayed, markPlaying, op, openInstanceId, playing, view, withProgress } from "../logic/operation";
+import { afterJoin, lastPlayed, markPlaying, op, openInstanceId, playing, view, withProgress } from "../logic/operation";
 import { instanceTexture } from "../logic/visuals";
 
 const id = openInstanceId.value ?? "";
@@ -230,6 +230,8 @@ onUnmounted(() => (lastPlayed.value = null));
         </section>
       </Note>
       <Note v-else-if="checkedClear" kind="info" icon="check" role="status" class="note-ok">All files are in place. {{ instance.name }} is ready to play.</Note>
+
+      <Note v-if="afterJoin?.instance === instance.id" kind="info" role="note">{{ afterJoin.text }}</Note>
 
       <Note v-for="path in instance.skipped" :key="path" kind="info" role="note" aria-label="Skipped file">
         The last sync left one pack file out: <span class="mono font-bold">{{ skippedName(path) }}</span>. Your own file with the same name is in its place, and Portal never

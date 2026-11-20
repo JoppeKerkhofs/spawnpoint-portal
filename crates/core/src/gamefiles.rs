@@ -127,7 +127,9 @@ pub fn copy_missing(copies: &[(PathBuf, PathBuf)], game_dir: Option<&Path>) -> R
             }
         }
         std::fs::create_dir_all(to.parent().unwrap_or(to))?;
-        std::fs::copy(from, to)?;
+        let part = crate::download::part_path(to);
+        std::fs::copy(from, &part)?;
+        std::fs::rename(&part, to)?;
     }
     Ok(())
 }
@@ -302,5 +304,17 @@ mod tests {
         assert_eq!(std::fs::read(&fresh).unwrap(), b"object");
         copy_missing(&copies, None).unwrap();
         assert_eq!(std::fs::read(&kept).unwrap(), b"object");
+    }
+
+    #[test]
+    fn a_copy_goes_through_a_part_file() {
+        let dir = crate::download::testing::tmp_dir();
+        let (from, to) = (dir.join("h"), dir.join("game").join("resources").join("a.png"));
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::write(&from, b"object").unwrap();
+        std::fs::write(crate::download::part_path(&to), b"cut off by a crash, longer than the object").unwrap();
+        copy_missing(&[(from, to.clone())], Some(&dir.join("game"))).unwrap();
+        assert_eq!(std::fs::read(&to).unwrap(), b"object");
+        assert!(!crate::download::part_path(&to).exists());
     }
 }

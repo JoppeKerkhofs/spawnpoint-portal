@@ -189,8 +189,11 @@ async fn join_server(target: &str, profile: Profile) -> Result<()> {
     let (client, paths) = (http_client(), Paths::new()?);
     let (panel, slug) = join::parse_target(target, &panel::list(&paths)?)?;
     let p = paths.clone();
-    let (mut child, instance, manual) = with_progress(|tx| async move { join::join(&client, &p, &panel, &slug, profile, &tx).await }).await?;
+    let (mut child, instance, manual, joined) = with_progress(|tx| async move { join::join(&client, &p, &panel, &slug, profile, &tx).await }).await?;
     print_manual(&paths, &instance, &manual);
+    if !joined {
+        println!("{}", join::NO_JOIN_NOTE);
+    }
     println!("started, pid {}", child.id());
     let code = wait_and_record(&paths, &instance.id, &mut child)?;
     std::process::exit(code);
@@ -257,7 +260,7 @@ async fn run(args: &[String]) -> Result<()> {
         [cmd, sub, name, version, rest @ ..] if cmd == "instance" && sub == "create" => {
             let (client, paths) = (http_client(), Paths::new()?);
             let loader = match loader_option(rest)? {
-                Some(l) => Some(loader::resolve(&client, version, &l).await?),
+                Some(l) => Some(loader::resolve_new(&client, version, &l).await?),
                 None => None,
             };
             println!("{}", instance::create(&paths, name, version, loader, Source::Manual)?.id);
@@ -310,7 +313,7 @@ async fn run(args: &[String]) -> Result<()> {
             let instance = instance::load(&paths, id)?;
             let memory = memory.unwrap_or(instance.memory_mb());
             let p = paths.clone();
-            let mut child = with_progress(|tx| async move {
+            let (mut child, _) = with_progress(|tx| async move {
                 let tx = numbered(launch_stages(instance.loader.as_ref().map(|l| l.kind)), tx);
                 start_instance(&client, &p, &instance, profile, server, memory, &tx).await
             }).await?;

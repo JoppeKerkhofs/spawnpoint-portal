@@ -11,6 +11,9 @@ export const playerName: Ref<string> = ref("");
 // Set by the One instance view for the status bar's idle text; null elsewhere.
 export const lastPlayed: Ref<string | null> = ref(null);
 
+// What the One instance view says after a join; tied to the instance it was for.
+export const afterJoin: Ref<{ instance: string; text: string } | null> = ref(null);
+
 export function openInstance(id: string): void {
   openInstanceId.value = id;
   view.value = "instance";

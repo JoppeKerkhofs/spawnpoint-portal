@@ -95,7 +95,12 @@ export const instanceRemoveMod = (id: string, name: string) => invoke<void>("ins
 export const instanceSetMemory = (id: string, mb: number) => invoke<Instance>("instance_set_memory", { id, mb });
 export const instanceCheckManual = (id: string) => invoke<Instance>("instance_check_manual", { id });
 export const instanceLaunch = (id: string) => invoke<Instance>("instance_launch", { id });
-export const join = (panelId: string, slug: string) => invoke<Instance>("join", { panelId, slug });
+export interface Joined {
+  instance: Instance;
+  joined: boolean;
+}
+
+export const join = (panelId: string, slug: string) => invoke<Joined>("join", { panelId, slug });
 export interface Defaults {
   memory_choices_mb: number[];
   default_memory_mb: number;

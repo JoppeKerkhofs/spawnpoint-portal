@@ -4,6 +4,9 @@ import type { Op, Playing } from "./operation";
 
 export type ServersState = "loading" | "none-linked" | "none-answered" | "filled";
 
+export const joinNote = (joined: boolean): string | null =>
+  joined ? null : "This Minecraft version can't join a server by itself. Add the server in the game's multiplayer list.";
+
 export const serverKey = (panelId: string, slug: string) => `${panelId}/${slug}`;
 
 export function serversState(list: PanelServers[] | null): ServersState {

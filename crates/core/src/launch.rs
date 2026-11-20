@@ -97,6 +97,11 @@ fn game_assets(paths: &Paths, version: &VersionJson, game_dir: &Path) -> String 
 }
 
 pub fn arguments(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> Result<Vec<String>> {
+    Ok(arguments_joined(paths, version, opts)?.0)
+}
+
+// The flag says whether the game was given the server to join.
+pub fn arguments_joined(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> Result<(Vec<String>, bool)> {
     let legacy;
     let args = match (&version.arguments, &version.minecraft_arguments) {
         (Some(args), _) => args,
@@ -159,7 +164,7 @@ pub fn arguments(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> 
     if let (Some(host), false, true) = (&opts.server, quick_play, named) {
         out.extend(["--server".into(), host.clone(), "--port".into(), "25565".into()]);
     }
-    Ok(out)
+    Ok((out, opts.server.is_some() && (quick_play || named)))
 }
 
 pub fn extract_natives(paths: &Paths, version: &VersionJson) -> Result<()> {
@@ -355,6 +360,14 @@ mod tests {
             let want = ["Steve", &format!("token:0:{uuid}"), "--gameDir", r"C:\games\my instance", "--assetsDir", r"C:\games\my instance\resources"];
             assert_eq!(a[main + 1..], want, "{id}");
         }
+    }
+
+    #[test]
+    fn the_launch_says_whether_the_server_was_passed() {
+        let joined = |id: &str, server| arguments_joined(&paths(), &v(id), &opts(server)).unwrap().1;
+        assert!(joined("1.6.2", Some("h")) && joined("1.12.2", Some("h")) && joined("1.21.1", Some("h")));
+        assert!(!joined("1.5.2", Some("h")) && !joined("1.0", Some("h")));
+        assert!(!joined("1.6.2", None) && !joined("1.21.1", None));
     }
 
     #[test]

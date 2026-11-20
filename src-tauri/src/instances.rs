@@ -79,7 +79,7 @@ pub async fn instance_mods(state: State<'_, AppState>, id: String) -> CmdResult<
 #[tauri::command]
 pub async fn instance_create(state: State<'_, AppState>, name: String, minecraft: String, loader: Option<String>) -> CmdResult<Instance> {
     let loader = match loader {
-        Some(text) => Some(loader::resolve(&state.client, &minecraft, &Loader::parse(&text)?).await?),
+        Some(text) => Some(loader::resolve_new(&state.client, &minecraft, &Loader::parse(&text)?).await?),
         None => None,
     };
     Ok(instance::create_manual(&state.paths, &name, &minecraft, loader)?)
@@ -136,15 +136,21 @@ pub async fn instance_launch(app: AppHandle, state: State<'_, AppState>, id: Str
     let profile = Profile::offline(&settings::load(&state.paths).player_name);
     let stages = play::launch_stages(inst.loader.as_ref().map(|l| l.kind));
     let progress = numbered(stages, forwarder(&app));
-    let child = play::start_instance(&state.client, &state.paths, &inst, profile, None, inst.memory_mb(), &progress).await?;
+    let (child, _) = play::start_instance(&state.client, &state.paths, &inst, profile, None, inst.memory_mb(), &progress).await?;
     watch(app, state.paths.clone(), id, child);
     drop(lock);
     drop(claim);
     Ok(inst)
 }
 
+#[derive(Debug, Serialize)]
+pub struct Joined {
+    pub instance: Instance,
+    pub joined: bool,
+}
+
 #[tauri::command]
-pub async fn join(app: AppHandle, state: State<'_, AppState>, panel_id: String, slug: String) -> CmdResult<Instance> {
+pub async fn join(app: AppHandle, state: State<'_, AppState>, panel_id: String, slug: String) -> CmdResult<Joined> {
     let _claim = claim(&state.busy, &format!("join:{panel_id}/{slug}"))?;
     let existing = core_join::find_instance(&state.paths, &panel_id, &slug)?;
     let _instance_claim = match &existing {
@@ -160,9 +166,9 @@ pub async fn join(app: AppHandle, state: State<'_, AppState>, panel_id: String, 
         .find(|p| p.id == panel_id)
         .ok_or_else(|| Error::Other(format!("no linked panel {panel_id}")))?;
     let profile = Profile::offline(&settings::load(&state.paths).player_name);
-    let (child, inst, _) = core_join::join(&state.client, &state.paths, &linked, &slug, profile, &forwarder(&app)).await?;
-    watch(app, state.paths.clone(), inst.id.clone(), child);
-    Ok(inst)
+    let (child, instance, _, joined) = core_join::join(&state.client, &state.paths, &linked, &slug, profile, &forwarder(&app)).await?;
+    watch(app, state.paths.clone(), instance.id.clone(), child);
+    Ok(Joined { instance, joined })
 }
 
 #[tauri::command]

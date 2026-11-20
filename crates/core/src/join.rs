@@ -71,7 +71,7 @@ async fn prepare(client: &Client, paths: &Paths, panel: &Panel, server: &Server)
     let (pack_ref, resolved) = pack.unzip();
     let mut wanted = desired(panel, server, resolved, mods)?;
     if let Some(l) = &wanted.loader {
-        wanted.loader = Some(loader::resolve(client, &wanted.minecraft, l).await?);
+        wanted.loader = Some(loader::resolve_new(client, &wanted.minecraft, l).await?);
     }
     Ok((wanted, pack_ref))
 }
@@ -122,6 +122,8 @@ async fn sync_numbered(
     }
 }
 
+pub const NO_JOIN_NOTE: &str = "This Minecraft version can't join a server by itself. Add the server in the game's multiplayer list.";
+
 pub async fn join(
     client: &Client,
     paths: &Paths,
@@ -129,13 +131,13 @@ pub async fn join(
     slug: &str,
     profile: Profile,
     progress: &ProgressTx,
-) -> Result<(std::process::Child, Instance, Vec<Manual>)> {
+) -> Result<(std::process::Child, Instance, Vec<Manual>, bool)> {
     let (instance, server, manual, progress) = sync_numbered(client, paths, panel, slug, true, progress).await?;
     let _lock = instance::lock(&instance.id)?;
     check_host(&server.hostname)?;
     skip_onboarding(&instance::game_dir(paths, &instance.id))?;
-    let child = play::start_instance(client, paths, &instance, profile, Some(server.hostname), instance.memory_mb(), &progress).await?;
-    Ok((child, instance, manual))
+    let (child, joined) = play::start_instance(client, paths, &instance, profile, Some(server.hostname), instance.memory_mb(), &progress).await?;
+    Ok((child, instance, manual, joined))
 }
 
 // Minecraft shows an accessibility screen on a first start and only then runs quick play.

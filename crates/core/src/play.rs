@@ -1,8 +1,8 @@
 use crate::download::{Progress, ProgressTx, blocking};
 use crate::gamefiles::{install, version_json};
 use crate::instance::{self, Instance};
-use crate::launch::{arguments, command, extract_natives, supported, LaunchOptions, Profile};
-use crate::loader::{profile, resolve, Loader, LoaderKind};
+use crate::launch::{arguments, arguments_joined, command, extract_natives, supported, LaunchOptions, Profile};
+use crate::loader::{forge_supported, profile, resolve, Loader, LoaderKind};
 use crate::version::merge;
 use crate::{java, Paths, Result};
 use reqwest::Client;
@@ -29,10 +29,13 @@ pub fn launch_stages(loader: Option<LoaderKind>) -> Vec<&'static str> {
     stages
 }
 
-pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progress: &ProgressTx) -> Result<std::process::Child> {
+pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progress: &ProgressTx) -> Result<(std::process::Child, bool)> {
     let version = version_json(client, paths, &request.minecraft).await?;
     if version.kind.as_deref().is_some_and(|k| !supported(k)) {
         return Err(crate::Error::Unsupported("Minecraft alpha and beta versions are not supported".into()));
+    }
+    if let (Some(Loader { kind: LoaderKind::Forge, .. }), Some(time)) = (&request.loader, &version.release_time) {
+        forge_supported(time)?;
     }
     let game_dir = std::path::absolute(&request.game_dir)?;
     let opts = LaunchOptions {
@@ -60,12 +63,12 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
         Some(_) => return Err(crate::Error::Other("the loader has no version after resolving".into())),
         None => version,
     };
-    let args = arguments(paths, &version, &opts)?;
+    let (args, joined) = arguments_joined(paths, &version, &opts)?;
     let _ = progress.send(Progress { step: 0, steps: 0, stage: "starting".into(), done: 0, total: 0 });
     let (root, extracting) = (paths.clone(), version.clone());
     blocking(move || extract_natives(&root, &extracting)).await?;
     std::fs::create_dir_all(&game_dir)?;
-    Ok(command(&javaw, &args, &game_dir).spawn()?)
+    Ok((command(&javaw, &args, &game_dir).spawn()?, joined))
 }
 
 pub async fn start_instance(
@@ -76,7 +79,7 @@ pub async fn start_instance(
     server: Option<String>,
     memory_mb: u32,
     progress: &ProgressTx,
-) -> Result<std::process::Child> {
+) -> Result<(std::process::Child, bool)> {
     let request = StartRequest {
         minecraft: instance.minecraft.clone(),
         game_dir: instance::game_dir(paths, &instance.id),

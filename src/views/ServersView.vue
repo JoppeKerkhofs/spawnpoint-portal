@@ -23,8 +23,8 @@ import Tile from "../components/Tile.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { andList, errorText, minecraftText } from "../logic/format";
 import { look } from "../logic/look";
-import { markPlaying, op, openInstance, playing, view, withProgress } from "../logic/operation";
-import { joinButton, playersText, runsText, serverKey, serversState, serversSummary } from "../logic/servers";
+import { afterJoin, markPlaying, op, openInstance, playing, view, withProgress } from "../logic/operation";
+import { joinButton, joinNote, playersText, runsText, serverKey, serversState, serversSummary } from "../logic/servers";
 import { serverPill, serverTexture } from "../logic/visuals";
 
 const state = computed(() => serversState(list.value));
@@ -50,10 +50,13 @@ async function load() {
 const button = (panel: Panel, s: Server) => joinButton(s, serverKey(panel.id, s.slug), op.value, opKey.value, playing.value);
 
 async function doJoin(panel: Panel, s: Server) {
-  const instance = await withProgress(s.name, () => join(panel.id, s.slug), serverKey(panel.id, s.slug));
-  if (!instance) return;
+  const done = await withProgress(s.name, () => join(panel.id, s.slug), serverKey(panel.id, s.slug));
+  if (!done) return;
+  const { instance, joined } = done;
   markPlaying(instance, s.hostname);
-  if (instance.manual.length > 0) openInstance(instance.id);
+  const text = joinNote(joined);
+  afterJoin.value = text ? { instance: instance.id, text } : null;
+  if (instance.manual.length > 0 || text) openInstance(instance.id);
 }
 
 onMounted(load);

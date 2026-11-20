@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { PanelServers, Players, Server } from "../api";
 import type { Playing } from "./operation";
-import { joinButton, playersText, runsText, serversState, serversSummary } from "./servers";
+import { joinButton, joinNote, playersText, runsText, serversState, serversSummary } from "./servers";
 import { minecraftText } from "./format";
 
 const srv = (extra: Partial<Server> = {}): Server => ({
@@ -59,4 +59,9 @@ test("join button", () => {
   expect(joinButton(srv({ name: "Survival" }), "p/survival", starting, "p/survival", [])).toMatchObject({ label: "Starting…", disabled: true, hint: "Already starting" });
   expect(joinButton(srv({ name: "Main" }), "p/main", idle, null, [playingOn("p/main")])).toMatchObject({ label: "Playing", disabled: true });
   expect(joinButton(srv({ name: "Survival" }), "p/survival", idle, null, [playingOn("p/main")])).toMatchObject({ label: "Join", disabled: false });
+});
+
+test("a game that was not given the server says so after the join", () => {
+  expect(joinNote(true)).toBeNull();
+  expect(joinNote(false)).toBe("This Minecraft version can't join a server by itself. Add the server in the game's multiplayer list.");
 });

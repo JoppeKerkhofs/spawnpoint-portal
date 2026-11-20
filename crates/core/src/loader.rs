@@ -64,11 +64,16 @@ pub fn forge_supported(release_time: &str) -> Result<()> {
     }
 }
 
-pub async fn resolve(client: &Client, minecraft: &str, loader: &Loader) -> Result<Loader> {
-    check_id(minecraft)?;
+// For a new instance: no version JSON is loaded yet, so the manifest says whether Forge can exist.
+pub async fn resolve_new(client: &Client, minecraft: &str, loader: &Loader) -> Result<Loader> {
     if loader.kind == LoaderKind::Forge {
         forge_supported(&gamefiles::find(&gamefiles::manifest(client).await?, minecraft)?.release_time)?;
     }
+    resolve(client, minecraft, loader).await
+}
+
+pub async fn resolve(client: &Client, minecraft: &str, loader: &Loader) -> Result<Loader> {
+    check_id(minecraft)?;
     let version = match &loader.version {
         Some(v) => v.clone(),
         None if loader.kind == LoaderKind::Fabric => fabric::newest_version(client, minecraft).await?,
@@ -105,6 +110,13 @@ mod tests {
         assert!(resolve(&c, "1.21.1", &given("21.1.1#a")).await.is_err());
         assert!(resolve(&c, "1%2e", &given("21.1.1")).await.is_err());
         assert!(resolve(&c, "1.21.1", &given("..")).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_pinned_forge_resolve_makes_no_request() {
+        let dead = reqwest::Client::builder().proxy(reqwest::Proxy::all("http://127.0.0.1:1").unwrap()).build().unwrap();
+        let pinned = Loader { kind: LoaderKind::Forge, version: Some("7.8.1.738".into()) };
+        assert_eq!(resolve(&dead, "1.5.2", &pinned).await.unwrap(), pinned);
     }
 
     #[test]
