@@ -76,10 +76,17 @@ pub fn end_run(running: &Mutex<HashSet<String>>, id: &str, work: impl FnOnce()) 
 }
 
 pub fn safe_url(url: &str) -> CmdResult<&str> {
-    if url.starts_with("https://") {
+    let refuse = || CommandError { kind: "other".into(), message: "only https pages are opened".into() };
+    let rest = url.strip_prefix("https://").ok_or_else(refuse)?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let (host, port) = authority.split_once(':').unwrap_or((authority, "0"));
+    let plain = host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
+    let port_ok = !port.is_empty() && port.len() <= 5 && port.bytes().all(|b| b.is_ascii_digit());
+    let clean = !url.chars().any(|c| c == '@' || c.is_whitespace() || c.is_control());
+    if clean && plain && port_ok && !host.is_empty() && !host.starts_with(['-', '.']) {
         Ok(url)
     } else {
-        Err(CommandError { kind: "other".into(), message: "only https pages are opened".into() })
+        Err(refuse())
     }
 }
 
@@ -146,6 +153,9 @@ pub fn forward_progress(emit: impl Fn(Progress) + Send + 'static) -> ProgressTx 
                 rx.recv().await
             };
             let Some(p) = next else { break };
+            if let Some(h) = held.take_if(|h| (h.step, &h.stage) != (p.step, &p.stage)) {
+                emit(h);
+            }
             if throttle.admit(&p, start.elapsed().as_millis() as u64) {
                 held = None;
                 emit(p);
@@ -193,7 +203,10 @@ mod tests {
     #[test]
     fn only_https_is_opened() {
         assert!(safe_url("https://www.curseforge.com/minecraft/mc-mods/x").is_ok());
-        for bad in ["http://x", "file:///C:/Windows/System32/calc.exe", "javascript:alert(1)", r"C:\x.exe", "", "HTTPS:evil", " https://x"] {
+        for good in ["https://example.org", "https://example.org:8443/a?b=c#d", "https://www.curseforge.com/minecraft/mc-mods/x"] {
+            assert!(safe_url(good).is_ok(), "{good}");
+        }
+        for bad in ["https://", "https:///x", "https://@evil.org", "https://user@evil.org/", "https://good.org@evil.org", "https://a b.org", "https://a.org/x y", "https://a.org/\u{1}", r"https://a.org\@b.org","https://:443", "https://a.org:", "https://a.org:44x", "https://-a.org", "https://[::1]/", "http://x", "file:///C:/Windows/System32/calc.exe", "javascript:alert(1)", r"C:\x.exe", "", "HTTPS:evil", " https://x"] {
             assert!(safe_url(bad).is_err(), "{bad}");
         }
     }
@@ -251,6 +264,23 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         assert_eq!(*seen.lock().unwrap(), ["a", "b", "c"]);
+    }
+
+    #[tokio::test]
+    async fn the_last_event_of_a_stage_survives_the_next_stage() {
+        let seen = Arc::new(Mutex::new(Vec::<(String, u64)>::new()));
+        let sink = seen.clone();
+        let tx = forward_progress(move |p| sink.lock().unwrap().push((p.stage, p.done)));
+        for done in 1..=1204 {
+            tx.send(Progress { done, total: 1204, ..ev(2, "mods") }).unwrap();
+        }
+        tx.send(ev(3, "java")).unwrap();
+        drop(tx);
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let seen = seen.lock().unwrap();
+        let n = seen.len();
+        assert_eq!(seen[n - 2], ("mods".to_string(), 1204));
+        assert_eq!(seen[n - 1], ("java".to_string(), 0));
     }
 
     #[tokio::test]

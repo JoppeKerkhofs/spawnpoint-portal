@@ -25,6 +25,7 @@ pub fn run() {
             instances::instance_launch,
             instances::join,
             instances::running,
+            instances::defaults,
             instances::minecraft_versions,
             instances::open_mods_folder,
             instances::open_instance_folder,

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::launch::DEFAULT_MEMORY_MB;
 use crate::loader::Loader;
-use crate::paths::check_relative;
+use crate::paths::{check_id, check_relative};
 use crate::sync::{Manual, safe_path};
 use crate::{Error, Paths, Result};
 
@@ -127,6 +127,11 @@ pub fn create(
         }
     }
     unreachable!()
+}
+
+pub fn create_manual(paths: &Paths, name: &str, minecraft: &str, loader: Option<Loader>) -> Result<Instance> {
+    check_id(minecraft)?;
+    create(paths, name, minecraft, loader, Source::Manual)
 }
 
 pub fn load(paths: &Paths, id: &str) -> Result<Instance> {
@@ -383,6 +388,16 @@ mod tests {
         assert!(load(&p, "../my-pack-2").is_err());
         assert!(delete(&p, "..").is_err());
         assert!(delete(&p, "My Pack").is_err());
+    }
+
+    #[test]
+    fn a_manual_instance_needs_a_valid_version() {
+        let (_t, p) = tmp();
+        for bad in ["", "..", "1.21 1", "1/21"] {
+            assert!(create_manual(&p, "A", bad, None).is_err(), "{bad:?}");
+        }
+        assert!(list(&p).unwrap().is_empty());
+        assert_eq!(create_manual(&p, "A", "1.21.1", None).unwrap().source, Source::Manual);
     }
 
     #[test]

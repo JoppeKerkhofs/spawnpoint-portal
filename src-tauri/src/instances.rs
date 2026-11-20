@@ -1,7 +1,7 @@
 use crate::state::{AppState, CmdResult, CommandError, claim, end_run, forward_progress, refuse_if_running};
 use portal_core::download::numbered;
-use portal_core::instance::{self, Instance, Listing, ModFile, Source};
-use portal_core::launch::Profile;
+use portal_core::instance::{self, Instance, Listing, ModFile};
+use portal_core::launch::{DEFAULT_MEMORY_MB, Profile};
 use portal_core::loader::{self, Loader};
 use portal_core::{Error, Paths, gamefiles, join as core_join, panel, play, settings};
 use serde::Serialize;
@@ -15,6 +15,21 @@ use tauri_plugin_opener::OpenerExt;
 pub struct GameExited {
     pub instance: String,
     pub code: Option<i32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Defaults {
+    pub memory_choices_mb: Vec<u32>,
+    pub default_memory_mb: u32,
+}
+
+fn defaults_value() -> Defaults {
+    Defaults { memory_choices_mb: instance::MEMORY_CHOICES_MB.to_vec(), default_memory_mb: DEFAULT_MEMORY_MB }
+}
+
+#[tauri::command]
+pub async fn defaults() -> CmdResult<Defaults> {
+    Ok(defaults_value())
 }
 
 fn now_secs() -> u64 {
@@ -67,14 +82,16 @@ pub async fn instance_create(state: State<'_, AppState>, name: String, minecraft
         Some(text) => Some(loader::resolve(&state.client, &minecraft, &Loader::parse(&text)?).await?),
         None => None,
     };
-    Ok(instance::create(&state.paths, &name, &minecraft, loader, Source::Manual)?)
+    Ok(instance::create_manual(&state.paths, &name, &minecraft, loader)?)
 }
 
 #[tauri::command]
 pub async fn instance_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     let _claim = claim(&state.busy, &id)?;
     refuse_if_running(&state.running, &id)?;
-    Ok(instance::delete(&state.paths, &id)?)
+    let paths = state.paths.clone();
+    tokio::task::spawn_blocking(move || instance::delete(&paths, &id)).await.map_err(|e| Error::Other(e.to_string()))??;
+    Ok(())
 }
 
 #[tauri::command]
@@ -176,6 +193,12 @@ pub async fn open_instance_folder(app: AppHandle, state: State<'_, AppState>, id
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn defaults_come_from_the_core() {
+        let v = serde_json::to_value(defaults_value()).unwrap();
+        assert_eq!(v, serde_json::json!({ "memory_choices_mb": [4096, 6144, 8192, 10240], "default_memory_mb": 4096 }));
+    }
 
     #[test]
     fn seconds_played_never_goes_below_zero() {

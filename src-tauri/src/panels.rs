@@ -1,4 +1,4 @@
-use crate::state::{AppState, CmdResult, CommandError, Kept, PairingView, safe_url};
+use crate::state::{AppState, CmdResult, CommandError, Kept, PairingView, claim, safe_url};
 use portal_core::join::all_servers;
 use portal_core::panel::{self, Panel, Server};
 use portal_core::settings::{self, Settings};
@@ -12,6 +12,16 @@ pub struct PanelServers {
     pub panel: Panel,
     pub servers: Vec<Server>,
     pub error: Option<CommandError>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Linked {
+    pub panel: Panel,
+    pub missing: Vec<String>,
+}
+
+fn linked(panel: Panel, abilities: &[String]) -> Linked {
+    Linked { panel, missing: panel::missing_abilities(abilities).into_iter().map(String::from).collect() }
 }
 
 fn panel_servers(results: Vec<(Panel, Result<Vec<Server>>)>) -> Vec<PanelServers> {
@@ -57,7 +67,8 @@ pub async fn open_pairing_page(app: AppHandle, state: State<'_, AppState>) -> Cm
 }
 
 #[tauri::command]
-pub async fn panel_pair_poll(state: State<'_, AppState>) -> CmdResult<Option<Panel>> {
+pub async fn panel_pair_poll(state: State<'_, AppState>) -> CmdResult<Option<Linked>> {
+    let Ok(_polling) = claim(&state.busy, "pairing") else { return Ok(None) };
     let (address, pairing, allow_http) = match &*state.pairing.lock().unwrap_or_else(|e| e.into_inner()) {
         Some(k) => (k.address.clone(), k.pairing.clone(), k.allow_http),
         None => return Err(Error::Other("no pairing is running".into()).into()),
@@ -65,7 +76,7 @@ pub async fn panel_pair_poll(state: State<'_, AppState>) -> CmdResult<Option<Pan
     let Some(granted) = panel::pair_poll(&address, &pairing).await? else { return Ok(None) };
     let added = panel::add(&state.paths, &address, panel::host(&address), &granted.token, allow_http)?;
     *state.pairing.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    Ok(Some(added))
+    Ok(Some(linked(added, &granted.abilities)))
 }
 
 #[tauri::command]
@@ -102,6 +113,15 @@ mod tests {
 
     fn panel(id: &str) -> Panel {
         Panel { id: id.into(), address: format!("https://{id}.example.org"), name: id.into() }
+    }
+
+    #[test]
+    fn a_linked_panel_reports_the_missing_abilities_and_nothing_else() {
+        let l = linked(panel("a"), &["servers:read".to_string()]);
+        let json = serde_json::to_value(&l).unwrap();
+        assert_eq!(json["missing"], serde_json::json!(["servers:join"]));
+        assert_eq!(json.as_object().unwrap().len(), 2);
+        assert!(linked(panel("a"), &["servers:read".to_string(), "servers:join".to_string()]).missing.is_empty());
     }
 
     #[test]

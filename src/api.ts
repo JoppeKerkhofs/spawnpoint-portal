@@ -1,10 +1,14 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { normalizeError } from "./logic/errors";
 
-export interface CommandError {
-  kind: string;
-  message: string;
-}
+export type { CommandError } from "./logic/errors";
+import type { CommandError } from "./logic/errors";
+
+const invoke = <T>(command: string, args?: Record<string, unknown>): Promise<T> =>
+  tauriInvoke<T>(command, args).catch((e) => {
+    throw normalizeError(e);
+  });
 
 export interface LastPlayed {
   started_at: number;
@@ -92,6 +96,12 @@ export const instanceSetMemory = (id: string, mb: number) => invoke<Instance>("i
 export const instanceCheckManual = (id: string) => invoke<Instance>("instance_check_manual", { id });
 export const instanceLaunch = (id: string) => invoke<Instance>("instance_launch", { id });
 export const join = (panelId: string, slug: string) => invoke<Instance>("join", { panelId, slug });
+export interface Defaults {
+  memory_choices_mb: number[];
+  default_memory_mb: number;
+}
+
+export const defaults = () => invoke<Defaults>("defaults");
 export const running = () => invoke<string[]>("running");
 export const minecraftVersions = () => invoke<string[]>("minecraft_versions");
 export const openModsFolder = (id: string) => invoke<void>("open_mods_folder", { id });
@@ -150,6 +160,11 @@ export interface PairingView {
   interval: number;
 }
 
+export interface Linked {
+  panel: Panel;
+  missing: string[];
+}
+
 export interface Settings {
   player_name: string;
 }
@@ -159,7 +174,7 @@ export const panels = () => invoke<Panel[]>("panels");
 export const panelPairStart = (address: string, allowHttp: boolean) =>
   invoke<PairingView>("panel_pair_start", { address, allowHttp });
 export const openPairingPage = () => invoke<void>("open_pairing_page");
-export const panelPairPoll = () => invoke<Panel | null>("panel_pair_poll");
+export const panelPairPoll = () => invoke<Linked | null>("panel_pair_poll");
 export const panelPairCancel = () => invoke<void>("panel_pair_cancel");
 export const panelRemove = (id: string) => invoke<void>("panel_remove", { id });
 export const settingsGet = () => invoke<Settings>("settings_get");
