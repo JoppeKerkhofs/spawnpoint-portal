@@ -574,6 +574,10 @@ html[data-theme="blocky"] .side-name { font-family: var(--font-heading); font-we
 html[data-theme="blocky"] .head h1 { text-shadow: 3px 3px 0 var(--title-shadow); }
 .head-summary { margin: 4px 0 0; font-size: 15px; color: var(--muted); }
 .head.is-centred { align-items: center; }
+.head.is-centred .head-text { flex-basis: 340px; }
+.pick-picture { display: block; cursor: pointer; }
+.pick-picture:hover { opacity: 0.8; }
+.pick-picture:has(:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 .head-back { flex: 0 0 100%; }
 .head-lead { flex: none; }
 .head-actions { display: flex; flex-wrap: wrap; gap: 8px; }

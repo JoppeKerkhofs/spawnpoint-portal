@@ -257,12 +257,15 @@ onUnmounted(() => {
       </button>
     </template>
     <template v-if="instance" #lead>
+      <label class="pick-picture" title="Change picture">
+        <input ref="pictureInput" type="file" accept="image/png,image/jpeg,image/webp" class="sr-only" aria-label="Change picture" @change="choosePicture" />
       <Picture :picture="instance.picture" :size="blocky ? 52 : 44">
         <span v-if="blocky" class="flex h-[52px] w-[52px] items-center justify-center">
           <BlockCube :texture="instanceTexture(instance)" :size="40" spin bob />
         </span>
         <Tile v-else :name="instance.name" :texture="instanceTexture(instance)" :size="44" />
       </Picture>
+      </label>
     </template>
     <template v-if="instance && play" #actions>
       <div class="flex items-center gap-2">
@@ -271,10 +274,6 @@ onUnmounted(() => {
           <option v-for="mb in memoryChoices" :key="mb" :value="mb">{{ memoryLabel(mb) }}</option>
         </select>
       </div>
-      <label class="btn btn-secondary cursor-pointer">
-        Change picture
-        <input ref="pictureInput" type="file" accept="image/png,image/jpeg,image/webp" class="sr-only" @change="choosePicture" />
-      </label>
       <AppButton v-if="instance.own_picture" variant="secondary" @click="removePicture">Remove picture</AppButton>
       <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id))">Mods folder</AppButton>
       <AppButton variant="danger" icon="trash" @click="deleting = true">Delete</AppButton>
