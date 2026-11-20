@@ -228,10 +228,10 @@ pub fn save_synced(paths: &Paths, instance: &mut Instance) -> Result<()> {
     if let Ok(disk) = load(paths, &instance.id) {
         instance.memory_mb = disk.memory_mb;
         instance.last_played = disk.last_played;
-        instance.own_picture = disk.own_picture;
-        if disk.own_picture {
+        if disk.own_picture || instance.own_picture {
             instance.picture = disk.picture;
         }
+        instance.own_picture = disk.own_picture;
     }
     save(paths, instance)
 }
@@ -544,6 +544,18 @@ mod tests {
 
         assert!(set_picture(&p, "m", Some("https://cdn.modrinth.com/a.png".into())).is_err());
         let back = set_picture(&p, "m", None).unwrap();
+        assert_eq!((back.picture, back.own_picture), (None, false));
+    }
+
+    #[test]
+    fn a_picture_removed_during_a_sync_stays_removed() {
+        let (_t, p) = tmp();
+        create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        set_picture(&p, "m", Some("data:image/png;base64,AAAA".into())).unwrap();
+        let mut synced = load(&p, "m").unwrap();
+        set_picture(&p, "m", None).unwrap();
+        save_synced(&p, &mut synced).unwrap();
+        let back = load(&p, "m").unwrap();
         assert_eq!((back.picture, back.own_picture), (None, false));
     }
 

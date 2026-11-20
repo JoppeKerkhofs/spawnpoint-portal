@@ -42,6 +42,12 @@ pub struct Installed {
     hash: String,
 }
 
+impl Installed {
+    fn disabled(&self) -> bool {
+        self.file.to_lowercase().ends_with(".disabled")
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct Failure {
     pub name: String,
@@ -180,14 +186,14 @@ pub async fn search(client: &Client, api: &str, instance: &Instance, query: &str
     Ok(Found { hits, more })
 }
 
-pub async fn installed(client: &Client, api: &str, paths: &Paths, instance: &Instance) -> Result<Vec<Installed>> {
+pub async fn installed(client: &Client, api: &str, paths: &Paths, instance: &Instance, own_only: bool) -> Result<Vec<Installed>> {
     let loader = loader_of(instance)?.kind.as_str();
     let (p, i) = (paths.clone(), instance.clone());
     let mut list: Vec<Installed> = blocking(move || {
         let dir = instance::game_dir(&p, &i.id).join("mods");
         instance::mods(&p, &i)?
             .into_iter()
-            .filter(|m| m.name.to_lowercase().ends_with(".jar"))
+            .filter(|m| !(own_only && m.managed))
             .map(|m| Ok(Installed { hash: sha512_file(&dir.join(&m.name))?, file: m.name, managed: m.managed, project: None, title: None, update: false }))
             .collect()
     })
@@ -206,7 +212,7 @@ pub async fn installed(client: &Client, api: &str, paths: &Paths, instance: &Ins
     for jar in &mut list {
         if let Some(k) = known.get(&jar.hash) {
             jar.title = names.get(&k.project_id).cloned();
-            jar.update = !jar.managed && newer.get(&jar.hash).is_some_and(|n| n.date_published > k.date_published);
+            jar.update = !jar.managed && !jar.disabled() && newer.get(&jar.hash).is_some_and(|n| n.date_published > k.date_published);
             jar.project = Some(k.project_id.clone());
         }
     }
@@ -227,7 +233,7 @@ fn jar_name(name: &str) -> std::result::Result<String, String> {
 
 // A plain-http API is a test server; the real one is https.
 fn download_allowed(api: &str, url: &str) -> bool {
-    url.starts_with("https://") || (api.starts_with("http://") && url.starts_with("http://"))
+    url.starts_with("https://cdn.modrinth.com/") || (api.starts_with("http://") && url.starts_with("http://"))
 }
 
 async fn remove_if_unchanged(path: &Path, hash: &str) -> Result<bool> {
@@ -246,7 +252,7 @@ async fn remove_if_unchanged(path: &Path, hash: &str) -> Result<bool> {
 
 struct Put {
     version: Version,
-    kept: Vec<String>,
+    kept: Vec<Failure>,
 }
 
 // Ok(Err(reason)) is a mod that cannot be installed; Err is a failure of the install itself.
@@ -254,6 +260,9 @@ async fn put(client: &Client, api: &str, mods: &Path, target: (&str, &str), have
     let (loader, minecraft) = target;
     if have.iter().any(|j| j.managed) {
         return Ok(Err("it comes from the pack, and the sync manages it".into()));
+    }
+    if !have.is_empty() && have.iter().all(|j| j.disabled()) {
+        return Ok(Err(format!("{} is in this instance but disabled.", have[0].title.as_deref().unwrap_or("It"))));
     }
     let params = [("loaders", json!([loader]).to_string()), ("game_versions", json!([minecraft]).to_string()), ("include_changelog", "false".into())];
     let versions: Vec<Version> = get(client, api, &format!("/project/{project}/version"), &params).await?;
@@ -269,7 +278,7 @@ async fn put(client: &Client, api: &str, mods: &Path, target: (&str, &str), have
         Err(reason) => return Ok(Err(reason)),
     };
     if !download_allowed(api, &file.url) {
-        return Ok(Err("its download is not over https".into()));
+        return Ok(Err("its download is not from Modrinth".into()));
     }
     let dest = mods.join(&name);
     let ours = have.iter().find(|j| same_name(&j.file, &name)).map(|j| (dest.clone(), Hash::Sha512(j.hash.clone())));
@@ -284,10 +293,13 @@ async fn put(client: &Client, api: &str, mods: &Path, target: (&str, &str), have
     let item = Download { url: file.url.clone(), path: dest, hash: Some(Hash::Sha512(file.hashes.sha512.clone())), size: file.size, bearer: None };
     fetch(client, &item).await?;
     let mut kept = Vec::new();
-    for old in have.iter().filter(|j| !same_name(&j.file, &name)) {
-        if !remove_if_unchanged(&mods.join(&old.file), &old.hash).await? {
-            kept.push(old.file.clone());
-        }
+    for old in have.iter().filter(|j| !j.disabled() && !same_name(&j.file, &name)) {
+        let reason = match remove_if_unchanged(&mods.join(&old.file), &old.hash).await {
+            Ok(true) => continue,
+            Ok(false) => "you changed it meanwhile, so it was left in place".to_string(),
+            Err(_) => "remove it yourself".to_string(),
+        };
+        kept.push(Failure { name: old.file.clone(), reason: format!("The old file {} could not be removed: {reason}.", old.file) });
     }
     Ok(Ok(Put { version, kept }))
 }
@@ -301,7 +313,7 @@ pub async fn install(client: &Client, api: &str, paths: &Paths, instance: &Insta
     let _lock = instance::lock(&instance.id)?;
     let instance = instance::load(paths, &instance.id)?;
     let target = (loader_of(&instance)?.kind.as_str(), instance.minecraft.as_str());
-    let have = installed(client, api, paths, &instance).await?;
+    let have = installed(client, api, paths, &instance, false).await?;
     let mods = instance::game_dir(paths, &instance.id).join("mods");
     let mut queue = VecDeque::from([project.to_string()]);
     let mut seen: HashSet<String> = queue.iter().cloned().collect();
@@ -323,7 +335,7 @@ pub async fn install(client: &Client, api: &str, paths: &Paths, instance: &Insta
                 continue;
             }
         };
-        failed.extend(kept.into_iter().map(|name| Failure { name, reason: "you changed it meanwhile, so it was left in place".into() }));
+        failed.extend(kept);
         done.push(version.project_id.clone());
         for d in version.dependencies.iter().filter(|d| d.dependency_type == "required") {
             let id = match (&d.project_id, &d.version_id) {
@@ -512,7 +524,7 @@ mod tests {
         let c = http_client();
         for err in [
             search(&c, &url, &w.inst, "", 0).await.err().unwrap(),
-            installed(&c, &url, &w.paths, &w.inst).await.err().unwrap(),
+            installed(&c, &url, &w.paths, &w.inst, false).await.err().unwrap(),
             install(&c, &url, &w.paths, &w.inst, "AANobbMI").await.err().unwrap(),
         ] {
             assert!(matches!(&err, Error::Unsupported(m) if m == "This instance has no mod loader"));
@@ -535,13 +547,14 @@ mod tests {
             json_route("GET /projects", PROJECTS),
         ])
         .await;
-        let list = installed(&http_client(), &url, &w.paths, &inst).await.unwrap();
+        let list = installed(&http_client(), &url, &w.paths, &inst, false).await.unwrap();
         let view: Vec<_> = list.iter().map(|i| (i.file.as_str(), i.managed, i.project.as_deref(), i.title.as_deref(), i.update)).collect();
         assert_eq!(
             view,
             [
                 ("hand.jar", false, None, None, false),
                 ("mine.jar", false, Some("AANobbMI"), Some("Sodium"), true),
+                ("off.jar.disabled", false, None, None, false),
                 ("pack.jar", true, Some("YL57xq9U"), Some("Iris Shaders"), false),
             ]
         );
@@ -551,7 +564,7 @@ mod tests {
     async fn an_empty_mods_folder_asks_nobody() {
         let w = world(Some("fabric:0.1"));
         let (url, hits, _) = api(vec![]).await;
-        assert!(installed(&http_client(), &url, &w.paths, &w.inst).await.unwrap().is_empty());
+        assert!(installed(&http_client(), &url, &w.paths, &w.inst, false).await.unwrap().is_empty());
         assert_eq!(hits.load(Ordering::SeqCst), 0);
     }
 
@@ -694,11 +707,80 @@ mod tests {
     }
 
     #[test]
-    fn a_download_must_be_https_unless_the_api_itself_is_plain_http() {
+    fn a_download_must_come_from_modrinth_unless_the_api_itself_is_plain_http() {
         assert!(download_allowed(API, "https://cdn.modrinth.com/a.jar"));
+        assert!(!download_allowed(API, "https://evil.example/a.jar"));
+        assert!(!download_allowed(API, "https://cdn.modrinth.com.evil.example/a.jar"));
         assert!(!download_allowed(API, "http://cdn.modrinth.com/a.jar"));
         assert!(!download_allowed(API, "file:///a.jar"));
         assert!(download_allowed("http://127.0.0.1:1", "http://127.0.0.1:2/a.jar"));
+    }
+
+    #[tokio::test]
+    async fn a_download_from_another_https_host_is_refused_before_any_fetch() {
+        let w = world(Some("fabric:0.1"));
+        let v = version("AANobbMI", "sodium.jar", "https://evil.example/sodium.jar", b"x", json!([]));
+        let (url, _, heads) = api(base("{}", &json!([v]).to_string())).await;
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap();
+        assert!(out.installed.is_empty() && out.failed.len() == 1);
+        assert_eq!(requests(&heads, "evil.example"), 0);
+        assert_eq!(w.read("sodium.jar"), None);
+    }
+
+    #[tokio::test]
+    async fn a_disabled_jar_is_seen_and_never_touched() {
+        let w = world(Some("fabric:0.1"));
+        let hash = w.put("sodium.jar.disabled", b"switched off");
+        let (files, file_hits) = serve(200, b"modrinth's jar").await;
+        let v = version("AANobbMI", "sodium-new.jar", &files, b"modrinth's jar", json!([]));
+        let (url, _, heads) = api(base(&known(&[(&hash, "AANobbMI", OLD)]), &json!([v]).to_string())).await;
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap();
+        assert!(out.installed.is_empty());
+        assert_eq!(out.failed[0].reason, "Sodium is in this instance but disabled.");
+        assert_eq!((w.read("sodium.jar.disabled").unwrap(), w.read("sodium-new.jar")), (b"switched off".to_vec(), None));
+        assert_eq!((file_hits.load(Ordering::SeqCst), requests(&heads, "/project/AANobbMI/version")), (0, 0));
+
+        let w = world(Some("fabric:0.1"));
+        let hash = w.put("sodium.jar.disabled", b"switched off");
+        let (iris_files, _) = serve(200, b"iris jar").await;
+        let mut routes = base(&known(&[(&hash, "AANobbMI", OLD)]), "[]");
+        routes.push(json_route("GET /project/YL57xq9U/version", &iris(&iris_files, b"iris jar", Some(json!([dep("AANobbMI", "required")])))));
+        let (url, _, heads) = api(routes).await;
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "YL57xq9U").await.unwrap();
+        assert_eq!(out.installed, ["Iris Shaders"]);
+        assert_eq!(requests(&heads, "/project/AANobbMI/version"), 0);
+        assert_eq!(w.read("sodium.jar.disabled").unwrap(), b"switched off");
+    }
+
+    #[tokio::test]
+    async fn the_player_only_lookup_leaves_the_pack_jars_out_of_the_request() {
+        let w = world(Some("fabric:0.1"));
+        let own = w.put("mine.jar", b"own sodium");
+        let pack = w.put("pack.jar", b"pack iris");
+        let mut inst = w.inst.clone();
+        inst.managed.push(ManagedFile { path: "mods/pack.jar".into(), sha1: "x".into() });
+        let (url, _, heads) = api(base(&known(&[(&own, "AANobbMI", OLD)]), "[]")).await;
+        let list = installed(&http_client(), &url, &w.paths, &inst, true).await.unwrap();
+        assert_eq!(list.iter().map(|i| i.file.as_str()).collect::<Vec<_>>(), ["mine.jar"]);
+        assert!(!heads.lock().unwrap().join("").contains(&pack));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn an_old_jar_that_cannot_be_removed_is_reported_and_the_install_is_done() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let w = world(Some("fabric:0.1"));
+        let hash = w.put("sodium-old.jar", b"old build");
+        let _held = std::fs::OpenOptions::new().read(true).share_mode(1).open(w.mods().join("sodium-old.jar")).unwrap();
+        let (files, _) = serve(200, b"new build").await;
+        let v = version("AANobbMI", "sodium-new.jar", &files, b"new build", json!([]));
+        let (url, _, _) = api(base(&known(&[(&hash, "AANobbMI", OLD)]), &json!([v]).to_string())).await;
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap();
+        assert_eq!(out.installed, ["Sodium"]);
+        assert_eq!(out.failed.len(), 1);
+        assert_eq!(out.failed[0].reason, "The old file sodium-old.jar could not be removed: remove it yourself.");
+        assert_eq!(w.read("sodium-new.jar").unwrap(), b"new build");
+        assert_eq!(w.read("sodium-old.jar").unwrap(), b"old build");
     }
 
     #[tokio::test]

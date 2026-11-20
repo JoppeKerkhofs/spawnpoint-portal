@@ -53,6 +53,7 @@ import {
   noModsText,
   orderMods,
   skippedName,
+  updatableMod,
   type ModFilter,
 } from "../logic/mods";
 import { afterJoin, busy, lastPlayed, markPlaying, op, openInstanceId, playing, view, withProgress } from "../logic/operation";
@@ -72,6 +73,7 @@ const query = ref("");
 const removing = ref<ModFile | null>(null);
 const deleting = ref(false);
 const browsing = ref(false);
+const pictureInput = ref<HTMLInputElement | null>(null);
 const browseButton = ref<InstanceType<typeof AppButton> | null>(null);
 const known = ref<InstalledMod[] | null>(null);
 const modsNote = ref<{ text: string; kind: "info" | "warn" } | null>(null);
@@ -81,11 +83,7 @@ const blocky = computed(() => look.value.theme === "blocky");
 const opKey = computed(() => (op.value.phase === "idle" ? null : (op.value.key ?? null)));
 const isPlaying = computed(() => playing.value.some((p) => p.instance === id));
 const play = computed(() => (instance.value ? playButton(instance.value, op.value, opKey.value, playing.value) : null));
-const byFile = computed(() => new Map((known.value ?? []).map((k) => [k.file, k])));
-const updatable = (m: ModFile) => {
-  const k = m.managed ? undefined : byFile.value.get(m.name);
-  return k?.update && k.project ? k : undefined;
-};
+const updatable = (m: ModFile) => updatableMod(m, known.value);
 const counts = computed(() => modCounts(mods.value ?? []));
 const shown = computed(() => filterMods(orderMods(mods.value ?? []), filter.value, query.value));
 const filters = computed(() => [
@@ -115,9 +113,10 @@ async function loadMods() {
 }
 
 // An extra after the list: without Modrinth the list is the same, only without its buttons.
-async function loadKnown() {
+// The pack's jars are only looked up for the browser.
+async function loadKnown(all = false) {
   try {
-    known.value = await modsInstalled(id);
+    known.value = await modsInstalled(id, all);
   } catch {
     known.value = null;
   }
@@ -125,7 +124,7 @@ async function loadKnown() {
 
 const refresh = async () => {
   await loadMods();
-  await loadKnown();
+  await loadKnown(browsing.value);
 };
 
 async function installMod(project: string) {
@@ -135,6 +134,8 @@ async function installMod(project: string) {
   if (done) modsNote.value = { text: installedSentence(done), kind: done.failed.length ? "warn" : "info" };
   await refresh();
 }
+
+watch(browsing, (open) => open && loadKnown(true));
 
 async function closeBrowser() {
   browsing.value = false;
@@ -172,6 +173,8 @@ async function removePicture() {
   actionError.value = null;
   try {
     instance.value = await instanceSetPicture(id, null);
+    await nextTick();
+    pictureInput.value?.focus();
   } catch (e) {
     fail(e);
   }
@@ -238,7 +241,7 @@ watch(instance, (i) => (lastPlayed.value = i ? lastPlayedText(i.name, i.last_pla
 
 onMounted(() => {
   loadInstance();
-  loadMods().then(loadKnown);
+  loadMods().then(() => loadKnown());
   panels().then((p) => (knownPanels.value = p), () => {});
   defaults().then((d) => (choices.value = d), () => {});
 });
@@ -272,7 +275,7 @@ onUnmounted(() => {
       </div>
       <label class="btn btn-secondary cursor-pointer">
         Change picture
-        <input type="file" accept="image/png,image/jpeg,image/webp" class="sr-only" @change="choosePicture" />
+        <input ref="pictureInput" type="file" accept="image/png,image/jpeg,image/webp" class="sr-only" @change="choosePicture" />
       </label>
       <AppButton v-if="instance.own_picture" variant="secondary" @click="removePicture">Remove picture</AppButton>
       <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id))">Mods folder</AppButton>

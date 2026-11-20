@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Instance, InstalledMod, ModFile, Source } from "../api";
 import { memoryLabel } from "./format";
-import { browseNote, deleteBody, downloadsText, filterMods, handHeading, instanceSummary, isHttps, installedSentence, memoryOptions, modCounts, modsText, noModsText, noResultsText, orderMods, resultControl, skippedName } from "./mods";
+import { browseNote, deleteBody, downloadsText, filterMods, handHeading, instanceSummary, isHttps, installedSentence, memoryOptions, modCounts, modsText, noModsText, noResultsText, orderMods, resultControl, skippedName, updatableMod } from "./mods";
 
 const m = (name: string, managed: boolean): ModFile => ({ name, size: 1, managed });
 const inst = (extra: Partial<Instance> = {}): Instance => ({
@@ -53,6 +53,14 @@ test('which control a result gets', () => {
   expect(resultControl('P1', [im({ managed: true })])).toBe('pack')
   expect(resultControl('P1', [im({ update: true }), im({ file: 'b.jar', managed: true })])).toBe('pack')
 })
+test('which mod gets an Update button', () => {
+  const known = [im({ file: 'a.jar', update: true }), im({ file: 'b.jar', update: false }), im({ file: 'c.jar', update: true, project: null }), im({ file: 'p.jar', update: true, managed: true })]
+  expect(updatableMod(m('a.jar', false), known)?.project).toBe('P1')
+  expect(updatableMod(m('b.jar', false), known)).toBeUndefined()
+  expect(updatableMod(m('c.jar', false), known)).toBeUndefined()
+  expect(updatableMod(m('p.jar', true), known)).toBeUndefined()
+  expect(updatableMod(m('a.jar', false), null)).toBeUndefined()
+})
 test('what installing says', () => {
   expect(installedSentence({ installed: ['Sodium'], failed: [] })).toBe('Installed Sodium.')
   expect(installedSentence({ installed: ['Sodium', 'Indium', 'Fabric API'], failed: [] })).toBe('Installed Sodium and 2 mods it needs.')
@@ -62,6 +70,9 @@ test('what installing says', () => {
   )
   expect(installedSentence({ installed: [], failed: [{ name: 'Sodium', reason: 'it comes from the pack, and the sync manages it' }] })).toBe(
     'Sodium was not installed: it comes from the pack, and the sync manages it.',
+  )
+  expect(installedSentence({ installed: ['Sodium'], failed: [{ name: 'a.jar', reason: 'The old file a.jar could not be removed: remove it yourself.' }] })).toBe(
+    'Installed Sodium. The old file a.jar could not be removed: remove it yourself.',
   )
 })
 test('browser texts', () => {

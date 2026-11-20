@@ -124,9 +124,9 @@ pub async fn mods_search(state: State<'_, AppState>, id: String, query: String, 
 }
 
 #[tauri::command]
-pub async fn mods_installed(state: State<'_, AppState>, id: String) -> CmdResult<Vec<mods::Installed>> {
+pub async fn mods_installed(state: State<'_, AppState>, id: String, all: bool) -> CmdResult<Vec<mods::Installed>> {
     let inst = instance::load(&state.paths, &id)?;
-    Ok(mods::installed(&state.client, mods::API, &state.paths, &inst).await?)
+    Ok(mods::installed(&state.client, mods::API, &state.paths, &inst, !all).await?)
 }
 
 #[tauri::command]

@@ -29,6 +29,7 @@ async function load(offset = 0) {
   const mine = ++latest;
   loading.value = true;
   failure.value = null;
+  if (!offset) hits.value = [];
   try {
     const found = await modsSearch(props.id, query.value.trim(), offset);
     if (mine !== latest) return;
@@ -72,18 +73,11 @@ onUnmounted(() => clearTimeout(timer));
       />
       <AppButton variant="secondary" size="small" icon="chevron-left" @click="emit('back')">Back to installed mods</AppButton>
     </div>
-    <div v-if="failure" class="px-4 pb-4 pt-3" role="alert">
-      <Note kind="err">
-        <strong>Couldn’t reach Modrinth.</strong>
-        <div>{{ errorText(failure) }}</div>
-        <AppButton variant="secondary" size="small" class="mt-2" @click="load()">Try again</AppButton>
-      </Note>
-    </div>
-    <div v-else-if="loading && !hits.length" class="px-4" aria-busy="true">
+    <div v-if="loading && !hits.length" class="px-4" aria-busy="true">
       <Skeleton :rows="[row, row, row]" />
     </div>
-    <div v-else-if="!hits.length" class="row justify-center text-(--muted)" role="status">{{ noResultsText(loader, minecraft) }}</div>
-    <template v-else>
+    <div v-else-if="!hits.length && !failure" class="row justify-center text-(--muted)" role="status">{{ noResultsText(loader, minecraft) }}</div>
+    <template v-else-if="hits.length">
       <div v-for="h in hits" :key="h.project_id" class="row" style="padding-block: 8px">
         <Picture :picture="h.icon" :size="32"><Icon name="box" :size="32" class="text-(--muted)" /></Picture>
         <span class="min-w-0 flex-1">
@@ -115,5 +109,12 @@ onUnmounted(() => clearTimeout(timer));
         <AppButton variant="secondary" size="small" :disabled="loading" @click="load(hits.length)">{{ loading ? "Loading…" : "Load more" }}</AppButton>
       </div>
     </template>
+    <div v-if="failure" class="px-4 pb-4 pt-3" role="alert">
+      <Note kind="err">
+        <strong>Couldn’t reach Modrinth.</strong>
+        <div>{{ errorText(failure) }}</div>
+        <AppButton variant="secondary" size="small" class="mt-2" @click="load(hits.length)">Try again</AppButton>
+      </Note>
+    </div>
   </section>
 </template>

@@ -65,11 +65,16 @@ export function resultControl(project: string, installed: InstalledMod[] | null)
   return mine.some((m) => m.update) ? "update" : "installed";
 }
 
+export function updatableMod(m: ModFile, known: InstalledMod[] | null): InstalledMod | undefined {
+  const k = m.managed ? undefined : known?.find((x) => x.file === m.name);
+  return k?.update && k.project ? k : undefined;
+}
+
 export function installedSentence(o: ModInstall): string {
   const needed = o.installed.length - 1;
   return [
     o.installed.length > 0 && `Installed ${o.installed[0]}${needed > 0 ? ` and ${modsText(needed)} it needs` : ""}.`,
-    ...o.failed.map((f) => `${f.name} was not installed: ${f.reason}.`),
+    ...o.failed.map((f) => (f.reason.startsWith("The old file") ? f.reason : `${f.name} was not installed: ${f.reason}.`)),
   ]
     .filter(Boolean)
     .join(" ");
