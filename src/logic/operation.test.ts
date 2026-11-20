@@ -12,7 +12,13 @@ vi.mock("../api", () => ({
   instanceGet: vi.fn(),
 }));
 
-import { busy, closeFailure, gameExited, liveText, onProgress, op, playing, trailing, withProgress } from "./operation";
+import { defaults, instanceGet, running, type Instance } from "../api";
+import { busy, closeFailure, gameExited, liveText, loadPlaying, onProgress, op, playing, trailing, withProgress } from "./operation";
+
+const inst = (id: string, extra: Partial<Instance> = {}): Instance => ({
+  id, name: id.toUpperCase(), minecraft: "1.20.1", loader: null, source: { kind: "server", panel: "p", server: id, pack: null },
+  managed: [], memory_mb: null, last_played: { started_at: 5, seconds: 60 }, manual: [], skipped: [], ...extra,
+});
 
 const p = [{ instance: "homestead", name: "Homestead", since: new Date(2026, 10, 20, 14, 6), host: "homestead.mc.joppek.be", memoryMb: 6144, serverKey: "p/homestead" }];
 
@@ -79,4 +85,13 @@ test("a finished game leaves the list", () => {
   playing.value = [...p];
   gameExited("homestead");
   expect(playing.value).toEqual([]);
+});
+
+test("loadPlaying takes the start time from the running list", async () => {
+  vi.mocked(running).mockResolvedValue([{ instance: "homestead", started_at: 1_700_000_000 }]);
+  vi.mocked(defaults).mockResolvedValue({ memory_choices_mb: [4096], default_memory_mb: 4096 });
+  vi.mocked(instanceGet).mockResolvedValue(inst("homestead", { memory_mb: 6144 }));
+  await loadPlaying();
+  expect(playing.value).toEqual([{ instance: "homestead", name: "HOMESTEAD", since: new Date(1_700_000_000_000), host: null, memoryMb: 6144, serverKey: "p/homestead" }]);
+  playing.value = [];
 });

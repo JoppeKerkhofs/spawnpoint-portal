@@ -131,6 +131,7 @@ pub async fn join(
     progress: &ProgressTx,
 ) -> Result<(std::process::Child, Instance, Vec<Manual>)> {
     let (instance, server, manual, progress) = sync_numbered(client, paths, panel, slug, true, progress).await?;
+    let _lock = instance::lock(&instance.id)?;
     check_host(&server.hostname)?;
     skip_onboarding(&instance::game_dir(paths, &instance.id))?;
     let child = play::start_instance(client, paths, &instance, profile, Some(server.hostname), instance.memory_mb(), &progress).await?;

@@ -1,4 +1,4 @@
-use crate::state::{AppState, CmdResult, CommandError, claim, end_run, forward_progress, refuse_if_running};
+use crate::state::{AppState, CmdResult, CommandError, Running, claim, end_run, forward_progress, list_running, refuse_if_running};
 use portal_core::download::numbered;
 use portal_core::instance::{self, Instance, Listing, ModFile};
 use portal_core::launch::{DEFAULT_MEMORY_MB, Profile};
@@ -49,7 +49,7 @@ fn forwarder(app: &AppHandle) -> portal_core::download::ProgressTx {
 
 fn watch(app: AppHandle, paths: Paths, id: String, mut child: std::process::Child) {
     let started_at = now_secs();
-    app.state::<AppState>().running.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone());
+    app.state::<AppState>().running.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), started_at);
     tauri::async_runtime::spawn(async move {
         let code = tokio::task::spawn_blocking(move || child.wait()).await.ok().and_then(|r| r.ok()).and_then(|s| s.code());
         let state = app.state::<AppState>();
@@ -96,7 +96,7 @@ pub async fn instance_delete(state: State<'_, AppState>, id: String) -> CmdResul
 
 #[tauri::command]
 pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<bool> {
-    let paths = state.paths.clone();
+        let paths = state.paths.clone();
     let added = tokio::task::spawn_blocking(move || -> portal_core::Result<bool> {
         let inst = instance::load(&paths, &id)?;
         let Some(file) = app.dialog().file().add_filter("Mod", &["jar"]).blocking_pick_file() else { return Ok(false) };
@@ -129,12 +129,14 @@ pub async fn instance_check_manual(state: State<'_, AppState>, id: String) -> Cm
 pub async fn instance_launch(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<Instance> {
     let claim = claim(&state.busy, &id)?;
     refuse_if_running(&state.running, &id)?;
+    let lock = instance::lock(&id)?;
     let inst = instance::load(&state.paths, &id)?;
     let profile = Profile::offline(&settings::load(&state.paths).player_name);
     let stages = play::launch_stages(inst.loader.as_ref().map(|l| l.kind));
     let progress = numbered(stages, forwarder(&app));
     let child = play::start_instance(&state.client, &state.paths, &inst, profile, None, inst.memory_mb(), &progress).await?;
     watch(app, state.paths.clone(), id, child);
+    drop(lock);
     drop(claim);
     Ok(inst)
 }
@@ -162,10 +164,8 @@ pub async fn join(app: AppHandle, state: State<'_, AppState>, panel_id: String, 
 }
 
 #[tauri::command]
-pub async fn running(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
-    let mut ids: Vec<String> = state.running.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect();
-    ids.sort();
-    Ok(ids)
+pub async fn running(state: State<'_, AppState>) -> CmdResult<Vec<Running>> {
+    Ok(list_running(&state.running))
 }
 
 #[tauri::command]

@@ -2,7 +2,7 @@ use portal_core::Paths;
 use portal_core::download::{Progress, ProgressTx};
 use portal_core::panel::Pairing;
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio::time::Instant;
@@ -11,7 +11,7 @@ pub struct AppState {
     pub client: reqwest::Client,
     pub paths: Paths,
     pub busy: Mutex<HashSet<String>>,
-    pub running: Mutex<HashSet<String>>,
+    pub running: Mutex<HashMap<String, u64>>,
     pub pairing: Mutex<Option<Kept>>,
 }
 
@@ -54,14 +54,14 @@ pub fn claim<'a>(busy: &'a Mutex<HashSet<String>>, key: &str) -> CmdResult<Claim
     Ok(Claim { busy, key: key.to_string() })
 }
 
-pub fn refuse_if_running(running: &Mutex<HashSet<String>>, id: &str) -> CmdResult<()> {
-    if running.lock().unwrap_or_else(|e| e.into_inner()).contains(id) {
+pub fn refuse_if_running(running: &Mutex<HashMap<String, u64>>, id: &str) -> CmdResult<()> {
+    if running.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id) {
         return Err(CommandError { kind: "busy".into(), message: "this instance is running".into() });
     }
     Ok(())
 }
 
-struct RunGuard<'a>(&'a Mutex<HashSet<String>>, &'a str);
+struct RunGuard<'a>(&'a Mutex<HashMap<String, u64>>, &'a str);
 
 impl Drop for RunGuard<'_> {
     fn drop(&mut self) {
@@ -70,9 +70,26 @@ impl Drop for RunGuard<'_> {
 }
 
 // Takes the instance out of `running` after `work`, also when `work` panics.
-pub fn end_run(running: &Mutex<HashSet<String>>, id: &str, work: impl FnOnce()) {
+pub fn end_run(running: &Mutex<HashMap<String, u64>>, id: &str, work: impl FnOnce()) {
     let _guard = RunGuard(running, id);
     work();
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Running {
+    pub instance: String,
+    pub started_at: u64,
+}
+
+pub fn list_running(running: &Mutex<HashMap<String, u64>>) -> Vec<Running> {
+    let mut list: Vec<Running> = running
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|(instance, started_at)| Running { instance: instance.clone(), started_at: *started_at })
+        .collect();
+    list.sort_by(|a, b| a.instance.cmp(&b.instance));
+    list
 }
 
 pub fn safe_url(url: &str) -> CmdResult<&str> {
@@ -187,17 +204,24 @@ mod tests {
 
     #[test]
     fn a_running_instance_is_refused() {
-        let running = Mutex::new(HashSet::from(["atm10".to_string()]));
+        let running = Mutex::new(HashMap::from([("atm10".to_string(), 100)]));
         assert_eq!(refuse_if_running(&running, "atm10").unwrap_err(), CommandError { kind: "busy".into(), message: "this instance is running".into() });
         assert!(refuse_if_running(&running, "other").is_ok());
     }
 
     #[test]
     fn a_run_ends_even_if_recording_it_panics() {
-        let running = Mutex::new(HashSet::from(["atm10".to_string()]));
+        let running = Mutex::new(HashMap::from([("atm10".to_string(), 100)]));
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| end_run(&running, "atm10", || panic!("record failed"))));
         assert!(r.is_err());
         assert!(running.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn running_lists_each_instance_with_its_start_time() {
+        let running = Mutex::new(HashMap::from([("b".to_string(), 200), ("a".to_string(), 100)]));
+        assert_eq!(list_running(&running), [Running { instance: "a".into(), started_at: 100 }, Running { instance: "b".into(), started_at: 200 }]);
+        assert_eq!(serde_json::to_value(&list_running(&running)[0]).unwrap(), serde_json::json!({ "instance": "a", "started_at": 100 }));
     }
 
     #[test]

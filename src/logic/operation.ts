@@ -73,12 +73,12 @@ export function gameExited(instance: string): void {
 // Rebuilds "Playing" after a reload; the host is not known then, so only "since" shows.
 export async function loadPlaying(): Promise<void> {
   try {
-    const [ids, d] = await Promise.all([running(), defaults()]);
-    const found = await Promise.all(ids.map((id) => instanceGet(id)));
-    playing.value = found.map((i) => ({
+    const [list, d] = await Promise.all([running(), defaults()]);
+    const found = await Promise.all(list.map((r) => instanceGet(r.instance)));
+    playing.value = found.map((i, n) => ({
       instance: i.id,
       name: i.name,
-      since: i.last_played ? new Date(i.last_played.started_at * 1000) : new Date(),
+      since: new Date(list[n].started_at * 1000),
       host: null,
       memoryMb: i.memory_mb ?? d.default_memory_mb,
       serverKey: i.source.kind === "server" ? `${i.source.panel}/${i.source.server}` : null,

@@ -102,7 +102,12 @@ export interface Defaults {
 }
 
 export const defaults = () => invoke<Defaults>("defaults");
-export const running = () => invoke<string[]>("running");
+export interface Running {
+  instance: string;
+  started_at: number;
+}
+
+export const running = () => invoke<Running[]>("running");
 export const minecraftVersions = () => invoke<string[]>("minecraft_versions");
 export const openModsFolder = (id: string) => invoke<void>("open_mods_folder", { id });
 export const openInstanceFolder = (id: string) => invoke<void>("open_instance_folder", { id });

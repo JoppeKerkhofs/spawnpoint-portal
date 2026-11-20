@@ -3,7 +3,7 @@ pub mod panels;
 pub mod state;
 
 use state::AppState;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -45,7 +45,7 @@ pub fn run() {
                 client: portal_core::http_client(),
                 paths: portal_core::Paths::new()?,
                 busy: Mutex::new(HashSet::new()),
-                running: Mutex::new(HashSet::new()),
+                running: Mutex::new(HashMap::new()),
                 pairing: Mutex::new(None),
             });
             Ok(())
