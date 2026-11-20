@@ -3,6 +3,8 @@ use crate::loader::LoaderKind;
 use serde_json::{Value, json};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::time::Duration;
 
 // The launcher's Discord application id (public, not a secret); empty turns the feature off.
 pub const CLIENT_ID: &str = "1573391772867104859";
@@ -65,7 +67,7 @@ pub fn activity(instance: &Instance, started_at: u64) -> Value {
 
 #[derive(Default)]
 pub struct Presence {
-    pipe: Option<File>,
+    pipe: Option<Timed<File>>,
     nonce: u64,
 }
 
@@ -89,21 +91,78 @@ impl Presence {
             }
             let Some(pipe) = &mut self.pipe else { return };
             self.nonce += 1;
-            if send(pipe, std::process::id(), self.nonce, activity.clone()).is_ok() {
-                return;
+            match send(pipe, std::process::id(), self.nonce, activity.clone()) {
+                Ok(()) => return,
+                Err(e) => {
+                    self.pipe = None;
+                    if e.kind() == io::ErrorKind::TimedOut {
+                        return;
+                    }
+                }
             }
-            self.pipe = None;
         }
     }
 }
 
-fn connect(client_id: &str) -> Option<File> {
-    // ponytail: reads have no timeout; a Discord that accepts the pipe and never answers stalls
-    // status updates (never the game). Add a reader thread with a timeout if that is ever seen.
+const ANSWER_WITHIN: Duration = Duration::from_secs(5);
+
+// Frames are read on a helper thread, so a wait can time out. A thread stuck on a dead pipe is left
+// to end when Discord closes it; the connection itself is dropped on a timeout.
+struct Timed<W> {
+    out: W,
+    frames: Receiver<io::Result<(u32, Vec<u8>)>>,
+    timeout: Duration,
+}
+
+trait Peer {
+    fn send_all(&mut self, bytes: &[u8]) -> io::Result<()>;
+    fn answer(&mut self) -> io::Result<(u32, Vec<u8>)>;
+}
+
+impl<T: Read + Write> Peer for T {
+    fn send_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.write_all(bytes)
+    }
+    fn answer(&mut self) -> io::Result<(u32, Vec<u8>)> {
+        read_frame(self)
+    }
+}
+
+impl<W: Write> Peer for Timed<W> {
+    fn send_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.out.write_all(bytes)
+    }
+    fn answer(&mut self) -> io::Result<(u32, Vec<u8>)> {
+        match self.frames.recv_timeout(self.timeout) {
+            Ok(frame) => frame,
+            Err(RecvTimeoutError::Timeout) => Err(io::ErrorKind::TimedOut.into()),
+            Err(RecvTimeoutError::Disconnected) => Err(io::ErrorKind::UnexpectedEof.into()),
+        }
+    }
+}
+
+impl<W: Write> Timed<W> {
+    fn new(out: W, mut reader: impl Read + Send + 'static, timeout: Duration) -> Self {
+        let (tx, frames) = channel();
+        std::thread::spawn(move || {
+            loop {
+                let frame = read_frame(&mut reader);
+                let ended = frame.is_err();
+                if tx.send(frame).is_err() || ended {
+                    break;
+                }
+            }
+        });
+        Timed { out, frames, timeout }
+    }
+}
+
+fn connect(client_id: &str) -> Option<Timed<File>> {
     (0..10).find_map(|n| {
-        let mut pipe = OpenOptions::new().read(true).write(true).open(pipe_path(n)).ok()?;
-        handshake(&mut pipe, client_id).ok()?;
-        Some(pipe)
+        let pipe = OpenOptions::new().read(true).write(true).open(pipe_path(n)).ok()?;
+        let mut link = Timed::new(pipe.try_clone().ok()?, pipe, ANSWER_WITHIN);
+        handshake(&mut link, client_id).ok()?;
+        Some(link)
     })
 }
 
@@ -111,17 +170,17 @@ fn pipe_path(n: u32) -> String {
     format!(r"\\.\pipe\discord-ipc-{n}")
 }
 
-fn handshake(pipe: &mut (impl Read + Write), client_id: &str) -> io::Result<()> {
-    pipe.write_all(&frame(0, &json!({ "v": 1, "client_id": client_id }).to_string()))?;
-    let (opcode, body) = read_frame(pipe)?;
+fn handshake(pipe: &mut impl Peer, client_id: &str) -> io::Result<()> {
+    pipe.send_all(&frame(0, &json!({ "v": 1, "client_id": client_id }).to_string()))?;
+    let (opcode, body) = pipe.answer()?;
     let ready = opcode == 1 && serde_json::from_slice::<Value>(&body).is_ok_and(|v| v["evt"] == "READY");
     if ready { Ok(()) } else { Err(io::Error::other("no READY from Discord")) }
 }
 
-fn send(pipe: &mut (impl Read + Write), pid: u32, nonce: u64, activity: Option<Value>) -> io::Result<()> {
+fn send(pipe: &mut impl Peer, pid: u32, nonce: u64, activity: Option<Value>) -> io::Result<()> {
     let cmd = json!({ "cmd": "SET_ACTIVITY", "args": { "pid": pid, "activity": activity }, "nonce": nonce.to_string() });
-    pipe.write_all(&frame(1, &cmd.to_string()))?;
-    match read_frame(pipe)? {
+    pipe.send_all(&frame(1, &cmd.to_string()))?;
+    match pipe.answer()? {
         (2, _) => Err(io::Error::other("Discord closed the pipe")),
         _ => Ok(()),
     }
@@ -239,6 +298,28 @@ mod tests {
         p.set_with("", Some(json!({})));
         p.set_with("", None);
         assert!(p.pipe.is_none() && p.nonce == 0);
+    }
+
+    struct Silent(std::sync::mpsc::Receiver<()>);
+    impl Read for Silent {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            let _ = self.0.recv();
+            Err(io::Error::other("closed"))
+        }
+    }
+
+    #[test]
+    fn a_discord_that_never_answers_is_given_up_on() {
+        let (_keep, rx) = std::sync::mpsc::channel();
+        let mut link = Timed::new(Vec::new(), Silent(rx), Duration::from_millis(50));
+        link.send_all(b"x").unwrap();
+        assert_eq!(link.answer().unwrap_err().kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn a_discord_that_answers_is_read_through_the_wrapper() {
+        let mut link = Timed::new(Vec::new(), Cursor::new(frame(1, "[]")), Duration::from_secs(5));
+        assert_eq!(link.answer().unwrap(), (1, b"[]".to_vec()));
     }
 
     #[test]
