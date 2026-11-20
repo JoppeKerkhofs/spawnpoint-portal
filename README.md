@@ -15,9 +15,11 @@ This needs Node.js, a Rust toolchain and the Tauri prerequisites for Windows.
 
 ## Build the window
 
-    npm run tauri build -- --no-bundle
+    npm run tauri build -- --config src-tauri/tauri.local.json
 
-The program is `target\release\spawnpoint-portal.exe`. This builds no installer and does no code signing.
+This builds the installer `target\release\bundle\nsis\Spawnpoint Portal_<version>_x64-setup.exe`, which installs for the current user without administrator rights. The extra config turns off the update signature, which needs the release key; the installer is not code-signed either way. To build only the program, add `--no-bundle`.
+
+The version is the `version` line in `package.json`; `tauri.conf.json` follows it.
 
 ## Test
 
