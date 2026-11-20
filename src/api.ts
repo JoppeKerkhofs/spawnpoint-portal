@@ -84,6 +84,7 @@ export interface InstalledMod {
   managed: boolean;
   project: string | null;
   title: string | null;
+  icon: string | null;
   update: boolean;
 }
 
@@ -124,7 +125,7 @@ export const instanceAddMod = (id: string) => invoke<boolean>("instance_add_mod"
 export const instanceRemoveMod = (id: string, name: string) => invoke<void>("instance_remove_mod", { id, name });
 export const instanceSetMemory = (id: string, mb: number) => invoke<Instance>("instance_set_memory", { id, mb });
 export const modsSearch = (id: string, query: string, offset: number) => invoke<ModSearch>("mods_search", { id, query, offset });
-export const modsInstalled = (id: string, all: boolean) => invoke<InstalledMod[]>("mods_installed", { id, all });
+export const modsInstalled = (id: string) => invoke<InstalledMod[]>("mods_installed", { id });
 export const modsInstall = (id: string, project: string) => invoke<ModInstall>("mods_install", { id, project });
 export const instanceSetPicture = (id: string, picture: string | null) => invoke<Instance>("instance_set_picture", { id, picture });
 export const instanceCheckManual = (id: string) => invoke<Instance>("instance_check_manual", { id });

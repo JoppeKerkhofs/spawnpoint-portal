@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Instance, InstalledMod, ModFile, Source } from "../api";
 import { memoryLabel } from "./format";
-import { browseNote, deleteBody, downloadsText, filterMods, handHeading, instanceSummary, isHttps, installedSentence, memoryOptions, modCounts, modsText, noModsText, noResultsText, orderMods, resultControl, skippedName, updatableMod } from "./mods";
+import { browseNote, deleteBody, downloadsText, filterMods, handHeading, instanceSummary, isHttps, installedSentence, memoryOptions, modCounts, modsText, noModsText, noResultsText, orderMods, resultControl, skippedName, updatableMod, modIcon } from "./mods";
 
 const m = (name: string, managed: boolean): ModFile => ({ name, size: 1, managed });
 const inst = (extra: Partial<Instance> = {}): Instance => ({
@@ -43,7 +43,7 @@ test('links and memory', () => {
   expect(memoryOptions([4096, 6144], 5120)).toEqual([4096, 5120, 6144])
 })
 
-const im = (extra: Partial<InstalledMod>): InstalledMod => ({ file: 'a.jar', managed: false, project: 'P1', title: 'Sodium', update: false, ...extra })
+const im = (extra: Partial<InstalledMod>): InstalledMod => ({ file: 'a.jar', managed: false, project: 'P1', title: 'Sodium', icon: null, update: false, ...extra })
 test('which control a result gets', () => {
   expect(resultControl('P1', null)).toBe('install')
   expect(resultControl('P1', [])).toBe('install')
@@ -60,6 +60,14 @@ test('which mod gets an Update button', () => {
   expect(updatableMod(m('c.jar', false), known)).toBeUndefined()
   expect(updatableMod(m('p.jar', true), known)).toBeUndefined()
   expect(updatableMod(m('a.jar', false), null)).toBeUndefined()
+})
+test('which picture a row gets', () => {
+  const known = [im({ file: 'a.jar', icon: 'https://cdn.modrinth.com/a.webp' }), im({ file: 'b.jar' }), im({ file: 'p.jar', managed: true, icon: 'https://cdn.modrinth.com/p.webp' })]
+  expect(modIcon(m('a.jar', false), known)).toBe('https://cdn.modrinth.com/a.webp')
+  expect(modIcon(m('p.jar', true), known)).toBe('https://cdn.modrinth.com/p.webp')
+  expect(modIcon(m('b.jar', false), known)).toBeNull()
+  expect(modIcon(m('c.jar', false), known)).toBeNull()
+  expect(modIcon(m('a.jar', false), null)).toBeNull()
 })
 test('what installing says', () => {
   expect(installedSentence({ installed: ['Sodium'], failed: [] })).toBe('Installed Sodium.')

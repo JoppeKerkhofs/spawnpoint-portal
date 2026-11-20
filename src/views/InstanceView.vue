@@ -53,6 +53,7 @@ import {
   noModsText,
   orderMods,
   skippedName,
+  modIcon,
   updatableMod,
   type ModFilter,
 } from "../logic/mods";
@@ -113,10 +114,9 @@ async function loadMods() {
 }
 
 // An extra after the list: without Modrinth the list is the same, only without its buttons.
-// The pack's jars are only looked up for the browser.
-async function loadKnown(all = false) {
+async function loadKnown() {
   try {
-    known.value = await modsInstalled(id, all);
+    known.value = await modsInstalled(id);
   } catch {
     known.value = null;
   }
@@ -124,7 +124,7 @@ async function loadKnown(all = false) {
 
 const refresh = async () => {
   await loadMods();
-  await loadKnown(browsing.value);
+  await loadKnown();
 };
 
 async function installMod(project: string) {
@@ -134,8 +134,6 @@ async function installMod(project: string) {
   if (done) modsNote.value = { text: installedSentence(done), kind: done.failed.length ? "warn" : "info" };
   await refresh();
 }
-
-watch(browsing, (open) => open && loadKnown(true));
 
 async function closeBrowser() {
   browsing.value = false;
@@ -241,7 +239,7 @@ watch(instance, (i) => (lastPlayed.value = i ? lastPlayedText(i.name, i.last_pla
 
 onMounted(() => {
   loadInstance();
-  loadMods().then(() => loadKnown());
+  loadMods().then(loadKnown);
   panels().then((p) => (knownPanels.value = p), () => {});
   defaults().then((d) => (choices.value = d), () => {});
 });
@@ -357,7 +355,10 @@ onUnmounted(() => {
           <Skeleton :rows="[skeletonRow, skeletonRow, skeletonRow]" />
         </div>
         <template v-else>
-          <div v-for="m in shown" :key="m.name" class="row" style="padding-block: 7px; min-height: 34px">
+          <div v-for="m in shown" :key="m.name" class="row" style="padding-block: 8px; min-height: 34px">
+            <span class="flex h-8 w-8 shrink-0">
+              <Picture :picture="modIcon(m, known)" :size="32"><Icon name="box" :size="32" class="text-(--muted)" /></Picture>
+            </span>
             <span class="mono min-w-0 flex-1 truncate" :title="m.name">{{ m.name }}</span>
             <span class="tabular w-16 shrink-0 text-right text-xs text-(--muted)">{{ megabytes(m.size) }}</span>
             <span class="w-[70px] shrink-0"><KindBadge :kind="m.managed ? 'pack' : 'own'">{{ m.managed ? "Pack" : "Own" }}</KindBadge></span>

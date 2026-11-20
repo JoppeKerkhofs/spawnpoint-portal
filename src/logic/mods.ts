@@ -65,6 +65,8 @@ export function resultControl(project: string, installed: InstalledMod[] | null)
   return mine.some((m) => m.update) ? "update" : "installed";
 }
 
+export const modIcon = (m: ModFile, known: InstalledMod[] | null): string | null => known?.find((x) => x.file === m.name)?.icon ?? null;
+
 export function updatableMod(m: ModFile, known: InstalledMod[] | null): InstalledMod | undefined {
   const k = m.managed ? undefined : known?.find((x) => x.file === m.name);
   return k?.update && k.project ? k : undefined;

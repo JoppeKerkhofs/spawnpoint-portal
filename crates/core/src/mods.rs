@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use reqwest::Client;
 use serde::de::DeserializeOwned;
@@ -37,6 +39,7 @@ pub struct Installed {
     pub managed: bool,
     pub project: Option<String>,
     pub title: Option<String>,
+    pub icon: Option<String>,
     pub update: bool,
     #[serde(skip)]
     hash: String,
@@ -114,6 +117,7 @@ struct Version {
 struct Project {
     id: String,
     title: String,
+    icon_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -148,12 +152,12 @@ async fn post<T: DeserializeOwned>(client: &Client, api: &str, path: &str, body:
     Ok(response.json().await?)
 }
 
-async fn titles(client: &Client, api: &str, ids: Vec<String>) -> Result<HashMap<String, String>> {
+async fn projects(client: &Client, api: &str, ids: Vec<String>) -> Result<HashMap<String, Project>> {
     let ids: Vec<String> = ids.into_iter().collect::<HashSet<_>>().into_iter().collect();
     let mut out = HashMap::new();
     for chunk in ids.chunks(100) {
         let found: Vec<Project> = get(client, api, "/projects", &[("ids", json!(chunk).to_string())]).await?;
-        out.extend(found.into_iter().map(|p| (p.id, p.title)));
+        out.extend(found.into_iter().map(|p| (p.id.clone(), p)));
     }
     Ok(out)
 }
@@ -186,15 +190,14 @@ pub async fn search(client: &Client, api: &str, instance: &Instance, query: &str
     Ok(Found { hits, more })
 }
 
-pub async fn installed(client: &Client, api: &str, paths: &Paths, instance: &Instance, own_only: bool) -> Result<Vec<Installed>> {
+pub async fn installed(client: &Client, api: &str, paths: &Paths, instance: &Instance) -> Result<Vec<Installed>> {
     let loader = loader_of(instance)?.kind.as_str();
     let (p, i) = (paths.clone(), instance.clone());
     let mut list: Vec<Installed> = blocking(move || {
         let dir = instance::game_dir(&p, &i.id).join("mods");
         instance::mods(&p, &i)?
             .into_iter()
-            .filter(|m| !(own_only && m.managed))
-            .map(|m| Ok(Installed { hash: sha512_file(&dir.join(&m.name))?, file: m.name, managed: m.managed, project: None, title: None, update: false }))
+            .map(|m| Ok(Installed { hash: sha512_cached(&dir.join(&m.name))?, file: m.name, managed: m.managed, project: None, title: None, icon: None, update: false }))
             .collect()
     })
     .await?;
@@ -208,15 +211,32 @@ pub async fn installed(client: &Client, api: &str, paths: &Paths, instance: &Ins
     }
     let body = json!({ "hashes": hashes, "algorithm": "sha512", "loaders": [loader], "game_versions": [instance.minecraft], "version_types": ["release"] });
     let newer: HashMap<String, Known> = post(client, api, "/version_files/update", &body).await?;
-    let names = titles(client, api, known.values().map(|k| k.project_id.clone()).collect()).await?;
+    let names = projects(client, api, known.values().map(|k| k.project_id.clone()).collect()).await?;
     for jar in &mut list {
         if let Some(k) = known.get(&jar.hash) {
-            jar.title = names.get(&k.project_id).cloned();
+            let project = names.get(&k.project_id);
+            jar.title = project.map(|p| p.title.clone());
+            jar.icon = project.and_then(|p| p.icon_url.clone()).filter(|i| crate::panel::picture(i).is_some());
             jar.update = !jar.managed && !jar.disabled() && newer.get(&jar.hash).is_some_and(|n| n.date_published > k.date_published);
             jar.project = Some(k.project_id.clone());
         }
     }
     Ok(list)
+}
+
+type Stamp = (PathBuf, u64, SystemTime);
+// ponytail: never evicted, one entry per jar seen in a run; add eviction if that ever grows.
+static HASHES: Mutex<Option<HashMap<Stamp, String>>> = Mutex::new(None);
+
+fn sha512_cached(path: &Path) -> Result<String> {
+    let meta = std::fs::metadata(path)?;
+    let stamp = (path.to_path_buf(), meta.len(), meta.modified()?);
+    if let Some(hash) = HASHES.lock().unwrap().get_or_insert_default().get(&stamp) {
+        return Ok(hash.clone());
+    }
+    let hash = sha512_file(path)?;
+    HASHES.lock().unwrap().get_or_insert_default().insert(stamp, hash.clone());
+    Ok(hash)
 }
 
 // File names on Windows ignore case.
@@ -313,7 +333,7 @@ pub async fn install(client: &Client, api: &str, paths: &Paths, instance: &Insta
     let _lock = instance::lock(&instance.id)?;
     let instance = instance::load(paths, &instance.id)?;
     let target = (loader_of(&instance)?.kind.as_str(), instance.minecraft.as_str());
-    let have = installed(client, api, paths, &instance, false).await?;
+    let have = installed(client, api, paths, &instance).await?;
     let mods = instance::game_dir(paths, &instance.id).join("mods");
     let mut queue = VecDeque::from([project.to_string()]);
     let mut seen: HashSet<String> = queue.iter().cloned().collect();
@@ -355,8 +375,8 @@ pub async fn install(client: &Client, api: &str, paths: &Paths, instance: &Insta
         }
     }
     let ids = done.iter().chain(failed.iter().map(|f| &f.name)).cloned().collect();
-    let names = titles(client, api, ids).await.unwrap_or_default();
-    let title = |id: &String| names.get(id).unwrap_or(id).clone();
+    let names = projects(client, api, ids).await.unwrap_or_default();
+    let title = |id: &String| names.get(id).map_or(id, |p| &p.title).clone();
     Ok(Outcome {
         installed: done.iter().map(title).collect(),
         failed: failed.iter().map(|f| Failure { name: title(&f.name), reason: f.reason.clone() }).collect(),
@@ -524,7 +544,7 @@ mod tests {
         let c = http_client();
         for err in [
             search(&c, &url, &w.inst, "", 0).await.err().unwrap(),
-            installed(&c, &url, &w.paths, &w.inst, false).await.err().unwrap(),
+            installed(&c, &url, &w.paths, &w.inst).await.err().unwrap(),
             install(&c, &url, &w.paths, &w.inst, "AANobbMI").await.err().unwrap(),
         ] {
             assert!(matches!(&err, Error::Unsupported(m) if m == "This instance has no mod loader"));
@@ -547,7 +567,9 @@ mod tests {
             json_route("GET /projects", PROJECTS),
         ])
         .await;
-        let list = installed(&http_client(), &url, &w.paths, &inst, false).await.unwrap();
+        let list = installed(&http_client(), &url, &w.paths, &inst).await.unwrap();
+        let icons: Vec<_> = list.iter().map(|i| i.icon.as_deref().map(|u| u.starts_with("https://cdn.modrinth.com/data/"))).collect();
+        assert_eq!(icons, [None, Some(true), None, Some(true)]);
         let view: Vec<_> = list.iter().map(|i| (i.file.as_str(), i.managed, i.project.as_deref(), i.title.as_deref(), i.update)).collect();
         assert_eq!(
             view,
@@ -564,7 +586,7 @@ mod tests {
     async fn an_empty_mods_folder_asks_nobody() {
         let w = world(Some("fabric:0.1"));
         let (url, hits, _) = api(vec![]).await;
-        assert!(installed(&http_client(), &url, &w.paths, &w.inst, false).await.unwrap().is_empty());
+        assert!(installed(&http_client(), &url, &w.paths, &w.inst).await.unwrap().is_empty());
         assert_eq!(hits.load(Ordering::SeqCst), 0);
     }
 
@@ -752,17 +774,25 @@ mod tests {
         assert_eq!(w.read("sodium.jar.disabled").unwrap(), b"switched off");
     }
 
-    #[tokio::test]
-    async fn the_player_only_lookup_leaves_the_pack_jars_out_of_the_request() {
-        let w = world(Some("fabric:0.1"));
-        let own = w.put("mine.jar", b"own sodium");
-        let pack = w.put("pack.jar", b"pack iris");
-        let mut inst = w.inst.clone();
-        inst.managed.push(ManagedFile { path: "mods/pack.jar".into(), sha1: "x".into() });
-        let (url, _, heads) = api(base(&known(&[(&own, "AANobbMI", OLD)]), "[]")).await;
-        let list = installed(&http_client(), &url, &w.paths, &inst, true).await.unwrap();
-        assert_eq!(list.iter().map(|i| i.file.as_str()).collect::<Vec<_>>(), ["mine.jar"]);
-        assert!(!heads.lock().unwrap().join("").contains(&pack));
+    #[test]
+    fn an_unchanged_jar_is_hashed_once_and_a_changed_one_again() {
+        let dir = tmp_dir();
+        let path = dir.join("a.jar");
+        std::fs::write(&path, b"aaaa").unwrap();
+        let first = sha512_cached(&path).unwrap();
+        let time = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let set = |bytes: &[u8], time| {
+            std::fs::write(&path, bytes).unwrap();
+            std::fs::File::options().write(true).open(&path).unwrap().set_modified(time).unwrap();
+        };
+        set(b"bbbb", time);
+        assert_eq!(sha512_cached(&path).unwrap(), first, "same size and time: not read again");
+        set(b"bbbbb", time);
+        assert_eq!(sha512_cached(&path).unwrap(), sha(b"bbbbb"));
+        set(b"cccccc", time + std::time::Duration::from_secs(5));
+        assert_eq!(sha512_cached(&path).unwrap(), sha(b"cccccc"));
+        set(b"dddddd", time + std::time::Duration::from_secs(9));
+        assert_eq!(sha512_cached(&path).unwrap(), sha(b"dddddd"));
     }
 
     #[cfg(windows)]
