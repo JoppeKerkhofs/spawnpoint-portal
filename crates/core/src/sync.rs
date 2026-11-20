@@ -5,7 +5,7 @@ use std::path::Path;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::download::{Download, Hash, Progress, ProgressTx, fetch_all, file_matches, part_path, sha1_bytes, sha1_file};
+use crate::download::{Download, Hash, Progress, ProgressTx, blocking, fetch_all, file_matches, part_path, sha1_bytes, sha1_file};
 use crate::instance::{self, Instance, ManagedFile};
 use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
@@ -158,13 +158,12 @@ pub fn plan_with(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>, 
     Ok(out)
 }
 
-fn still_ours(file: &Path, w: &Wanted, replaces: &HashMap<String, String>) -> bool {
+fn still_ours(file: &Path, replaced: Option<&str>, hash: Option<&Hash>) -> bool {
     if !file.exists() {
         return true;
     }
     let Ok(sha1) = sha1_file(file) else { return false };
-    replaces.get(&w.path).is_some_and(|r| r.eq_ignore_ascii_case(&sha1))
-        || w.hash.as_ref().is_some_and(|h| file_matches(file, h))
+    replaced.is_some_and(|r| r.eq_ignore_ascii_case(&sha1)) || hash.is_some_and(|h| file_matches(file, h))
 }
 
 pub async fn apply(
@@ -180,7 +179,8 @@ pub async fn apply(
     let writes = plan.write.iter().map(|w| target(&w.path)).collect::<Result<Vec<_>>>()?;
 
     for (d, file) in plan.delete.iter().zip(deletes) {
-        let unchanged = file.is_file() && sha1_file(&file).is_ok_and(|s| s.eq_ignore_ascii_case(&d.sha1));
+        let (path, sha1) = (file.clone(), d.sha1.clone());
+        let unchanged = blocking(move || Ok(path.is_file() && sha1_file(&path).is_ok_and(|s| s.eq_ignore_ascii_case(&sha1)))).await?;
         if !unchanged {
             continue;
         }
@@ -204,7 +204,8 @@ pub async fn apply(
     let mut result = Ok(());
     let mut skipped = plan.skipped;
     for (i, (w, file)) in plan.write.iter().zip(&writes).enumerate() {
-        if !still_ours(file, w, &plan.replaces) {
+        let (path, replaced, hash) = (file.clone(), plan.replaces.get(&w.path).cloned(), w.hash.clone());
+        if !blocking(move || Ok(still_ours(&path, replaced.as_deref(), hash.as_ref()))).await? {
             skipped.push(w.path.clone());
             continue;
         }
@@ -237,13 +238,23 @@ pub async fn apply(
 
     let old_sha: HashMap<String, &str> = old.iter().map(|m| (m.path.to_lowercase(), m.sha1.as_str())).collect();
     instance.managed = plan.managed;
-    for ((w, file), tried) in plan.write.iter().zip(&writes).zip(attempted) {
-        if !file.is_file() {
-            continue;
-        }
-        let arrived = tried && w.hash.as_ref().is_none_or(|h| file_matches(file, h));
+    let checks: Vec<_> = plan.write.iter().zip(&writes).zip(attempted).map(|((w, file), tried)| (file.clone(), w.hash.clone(), tried)).collect();
+    let written = blocking(move || {
+        Ok(checks
+            .into_iter()
+            .map(|(file, hash, tried)| {
+                if !file.is_file() {
+                    return None;
+                }
+                let arrived = tried && hash.as_ref().is_none_or(|h| file_matches(&file, h));
+                sha1_file(&file).ok().map(|sha1| (arrived, sha1))
+            })
+            .collect::<Vec<_>>())
+    })
+    .await?;
+    for (w, found) in plan.write.iter().zip(written) {
+        let Some((arrived, sha1)) = found else { continue };
         let old_sha = old_sha.get(&w.path.to_lowercase()).copied();
-        let Ok(sha1) = sha1_file(file) else { continue };
         if arrived || old_sha.is_some_and(|o| o.eq_ignore_ascii_case(&sha1)) {
             instance.managed.retain(|m| m.path != w.path);
             instance.managed.push(ManagedFile { path: w.path.clone(), sha1 });

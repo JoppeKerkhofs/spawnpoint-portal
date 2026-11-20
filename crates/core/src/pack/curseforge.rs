@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use super::PackInstall;
-use crate::download::{Download, fetch};
+use crate::download::{Download, blocking, fetch};
 use crate::loader::{Loader, LoaderKind};
 use crate::panel::{self, PackFile, Panel};
 use crate::paths::check_id;
@@ -125,11 +125,16 @@ pub async fn resolve(client: &reqwest::Client, paths: &Paths, panel: &Panel, slu
     }
     let path = paths.packs().join(format!("curseforge-{}-{}.zip", pack.project, pack.file));
     fetch(client, &Download { url, path: path.clone(), hash: None, size: None, bearer: None }).await?;
-    let mut text = String::new();
-    zip::ZipArchive::new(std::fs::File::open(&path)?)?.by_name("manifest.json")?.read_to_string(&mut text)?;
+    let archive = path.clone();
+    let text = blocking(move || {
+        let mut text = String::new();
+        zip::ZipArchive::new(std::fs::File::open(&archive)?)?.by_name("manifest.json")?.read_to_string(&mut text)?;
+        Ok(text)
+    })
+    .await?;
     let manifest = parse_manifest(&text)?;
     let files = panel::client_pack_files(panel, slug, &manifest.files).await?;
-    wanted(&manifest, &files, &path)
+    blocking(move || wanted(&manifest, &files, &path)).await
 }
 
 #[cfg(test)]

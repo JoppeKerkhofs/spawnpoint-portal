@@ -114,6 +114,11 @@ pub fn part_path(path: &Path) -> PathBuf {
     PathBuf::from(part)
 }
 
+// Runs disk-heavy work on a blocking thread; a panic in it comes back as an error.
+pub(crate) async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    tokio::task::spawn_blocking(work).await.map_err(|e| Error::Other(e.to_string()))?
+}
+
 fn is_current(item: &Download) -> bool {
     match &item.hash {
         Some(hash) => file_matches(&item.path, hash),
@@ -159,10 +164,13 @@ async fn fetch_once(client: &Client, item: &Download) -> Result<()> {
     file.flush().await?;
     drop(file);
     if let Some(hash) = &item.hash {
-        let (expected, actual) = match hash {
-            Hash::Sha1(h) => (h, sha1_file(&part)?),
-            Hash::Sha512(h) => (h, sha512_file(&part)?),
-        };
+        let (owned, file) = (hash.clone(), part.clone());
+        let actual = blocking(move || match owned {
+            Hash::Sha1(_) => sha1_file(&file),
+            Hash::Sha512(_) => sha512_file(&file),
+        })
+        .await?;
+        let (Hash::Sha1(expected) | Hash::Sha512(expected)) = hash;
         if !actual.eq_ignore_ascii_case(expected) {
             let _ = tokio::fs::remove_file(&part).await;
             return Err(Error::Hash { path: item.path.clone(), expected: expected.clone(), actual });
@@ -173,7 +181,8 @@ async fn fetch_once(client: &Client, item: &Download) -> Result<()> {
 }
 
 pub async fn fetch(client: &Client, item: &Download) -> Result<()> {
-    if is_current(item) {
+    let current = item.clone();
+    if blocking(move || Ok(is_current(&current))).await? {
         return Ok(());
     }
     let mut attempt = 1;
@@ -455,6 +464,13 @@ mod tests {
             got.push((p.stage, p.done, p.total));
         }
         assert_eq!(got, [("mods".to_string(), 0, 0)]);
+    }
+
+    #[tokio::test]
+    async fn blocking_returns_the_work_and_its_errors() {
+        assert_eq!(blocking(|| Ok(7)).await.unwrap(), 7);
+        assert!(matches!(blocking(|| -> Result<()> { Err(Error::Other("x".into())) }).await, Err(Error::Other(_))));
+        assert!(blocking(|| -> Result<()> { panic!("boom") }).await.is_err());
     }
 
     #[tokio::test]

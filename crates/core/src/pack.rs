@@ -1,6 +1,6 @@
 use reqwest::Client;
 
-use crate::download::ProgressTx;
+use crate::download::{ProgressTx, blocking};
 use crate::instance::{self, Instance, PackRef};
 use crate::loader::Loader;
 use crate::sync::{self, Manual, Wanted};
@@ -44,7 +44,8 @@ pub async fn install(
 ) -> Result<Vec<Manual>> {
     let _lock = instance::lock(&instance.id)?;
     let game = instance::game_dir(paths, &instance.id);
-    let plan = sync::plan_with(&game, &instance.managed, pack.files, progress)?;
+    let (dir, managed, tx) = (game.clone(), instance.managed.clone(), progress.clone());
+    let plan = blocking(move || sync::plan_with(&dir, &managed, pack.files, &tx)).await?;
     instance.minecraft = pack.minecraft;
     instance.loader = pack.loader;
     instance::save_synced(paths, instance)?;

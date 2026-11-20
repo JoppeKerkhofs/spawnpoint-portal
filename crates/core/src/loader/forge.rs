@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::download::{fetch, fetch_all, file_matches, get_ok, sha1_file, Download, Hash, Progress, ProgressTx};
+use crate::download::{blocking, fetch, fetch_all, file_matches, get_ok, sha1_file, Download, Hash, Progress, ProgressTx};
 use crate::loader::LoaderKind;
 use crate::paths::check_relative;
 use crate::version::{library_files, maven_path, Library, LibraryFile, VersionJson};
@@ -301,16 +301,17 @@ fn console_java(javaw: &Path) -> PathBuf {
     javaw.with_file_name("java.exe")
 }
 
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 async fn run_step(java: &Path, step: &Step, cwd: &Path, loader: &str, number: usize) -> Result<()> {
     let classpath = std::iter::once(&step.jar).chain(&step.classpath).map(|p| text(p)).collect::<Vec<_>>().join(";");
-    let out = tokio::process::Command::new(console_java(java))
-        .arg("-cp")
-        .arg(classpath)
-        .arg(main_class(&step.jar)?)
-        .args(&step.args)
-        .current_dir(cwd)
-        .output()
-        .await?;
+    let jar = step.jar.clone();
+    let main = blocking(move || main_class(&jar)).await?;
+    let mut command = tokio::process::Command::new(console_java(java));
+    command.arg("-cp").arg(classpath).arg(main).args(&step.args).current_dir(cwd);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let out = command.output().await?;
     if !out.status.success() {
         let all = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
         return Err(Error::Other(format!("{loader} installer step {number} failed: {}", last_lines(&all, 20))));
@@ -331,6 +332,14 @@ fn installer_libraries(profile: &InstallProfile, loader_json: &VersionJson) -> R
     Ok(files)
 }
 
+fn folders(paths: &Paths, kind: LoaderKind, minecraft: &str, version: &str, profile: &InstallProfile) -> (PathBuf, PathBuf, PathBuf) {
+    (
+        paths.libraries(),
+        paths.installers().join(format!("{}-{minecraft}-{version}", kind.as_str())),
+        paths.versions().join(&profile.minecraft).join(format!("{}.jar", profile.minecraft)),
+    )
+}
+
 pub async fn install(
     client: &Client,
     paths: &Paths,
@@ -341,29 +350,34 @@ pub async fn install(
     progress: &ProgressTx,
 ) -> Result<VersionJson> {
     let (version, jar) = installer(client, paths, kind, minecraft, version).await?;
-    let mut zip: Installer = zip::ZipArchive::new(std::fs::File::open(&jar)?)?;
-    let profile: InstallProfile = read_json(&mut zip, "install_profile.json")?;
-    let loader_json: VersionJson = read_json(&mut zip, "version.json")?;
-    check_minecraft(display_name(kind), &version, &profile.minecraft, minecraft)?;
-    loader_json.check_ids()?;
-    let file = paths.versions().join(&loader_json.id).join(format!("{}.json", loader_json.id));
-    std::fs::create_dir_all(file.parent().unwrap_or(&paths.versions()))?;
-    std::fs::write(&file, serde_json::to_vec(&loader_json)?)?;
+    let (own_paths, own_jar, own_minecraft, own_version) = (paths.clone(), jar.clone(), minecraft.to_string(), version.clone());
+    let (profile, loader_json, steps, downloads) = blocking(move || {
+        let mut zip: Installer = zip::ZipArchive::new(std::fs::File::open(&own_jar)?)?;
+        let profile: InstallProfile = read_json(&mut zip, "install_profile.json")?;
+        let loader_json: VersionJson = read_json(&mut zip, "version.json")?;
+        check_minecraft(display_name(kind), &own_version, &profile.minecraft, &own_minecraft)?;
+        loader_json.check_ids()?;
+        let file = own_paths.versions().join(&loader_json.id).join(format!("{}.json", loader_json.id));
+        std::fs::create_dir_all(file.parent().unwrap_or(&own_paths.versions()))?;
+        std::fs::write(&file, serde_json::to_vec(&loader_json)?)?;
 
-    let libraries = paths.libraries();
-    let extracted = paths.installers().join(format!("{}-{minecraft}-{version}", kind.as_str()));
-    let minecraft_jar = paths.versions().join(&profile.minecraft).join(format!("{}.jar", profile.minecraft));
-    let ctx = Context { libraries: &libraries, minecraft_jar: &minecraft_jar, installer: &jar, extracted: &extracted };
-    let steps = steps(&profile, &ctx)?;
-    let mut downloads = Vec::new();
-    for lib in installer_libraries(&profile, &loader_json)? {
-        let dest = under(&libraries, &lib.path)?;
-        if !lib.url.is_empty() {
-            downloads.push(Download { url: lib.url, path: dest, hash: lib.sha1.map(Hash::Sha1), size: lib.size, bearer: None });
-        } else {
-            copy_out(&mut zip, &format!("maven/{}", lib.path), &dest, lib.sha1.as_deref())?;
+        let (libraries, extracted, minecraft_jar) = folders(&own_paths, kind, &own_minecraft, &own_version, &profile);
+        let ctx = Context { libraries: &libraries, minecraft_jar: &minecraft_jar, installer: &own_jar, extracted: &extracted };
+        let steps = steps(&profile, &ctx)?;
+        let mut downloads = Vec::new();
+        for lib in installer_libraries(&profile, &loader_json)? {
+            let dest = under(&libraries, &lib.path)?;
+            if !lib.url.is_empty() {
+                downloads.push(Download { url: lib.url, path: dest, hash: lib.sha1.map(Hash::Sha1), size: lib.size, bearer: None });
+            } else {
+                copy_out(&mut zip, &format!("maven/{}", lib.path), &dest, lib.sha1.as_deref())?;
+            }
         }
-    }
+        Ok((profile, loader_json, steps, downloads))
+    })
+    .await?;
+    let (libraries, extracted, minecraft_jar) = folders(paths, kind, minecraft, &version, &profile);
+    let ctx = Context { libraries: &libraries, minecraft_jar: &minecraft_jar, installer: &jar, extracted: &extracted };
     // Most NeoForge processors declare no outputs, so a marker records that all of them ran.
     let marker = extracted.join("done");
     let produced = profile
@@ -381,13 +395,18 @@ pub async fn install(
     }
     fetch_all(client, "loader libraries", downloads, progress).await?;
 
-    for entry in profile.data.values() {
-        if let Some(inner) = entry.client.strip_prefix('/') {
-            if !copy_out(&mut zip, inner, &under(&extracted, inner)?, None)? {
+    let inner_names: Vec<String> = profile.data.values().filter_map(|e| e.client.strip_prefix('/')).map(String::from).collect();
+    let (own_jar, own_extracted) = (jar.clone(), extracted.clone());
+    blocking(move || {
+        let mut zip: Installer = zip::ZipArchive::new(std::fs::File::open(&own_jar)?)?;
+        for inner in &inner_names {
+            if !copy_out(&mut zip, inner, &under(&own_extracted, inner)?, None)? {
                 return Err(Error::Other(format!("the installer has no {inner}")));
             }
         }
-    }
+        Ok(())
+    })
+    .await?;
 
     let meta = paths.root.join("meta");
     let total = steps.len() as u64;

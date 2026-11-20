@@ -1,4 +1,4 @@
-use crate::download::{Progress, ProgressTx};
+use crate::download::{Progress, ProgressTx, blocking};
 use crate::gamefiles::{install, version_json};
 use crate::instance::{self, Instance};
 use crate::launch::{arguments, command, extract_natives, LaunchOptions, Profile};
@@ -59,7 +59,8 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
     };
     let args = arguments(paths, &version, &opts)?;
     let _ = progress.send(Progress { step: 0, steps: 0, stage: "starting".into(), done: 0, total: 0 });
-    extract_natives(paths, &version)?;
+    let (root, extracting) = (paths.clone(), version.clone());
+    blocking(move || extract_natives(&root, &extracting)).await?;
     std::fs::create_dir_all(&game_dir)?;
     Ok(command(&javaw, &args, &game_dir).spawn()?)
 }

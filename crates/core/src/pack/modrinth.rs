@@ -6,7 +6,7 @@ use reqwest::Client;
 use serde::Deserialize;
 
 use super::{PackInstall, check_id, https_url};
-use crate::download::{Download, Hash, fetch, get_ok};
+use crate::download::{Download, Hash, blocking, fetch, get_ok};
 use crate::loader::{Loader, LoaderKind};
 use crate::sync::{Origin, Wanted};
 use crate::{Error, Paths, Result};
@@ -128,7 +128,7 @@ pub async fn resolve(client: &Client, paths: &Paths, version: &str) -> Result<Pa
         size: file.size, bearer: None,
     };
     fetch(client, &item).await?;
-    read_mrpack(&path)
+    blocking(move || read_mrpack(&path)).await
 }
 
 #[cfg(test)]

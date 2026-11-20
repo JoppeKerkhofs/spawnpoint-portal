@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
@@ -167,7 +167,7 @@ pub fn extract_natives(paths: &Paths, version: &VersionJson) -> Result<()> {
 
 pub fn command(java: &Path, args: &[String], game_dir: &Path) -> Command {
     let mut c = Command::new(java);
-    c.args(args).current_dir(game_dir);
+    c.args(args).current_dir(game_dir).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     c
 }
 
