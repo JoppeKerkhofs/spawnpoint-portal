@@ -3,7 +3,7 @@ use crate::loader::LoaderKind;
 use serde_json::{Value, json};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
 // The launcher's Discord application id (public, not a secret); empty turns the feature off.
@@ -106,11 +106,22 @@ impl Presence {
 
 const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
-// Frames are read on a helper thread, so a wait can time out. A thread stuck on a dead pipe is left
-// to end when Discord closes it; the connection itself is dropped on a timeout.
-struct Timed<W> {
-    out: W,
-    frames: Receiver<io::Result<(u32, Vec<u8>)>>,
+trait Link: Write {
+    type Reader: Read + Send + 'static;
+    fn reader(&self) -> io::Result<Self::Reader>;
+}
+
+impl Link for File {
+    type Reader = File;
+    fn reader(&self) -> io::Result<File> {
+        self.try_clone()
+    }
+}
+
+// One helper thread reads one answer, started after the write, so no read is pending during a write.
+// A thread stuck on a dead pipe is left to end when Discord closes it; the connection is dropped.
+struct Timed<L> {
+    link: L,
     timeout: Duration,
 }
 
@@ -128,12 +139,17 @@ impl<T: Read + Write> Peer for T {
     }
 }
 
-impl<W: Write> Peer for Timed<W> {
+impl<L: Link> Peer for Timed<L> {
     fn send_all(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.out.write_all(bytes)
+        self.link.write_all(bytes)
     }
     fn answer(&mut self) -> io::Result<(u32, Vec<u8>)> {
-        match self.frames.recv_timeout(self.timeout) {
+        let mut reader = self.link.reader()?;
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(read_frame(&mut reader));
+        });
+        match rx.recv_timeout(self.timeout) {
             Ok(frame) => frame,
             Err(RecvTimeoutError::Timeout) => Err(io::ErrorKind::TimedOut.into()),
             Err(RecvTimeoutError::Disconnected) => Err(io::ErrorKind::UnexpectedEof.into()),
@@ -141,26 +157,10 @@ impl<W: Write> Peer for Timed<W> {
     }
 }
 
-impl<W: Write> Timed<W> {
-    fn new(out: W, mut reader: impl Read + Send + 'static, timeout: Duration) -> Self {
-        let (tx, frames) = channel();
-        std::thread::spawn(move || {
-            loop {
-                let frame = read_frame(&mut reader);
-                let ended = frame.is_err();
-                if tx.send(frame).is_err() || ended {
-                    break;
-                }
-            }
-        });
-        Timed { out, frames, timeout }
-    }
-}
-
 fn connect(client_id: &str) -> Option<Timed<File>> {
     (0..10).find_map(|n| {
         let pipe = OpenOptions::new().read(true).write(true).open(pipe_path(n)).ok()?;
-        let mut link = Timed::new(pipe.try_clone().ok()?, pipe, ANSWER_WITHIN);
+        let mut link = Timed { link: pipe, timeout: ANSWER_WITHIN };
         handshake(&mut link, client_id).ok()?;
         Some(link)
     })
@@ -191,6 +191,9 @@ mod tests {
     use super::*;
     use crate::loader::Loader;
     use std::io::Cursor;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::mpsc::{Receiver, Sender};
+    use std::sync::{Arc, Mutex};
 
     fn inst(name: &str, loader: Option<LoaderKind>) -> Instance {
         let mut i: Instance = serde_json::from_value(json!({
@@ -300,26 +303,84 @@ mod tests {
         assert!(p.pipe.is_none() && p.nonce == 0);
     }
 
-    struct Silent(std::sync::mpsc::Receiver<()>);
-    impl Read for Silent {
-        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-            let _ = self.0.recv();
-            Err(io::Error::other("closed"))
+    // Stands in for the pipe: answers each written frame, and notes a write that starts during a read.
+    struct Duplex {
+        pending: Arc<AtomicUsize>,
+        overlapped: Arc<AtomicBool>,
+        replies: bool,
+        tx: Sender<Vec<u8>>,
+        rx: Arc<Mutex<Receiver<Vec<u8>>>>,
+    }
+    struct DuplexReader {
+        pending: Arc<AtomicUsize>,
+        rx: Arc<Mutex<Receiver<Vec<u8>>>>,
+        left: Vec<u8>,
+    }
+    impl Duplex {
+        fn new(replies: bool) -> Self {
+            let (tx, rx) = channel();
+            Duplex { pending: Default::default(), overlapped: Default::default(), replies, tx, rx: Arc::new(Mutex::new(rx)) }
+        }
+    }
+    impl Write for Duplex {
+        fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+            if self.pending.load(Ordering::SeqCst) > 0 {
+                self.overlapped.store(true, Ordering::SeqCst);
+            }
+            if self.replies {
+                let opcode = if b[0] == 0 { r#"{"cmd":"DISPATCH","evt":"READY"}"# } else { "{}" };
+                self.tx.send(frame(1, opcode)).unwrap();
+            }
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    impl Read for DuplexReader {
+        fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
+            if self.left.is_empty() {
+                self.pending.fetch_add(1, Ordering::SeqCst);
+                let got = self.rx.lock().unwrap().recv_timeout(Duration::from_secs(2));
+                self.pending.fetch_sub(1, Ordering::SeqCst);
+                self.left = got.map_err(|_| io::Error::other("closed"))?;
+            }
+            let n = b.len().min(self.left.len());
+            b[..n].copy_from_slice(&self.left[..n]);
+            self.left.drain(..n);
+            Ok(n)
+        }
+    }
+    impl Link for Duplex {
+        type Reader = DuplexReader;
+        fn reader(&self) -> io::Result<DuplexReader> {
+            Ok(DuplexReader { pending: self.pending.clone(), rx: self.rx.clone(), left: vec![] })
         }
     }
 
     #[test]
     fn a_discord_that_never_answers_is_given_up_on() {
-        let (_keep, rx) = std::sync::mpsc::channel();
-        let mut link = Timed::new(Vec::new(), Silent(rx), Duration::from_millis(50));
+        let mut link = Timed { link: Duplex::new(false), timeout: Duration::from_millis(50) };
         link.send_all(b"x").unwrap();
         assert_eq!(link.answer().unwrap_err().kind(), io::ErrorKind::TimedOut);
     }
 
     #[test]
     fn a_discord_that_answers_is_read_through_the_wrapper() {
-        let mut link = Timed::new(Vec::new(), Cursor::new(frame(1, "[]")), Duration::from_secs(5));
-        assert_eq!(link.answer().unwrap(), (1, b"[]".to_vec()));
+        let mut link = Timed { link: Duplex::new(true), timeout: Duration::from_secs(5) };
+        link.send_all(&frame(1, "{}")).unwrap();
+        assert_eq!(link.answer().unwrap(), (1, b"{}".to_vec()));
+    }
+
+    #[test]
+    fn no_read_is_pending_when_a_write_starts() {
+        let duplex = Duplex::new(true);
+        let overlapped = duplex.overlapped.clone();
+        let mut link = Timed { link: duplex, timeout: Duration::from_secs(5) };
+        handshake(&mut link, "123").unwrap();
+        send(&mut link, 1, 1, Some(json!({}))).unwrap();
+        send(&mut link, 1, 2, None).unwrap();
+        assert!(!overlapped.load(Ordering::SeqCst));
     }
 
     #[test]
