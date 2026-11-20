@@ -27,11 +27,11 @@ html[data-theme="default"] {
   --destructive-fill-fg: #ffffff;
   --border: rgba(0, 0, 0, 0.175);
   --divider: #e6e6e6;
-  --input-border: #8a9097;
+  --input-border: #82888f;
   --input-bg: #ffffff;
   --input-fg: #212529;
   --placeholder: #5f666d;
-  --focus: #3fa36b;
+  --focus: #2e9460;
   --brand: #3fa36b;
   --titlebar-bg: #1f2328;
   --titlebar-fg: #ffffff;
@@ -106,7 +106,7 @@ html[data-theme="default"].dark {
   --primary: #e8eaed;
   --primary-fg: #111316;
   --secondary-bg: rgba(53, 58, 64, 0.3);
-  --secondary-border: #353a40;
+  --secondary-border: #6b737b;
   --secondary-fg: #e8eaed;
   --secondary-hover: rgba(53, 58, 64, 0.5);
   --destructive: #ff9a9a;
@@ -115,6 +115,7 @@ html[data-theme="default"].dark {
   --border: rgba(255, 255, 255, 0.12);
   --divider: #2a2f35;
   --input-border: #6b737b;
+  --focus: #3fa36b;
   --input-bg: rgba(53, 58, 64, 0.3);
   --input-fg: #d5d9dd;
   --placeholder: #9aa2aa;
@@ -558,9 +559,12 @@ html[data-theme="blocky"] .side-name { font-family: var(--font-heading); font-we
 .main { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
 .head { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 20px 24px 14px; }
 .head-text { flex: 1 1 0; min-width: 0; }
-.head h1 { margin: 0; font-size: 22px; font-weight: 700; line-height: 1.25; }
-html[data-theme="blocky"] .head h1 { font-size: 26px; line-height: 1.2; text-shadow: 3px 3px 0 var(--border); }
-.head-summary { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.head h1 { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.3; }
+html[data-theme="blocky"] .head h1 { text-shadow: 3px 3px 0 var(--border); }
+.head-summary { margin: 4px 0 0; font-size: 15px; color: var(--muted); }
+.head.is-centred { align-items: center; }
+.head-back { flex: 0 0 100%; }
+.head-lead { flex: none; }
 .head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .content { display: flex; flex: 1 1 auto; flex-direction: column; gap: 12px; min-height: 0; overflow: auto; padding: 0 24px 20px; }
 html[data-theme="blocky"] .content { gap: 14px; }

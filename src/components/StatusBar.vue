@@ -18,7 +18,8 @@ const working = computed(() => op.value.phase === "preparing" || op.value.phase 
     <Icon v-if="op.phase === 'failed'" name="warning" :size="16" class="warn" />
     <Spinner v-else-if="working" />
     <span v-else class="dot" :class="{ 'is-playing': playing.length > 0 }" aria-hidden="true" />
-    <span class="status-text" :role="op.phase === 'failed' ? 'alert' : undefined">
+    <span v-if="op.phase === 'failed'" class="sr-only" role="alert">{{ text.lead }} {{ text.muted }}</span>
+    <span class="status-text" :aria-hidden="op.phase === 'failed' || undefined">
       <span class="status-lead">{{ text.lead }}</span>
       <span v-if="text.muted" class="status-muted" :class="{ truncate: op.phase !== 'failed' }">{{ text.muted }}</span>
     </span>
