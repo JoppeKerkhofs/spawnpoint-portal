@@ -41,6 +41,10 @@ fn cut(mut s: String) -> String {
     s
 }
 
+pub fn menu() -> Value {
+    json!({ "details": "In menu", "assets": { "large_image": "logo", "large_text": "Spawnpoint Portal" } })
+}
+
 pub fn activity(instance: &Instance, started_at: u64) -> Value {
     let mut state = format!("Minecraft {}", instance.minecraft);
     if let Some(l) = &instance.loader {

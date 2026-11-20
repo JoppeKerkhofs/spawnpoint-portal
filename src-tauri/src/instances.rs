@@ -53,8 +53,10 @@ pub fn refresh_presence(app: &AppHandle) {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let mut presence = state.presence.lock().unwrap_or_else(|e| e.into_inner());
-        let shown = if settings::load(&state.paths).discord { shown(&state.running) } else { None };
-        let activity = shown.and_then(|(id, at)| instance::load(&state.paths, &id).ok().map(|i| discord::activity(&i, at)));
+        let activity = settings::load(&state.paths).discord.then(|| {
+            let game = shown(&state.running).and_then(|(id, at)| instance::load(&state.paths, &id).ok().map(|i| discord::activity(&i, at)));
+            game.unwrap_or_else(discord::menu)
+        });
         presence.set(activity);
     });
 }

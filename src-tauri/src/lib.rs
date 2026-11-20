@@ -54,6 +54,7 @@ pub fn run() {
                 pairing: Mutex::new(None),
                 pairings: Default::default(),
             });
+            instances::refresh_presence(app.handle());
             Ok(())
         })
         .run(tauri::generate_context!())

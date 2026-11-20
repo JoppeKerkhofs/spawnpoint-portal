@@ -148,7 +148,7 @@ const appearance = computed({
           <input type="checkbox" class="check" :checked="discord" @change="setDiscord(($event.target as HTMLInputElement).checked)" />
           Show what I'm playing on Discord
         </label>
-        <div class="text-xs text-(--muted)">While a game runs, Discord shows the instance's name and Minecraft version. Never the server's address.</div>
+        <div class="text-xs text-(--muted)">Discord shows "In menu" while the launcher is open, and the instance's name and Minecraft version while a game runs. Never the server's address.</div>
       </div>
     </section>
     </div>
