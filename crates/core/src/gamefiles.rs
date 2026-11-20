@@ -38,6 +38,8 @@ struct AssetIndex {
     objects: BTreeMap<String, AssetObject>,
     #[serde(default)]
     r#virtual: bool,
+    #[serde(default)]
+    map_to_resources: bool,
 }
 
 #[derive(Deserialize)]
@@ -51,14 +53,7 @@ pub async fn manifest(client: &Client) -> Result<Manifest> {
 }
 
 pub fn supported_releases(manifest: &Manifest) -> Vec<String> {
-    let mut out = Vec::new();
-    for v in manifest.versions.iter().filter(|v| v.kind == "release") {
-        out.push(v.id.clone());
-        if v.id == "1.6.4" {
-            break;
-        }
-    }
-    out
+    manifest.versions.iter().filter(|v| v.kind == "release").map(|v| v.id.clone()).collect()
 }
 
 pub fn find<'a>(manifest: &'a Manifest, id: &str) -> Result<&'a ManifestVersion> {
@@ -106,12 +101,13 @@ pub fn asset_downloads(index_json: &str, assets_dir: &Path) -> Result<Vec<Downlo
     Ok(downloads)
 }
 
-pub fn virtual_copies(index_json: &str, assets_dir: &Path, index_id: &str) -> Result<Vec<(PathBuf, PathBuf)>> {
+pub fn virtual_copies(index_json: &str, assets_dir: &Path, index_id: &str, game_dir: Option<&Path>) -> Result<Vec<(PathBuf, PathBuf)>> {
     let index: AssetIndex = serde_json::from_str(index_json)?;
-    if !index.r#virtual {
-        return Ok(Vec::new());
-    }
-    let target = assets_dir.join("virtual").join(index_id);
+    let target = match (index.map_to_resources, game_dir) {
+        (true, Some(dir)) => dir.join("resources"),
+        (false, _) if index.r#virtual => assets_dir.join("virtual").join(index_id),
+        _ => return Ok(Vec::new()),
+    };
     index
         .objects
         .iter()
@@ -120,6 +116,20 @@ pub fn virtual_copies(index_json: &str, assets_dir: &Path, index_id: &str) -> Re
             Ok((assets_dir.join("objects").join(prefix).join(&o.hash), target.join(safe_path(name)?)))
         })
         .collect()
+}
+
+// Under the game folder a file the player already has is never replaced.
+pub fn copy_missing(copies: &[(PathBuf, PathBuf)], game_dir: Option<&Path>) -> Result<()> {
+    for (from, to) in copies {
+        if let Ok(have) = std::fs::metadata(to) {
+            if game_dir.is_some_and(|d| to.starts_with(d)) || have.len() == std::fs::metadata(from)?.len() {
+                continue;
+            }
+        }
+        std::fs::create_dir_all(to.parent().unwrap_or(to))?;
+        std::fs::copy(from, to)?;
+    }
+    Ok(())
 }
 
 fn once_per_path(items: Vec<Download>) -> Vec<Download> {
@@ -139,7 +149,7 @@ fn library_download(lib: LibraryFile, libraries: &Path, id: &str) -> Result<Opti
     Ok(Some(Download { url: lib.url, path, hash: lib.sha1.map(Hash::Sha1), size: lib.size, bearer: None }))
 }
 
-pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, progress: &ProgressTx) -> Result<()> {
+pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, game_dir: Option<&Path>, progress: &ProgressTx) -> Result<()> {
     let missing = |what: &str| Error::Other(format!("version {} has no {what}", version.id));
     let client_jar = &version.downloads.as_ref().ok_or_else(|| missing("client download"))?.client;
     let mut files = vec![Download {
@@ -178,15 +188,7 @@ pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, prog
         });
     }
     fetch_all(client, "assets", once_per_path(files), progress).await?;
-    for (from, to) in virtual_copies(&tokio::fs::read_to_string(&index_file).await?, &assets, &index_ref.id)? {
-        let size = std::fs::metadata(&from)?.len();
-        if std::fs::metadata(&to).is_ok_and(|m| m.len() == size) {
-            continue;
-        }
-        std::fs::create_dir_all(to.parent().unwrap_or(&assets))?;
-        std::fs::copy(&from, &to)?;
-    }
-    Ok(())
+    copy_missing(&virtual_copies(&tokio::fs::read_to_string(&index_file).await?, &assets, &index_ref.id, game_dir)?, game_dir)
 }
 
 #[cfg(test)]
@@ -219,7 +221,7 @@ mod tests {
 
     #[test]
     fn legacy_index_is_copied_out() {
-        let c = virtual_copies(include_str!("../tests/fixtures/asset-index-legacy.json"), Path::new("A"), "legacy").unwrap();
+        let c = virtual_copies(include_str!("../tests/fixtures/asset-index-legacy.json"), Path::new("A"), "legacy", None).unwrap();
         assert_eq!(c.len(), 3);
         assert!(c[0].1.starts_with(Path::new("A").join("virtual").join("legacy")));
         assert!(c[0].0.starts_with(Path::new("A").join("objects")));
@@ -227,14 +229,14 @@ mod tests {
 
     #[test]
     fn a_modern_index_is_not() {
-        assert!(virtual_copies(include_str!("../tests/fixtures/asset-index.json"), Path::new("A"), "17").unwrap().is_empty());
+        assert!(virtual_copies(include_str!("../tests/fixtures/asset-index.json"), Path::new("A"), "17", None).unwrap().is_empty());
     }
 
     #[test]
     fn a_virtual_name_cannot_escape() {
         let h = "aa".repeat(20);
         let index = format!(r#"{{"virtual":true,"objects":{{"../x":{{"hash":"{h}","size":1}}}}}}"#);
-        assert!(virtual_copies(&index, Path::new("A"), "legacy").is_err());
+        assert!(virtual_copies(&index, Path::new("A"), "legacy", None).is_err());
     }
 
     #[test]
@@ -263,19 +265,42 @@ mod tests {
     }
 
     #[test]
-    fn supported_releases_stop_at_1_6_4() {
+    fn supported_releases_go_back_to_1_0() {
         let mut m: Manifest = serde_json::from_str(include_str!("../tests/fixtures/version_manifest_v2.json")).unwrap();
-        // the fixture has no 1.6.4: add one after 1.12.2, and a 1.6.2 below it
         let at = m.versions.iter().position(|v| v.id == "1.12.2").unwrap();
-        for id in ["1.6.2", "1.6.4"] {
+        for (id, kind) in [("1.0", "release"), ("b1.7.3", "old_beta"), ("1.5.2", "release")] {
             let mut v = m.versions[at].clone();
-            v.id = id.into();
+            (v.id, v.kind) = (id.into(), kind.into());
             m.versions.insert(at + 1, v);
         }
-        let r = supported_releases(&m);
-        assert_eq!(r.last().unwrap(), "1.6.4");
-        assert!(!r.iter().any(|v| v == "1.6.2"));
-        // the fixture's latest release (26.3) is not listed; the first release is
-        assert_eq!(r, ["1.21.1", "1.20.1", "1.16.5", "1.12.2", "1.6.4"]);
+        // the fixture's 26.3 is no release; betas are not listed
+        assert_eq!(supported_releases(&m), ["1.21.1", "1.20.1", "1.16.5", "1.12.2", "1.5.2", "1.0"]);
+    }
+
+    #[test]
+    fn pre_1_6_index_is_copied_into_the_game_folder() {
+        let index = include_str!("../tests/fixtures/asset-index-pre-1.6.json");
+        let c = virtual_copies(index, Path::new("A"), "pre-1.6", Some(Path::new("G"))).unwrap();
+        assert_eq!(c.len(), 749);
+        assert!(c.iter().all(|(from, to)| from.starts_with("A") && to.starts_with(Path::new("G").join("resources"))));
+        assert!(c.iter().any(|(_, to)| to == &Path::new("G").join("resources").join("icons").join("icon_16x16.png")));
+        assert!(virtual_copies(index, Path::new("A"), "pre-1.6", None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_file_already_in_resources_is_never_overwritten() {
+        let dir = crate::download::testing::tmp_dir();
+        let (from, game) = (dir.join("objects").join("aa"), dir.join("game"));
+        let (kept, fresh) = (game.join("resources").join("kept.png"), game.join("resources").join("sub").join("new.png"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(kept.parent().unwrap()).unwrap();
+        std::fs::write(from.join("h"), b"object").unwrap();
+        std::fs::write(&kept, b"mine").unwrap();
+        let copies = [(from.join("h"), kept.clone()), (from.join("h"), fresh.clone())];
+        copy_missing(&copies, Some(&game)).unwrap();
+        assert_eq!(std::fs::read(&kept).unwrap(), b"mine");
+        assert_eq!(std::fs::read(&fresh).unwrap(), b"object");
+        copy_missing(&copies, None).unwrap();
+        assert_eq!(std::fs::read(&kept).unwrap(), b"object");
     }
 }

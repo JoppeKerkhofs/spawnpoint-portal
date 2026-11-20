@@ -22,6 +22,8 @@ pub struct VersionJson {
     pub logging: Option<Logging>,
     pub minecraft_arguments: Option<String>,
     pub release_time: Option<String>,
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,6 +266,7 @@ pub fn merge(parent: VersionJson, child: VersionJson) -> VersionJson {
         assets: child.assets.or(parent.assets),
         downloads: child.downloads.or(parent.downloads),
         release_time: child.release_time.or(parent.release_time),
+        kind: parent.kind,
         libraries,
         java_version: child.java_version.or(parent.java_version),
         // An empty `logging: {}` must not hide the parent's log4j configuration.

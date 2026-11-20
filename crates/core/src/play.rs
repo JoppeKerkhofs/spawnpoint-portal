@@ -31,8 +31,8 @@ pub fn launch_stages(loader: Option<LoaderKind>) -> Vec<&'static str> {
 
 pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progress: &ProgressTx) -> Result<std::process::Child> {
     let version = version_json(client, paths, &request.minecraft).await?;
-    if version.release_time.as_deref().is_some_and(|t| !supported(t)) {
-        return Err(crate::Error::Unsupported("Minecraft older than 1.6.4 is not supported".into()));
+    if version.kind.as_deref().is_some_and(|k| !supported(k)) {
+        return Err(crate::Error::Unsupported("Minecraft alpha and beta versions are not supported".into()));
     }
     let game_dir = std::path::absolute(&request.game_dir)?;
     let opts = LaunchOptions {
@@ -49,12 +49,12 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
     };
     let component = version.java_version.as_ref().map_or("jre-legacy", |j| j.component.as_str());
     let javaw = java::ensure(client, paths, component, progress).await?;
-    install(client, paths, &version, progress).await?;
+    install(client, paths, &version, Some(&game_dir), progress).await?;
     let version = match &loader {
         Some(Loader { kind, version: Some(loader_version) }) => {
             let loader_json = profile(client, paths, &request.minecraft, *kind, loader_version, &javaw, progress).await?;
             let merged = merge(version, loader_json);
-            install(client, paths, &merged, progress).await?;
+            install(client, paths, &merged, Some(&game_dir), progress).await?;
             merged
         }
         Some(_) => return Err(crate::Error::Other("the loader has no version after resolving".into())),

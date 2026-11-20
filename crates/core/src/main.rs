@@ -236,7 +236,7 @@ async fn run(args: &[String]) -> Result<()> {
         [cmd, id] if cmd == "files" => {
             let (client, paths) = (http_client(), Paths::new()?);
             let version = version_json(&client, &paths, id).await?;
-            with_progress(|tx| async move { install(&client, &paths, &version, &tx).await }).await?;
+            with_progress(|tx| async move { install(&client, &paths, &version, None, &tx).await }).await?;
         }
         [cmd, component] if cmd == "java" => {
             let (client, paths) = (http_client(), Paths::new()?);

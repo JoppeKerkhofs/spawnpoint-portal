@@ -898,7 +898,7 @@ Other: x
             let id = &parent.id;
             assert_eq!(merged.main_class, "net.minecraft.launchwrapper.Launch", "{id}");
             assert_eq!(merged.release_time, parent.release_time, "{id}");
-            assert!(crate::launch::supported(merged.release_time.as_deref().unwrap()), "{id}");
+            assert!(crate::launch::supported(merged.kind.as_deref().unwrap()), "{id}");
             assert!(merged.minecraft_arguments.as_deref().unwrap().contains("--tweakClass"), "{id}");
             assert!(merged.downloads.is_some() && merged.asset_index.is_some(), "{id}");
             assert_eq!(natives(&merged), natives(&parent), "{id}");

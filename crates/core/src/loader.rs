@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::download::ProgressTx;
+use crate::gamefiles;
 use crate::paths::check_id;
 use crate::version::VersionJson;
 use crate::{Error, Paths, Result};
@@ -56,8 +57,18 @@ impl Loader {
     }
 }
 
+pub fn forge_supported(release_time: &str) -> Result<()> {
+    match release_time >= "2013-06-28T14:48:41" {
+        true => Ok(()),
+        false => Err(Error::Unsupported("Forge is not supported on Minecraft older than 1.6".into())),
+    }
+}
+
 pub async fn resolve(client: &Client, minecraft: &str, loader: &Loader) -> Result<Loader> {
     check_id(minecraft)?;
+    if loader.kind == LoaderKind::Forge {
+        forge_supported(&gamefiles::find(&gamefiles::manifest(client).await?, minecraft)?.release_time)?;
+    }
     let version = match &loader.version {
         Some(v) => v.clone(),
         None if loader.kind == LoaderKind::Fabric => fabric::newest_version(client, minecraft).await?,
@@ -94,6 +105,14 @@ mod tests {
         assert!(resolve(&c, "1.21.1", &given("21.1.1#a")).await.is_err());
         assert!(resolve(&c, "1%2e", &given("21.1.1")).await.is_err());
         assert!(resolve(&c, "1.21.1", &given("..")).await.is_err());
+    }
+
+    #[test]
+    fn forge_needs_minecraft_1_6_1() {
+        let err = forge_supported("2013-04-25T15:45:00+00:00").unwrap_err();
+        assert_eq!(err.to_string(), "Forge is not supported on Minecraft older than 1.6");
+        assert!(matches!(err, Error::Unsupported(_)));
+        assert!(forge_supported("2013-06-28T14:48:41+00:00").is_ok() && forge_supported("2013-07-05T13:09:02+00:00").is_ok());
     }
 
     #[test]

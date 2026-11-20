@@ -40,8 +40,8 @@ pub struct LaunchOptions {
     pub memory_mb: u32,
 }
 
-pub fn supported(release_time: &str) -> bool {
-    release_time >= "2013-09-19T15:52:37"
+pub fn supported(kind: &str) -> bool {
+    !matches!(kind, "old_alpha" | "old_beta")
 }
 
 pub fn jar_path(paths: &Paths, version: &VersionJson) -> PathBuf {
@@ -83,6 +83,17 @@ fn expand(args: &[Argument], features: &Features, vars: &BTreeMap<&str, String>,
             Argument::Ruled { .. } => {}
         }
     }
+}
+
+// The pre-1.6 index (the only one that maps to resources) is read from the game folder.
+fn game_assets(paths: &Paths, version: &VersionJson, game_dir: &Path) -> String {
+    let id = version.assets.as_deref().unwrap_or_default();
+    match id {
+        "pre-1.6" => game_dir.join("resources"),
+        _ => paths.assets().join("virtual").join(id),
+    }
+    .to_string_lossy()
+    .into_owned()
 }
 
 pub fn arguments(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> Result<Vec<String>> {
@@ -131,7 +142,7 @@ pub fn arguments(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> 
         ("library_directory", paths.libraries().to_string_lossy().into_owned()),
         ("quickPlayMultiplayer", format!("{host}:25565")),
         ("user_properties", "{}".into()),
-        ("game_assets", paths.assets().join("virtual").join(version.assets.as_deref().unwrap_or_default()).to_string_lossy().into_owned()),
+        ("game_assets", game_assets(paths, version, &opts.game_dir)),
         ("auth_session", format!("token:{}:{}", opts.profile.access_token, opts.profile.uuid)),
     ]);
 
@@ -144,7 +155,8 @@ pub fn arguments(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> 
     expand(&args.jvm, &features, &vars, &mut out);
     out.push(version.main_class.clone());
     expand(&args.game, &features, &vars, &mut out);
-    if let (Some(host), false) = (&opts.server, quick_play) {
+    let named = args.game.iter().any(|a| matches!(a, Argument::Plain(s) if s == "--username"));
+    if let (Some(host), false, true) = (&opts.server, quick_play, named) {
         out.extend(["--server".into(), host.clone(), "--port".into(), "25565".into()]);
     }
     Ok(out)
@@ -208,6 +220,10 @@ mod tests {
             "1.16.5" => include_str!("../tests/fixtures/version-1.16.5.json"),
             "1.7.10" => include_str!("../tests/fixtures/version-1.7.10.json"),
             "1.6.4" => include_str!("../tests/fixtures/version-1.6.4.json"),
+            "1.6.2" => include_str!("../tests/fixtures/version-1.6.2.json"),
+            "1.5.2" => include_str!("../tests/fixtures/version-1.5.2.json"),
+            "1.2.5" => include_str!("../tests/fixtures/version-1.2.5.json"),
+            "1.0" => include_str!("../tests/fixtures/version-1.0.json"),
             _ => include_str!("../tests/fixtures/version-1.12.2.json"),
         };
         serde_json::from_str(text).unwrap()
@@ -324,9 +340,30 @@ mod tests {
     }
 
     #[test]
-    fn cut_off_at_1_6_4() {
-        assert!(supported("2013-09-19T15:52:37+00:00") && supported("2024-08-08T12:24:45+00:00"));
-        assert!(!supported("2013-07-08T22:00:00+00:00"));
+    fn alpha_and_beta_are_refused() {
+        assert!(!supported("old_alpha") && !supported("old_beta"));
+        assert!(supported("release") && supported("snapshot"));
+        assert!(supported(v("1.0").kind.as_deref().unwrap()));
+    }
+
+    #[test]
+    fn positional_arguments_before_1_6() {
+        let uuid = Profile::offline("Steve").uuid;
+        for id in ["1.0", "1.2.5", "1.5.2"] {
+            let a = arguments(&paths(), &v(id), &opts(Some("mc.example.org"))).unwrap();
+            let main = a.iter().position(|x| x == "net.minecraft.launchwrapper.Launch").unwrap();
+            let want = ["Steve", &format!("token:0:{uuid}"), "--gameDir", r"C:\games\my instance", "--assetsDir", r"C:\games\my instance\resources"];
+            assert_eq!(a[main + 1..], want, "{id}");
+        }
+    }
+
+    #[test]
+    fn named_arguments_of_1_6_2_get_server_and_port() {
+        let a = arguments(&paths(), &v("1.6.2"), &opts(Some("mc.example.org"))).unwrap();
+        assert_eq!(after(&a, "--username"), "Steve");
+        assert_eq!(after(&a, "--server"), "mc.example.org");
+        assert!(after(&a, "--assetsDir").ends_with(r"meta\assets\virtual\legacy"));
+        assert!(!a.iter().any(|x| x.contains("${")));
     }
 
     #[test]

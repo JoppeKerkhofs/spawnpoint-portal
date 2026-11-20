@@ -180,7 +180,7 @@ onMounted(load);
           <div>{{ errorText(createError) }}</div>
         </Note>
       </div>
-      <p class="m-0 px-3.5 pb-3 text-xs text-(--muted)">Minecraft 1.12.2 and older isn’t supported yet.</p>
+      <p class="m-0 px-3.5 pb-3 text-xs text-(--muted)">Minecraft alpha and beta versions aren’t supported.</p>
     </form>
 
     <Note v-if="actionError" kind="err" role="alert">{{ errorText(actionError) }}</Note>
