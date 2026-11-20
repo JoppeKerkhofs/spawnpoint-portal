@@ -2,32 +2,59 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  release:
-    runs-on: windows-latest
-    environment: release
-    defaults:
-      run:
-        shell: bash
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      release: ${{ steps.read.outputs.release }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: The tag matches the app's version
+      - name: Release only a version that has no tag yet
+        id: read
         env:
-          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          version=$(node -p "require('./package.json').version")
-          if [ "$TAG" != "v$version" ]; then
-            echo "Tag $TAG does not match the app's version $version (package.json)." >&2
-            exit 1
+          set -eu
+          version=$(jq -r .version package.json)
+          echo "$version" | grep -Eq '^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$' || { echo "package.json has no x.y.z version: $version" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh api "repos/$REPO/git/ref/tags/v$version" --silent 2>/dev/null; then
+            echo "v$version is already released: nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
           fi
+
+  release:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -58,7 +85,6 @@ jobs:
       - name: Upload the release to the panel
         env:
           PANEL_RELEASE_TOKEN: ${{ secrets.PANEL_RELEASE_TOKEN }}
-          TAG: ${{ github.ref_name }}
         run: |
           set -eu
           files=(target/release/bundle/nsis/*-setup.exe)
@@ -66,7 +92,7 @@ jobs:
           installer="${files[0]}"
           signature=$(tr -d '\r\n' < "$installer.sig")
           sha256=$(sha256sum "$installer" | cut -d ' ' -f 1)
-          code=$(curl --fail-with-body --silent --show-error --request PUT \
+          code=$(curl --silent --show-error --request PUT \
             --header "Authorization: Bearer $PANEL_RELEASE_TOKEN" \
             --header "Accept: application/json" \
             --header "Content-Type: application/octet-stream" \
@@ -74,5 +100,17 @@ jobs:
             --header "X-Sha256: $sha256" \
             --data-binary "@$installer" \
             --output response.txt --write-out '%{http_code}' \
-            "https://spawnpoint.joppek.be/api/v1/portal/releases/${TAG#v}") || { cat response.txt; exit 1; }
-          [ "$code" = 201 ] || { echo "The panel answered $code." >&2; cat response.txt; exit 1; }
+            "https://spawnpoint.joppek.be/api/v1/portal/releases/$VERSION")
+          # 409: the panel already has this version, from a run that failed before it could tag.
+          case "$code" in
+            201) ;;
+            409) echo "The panel already has $VERSION or newer; tagging it."; cat response.txt ;;
+            *) echo "The panel answered $code." >&2; cat response.txt; exit 1 ;;
+          esac
+
+      - name: Tag the released commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: gh api "repos/$REPO/git/refs" -f "ref=refs/tags/v$VERSION" -f "sha=$SHA" --silent
