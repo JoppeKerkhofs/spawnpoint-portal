@@ -3,7 +3,7 @@ use portal_core::gamefiles::{install, manifest, version_json};
 use portal_core::instance::{self, Instance, PackRef, Source};
 use portal_core::java;
 use portal_core::join;
-use portal_core::launch::{Profile, DEFAULT_MEMORY_MB};
+use portal_core::launch::Profile;
 use portal_core::panel;
 use portal_core::loader::{self, Loader};
 use portal_core::pack::{self, PackInstall};
@@ -67,12 +67,9 @@ fn options(rest: &[String], known: &[&str]) -> Result<HashMap<String, String>> {
     Ok(out)
 }
 
-fn launch_options(rest: &[String]) -> Result<(Profile, Option<String>, u32)> {
+fn launch_options(rest: &[String]) -> Result<(Profile, Option<String>, Option<u32>)> {
     let mut o = options(rest, &["--name", "--server", "--memory"])?;
-    let memory = match o.remove("--memory") {
-        Some(m) => m.parse().map_err(|_| Error::Other(format!("invalid --memory: {m}")))?,
-        None => DEFAULT_MEMORY_MB,
-    };
+    let memory = o.remove("--memory").map(|m| m.parse().map_err(|_| Error::Other(format!("invalid --memory: {m}")))).transpose()?;
     let name = o.remove("--name").unwrap_or_else(|| "Player".into());
     Ok((Profile::offline(&name), o.remove("--server"), memory))
 }
@@ -88,7 +85,7 @@ fn pack_name(rest: &[String], pack: &PackRef) -> Result<String> {
 }
 
 fn pack_ref(catalogue: &str, project: &str, version: &str) -> PackRef {
-    PackRef { catalogue: catalogue.into(), project: project.into(), version: version.into() }
+    PackRef { catalogue: catalogue.into(), project: project.into(), version: version.into(), version_name: None }
 }
 
 fn print_manual(paths: &Paths, instance: &Instance, manual: &[Manual]) {
@@ -175,6 +172,17 @@ async fn sync_server(target: &str) -> Result<()> {
     Ok(())
 }
 
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+fn wait_and_record(paths: &Paths, id: &str, child: &mut std::process::Child) -> Result<i32> {
+    let started = unix_now();
+    let code = child.wait()?.code().unwrap_or(1);
+    let _ = instance::record_played(paths, id, started, unix_now() - started);
+    Ok(code)
+}
+
 async fn join_server(target: &str, profile: Profile) -> Result<()> {
     let (client, paths) = (http_client(), Paths::new()?);
     let (panel, slug) = join::parse_target(target, &panel::list(&paths)?)?;
@@ -182,7 +190,8 @@ async fn join_server(target: &str, profile: Profile) -> Result<()> {
     let (mut child, instance, manual) = with_progress(|tx| async move { join::join(&client, &p, &panel, &slug, profile, &tx).await }).await?;
     print_manual(&paths, &instance, &manual);
     println!("started, pid {}", child.id());
-    std::process::exit(child.wait()?.code().unwrap_or(1));
+    let code = wait_and_record(&paths, &instance.id, &mut child)?;
+    std::process::exit(code);
 }
 
 async fn install_pack(client: &Client, paths: &Paths, instance: &mut Instance, resolved: PackInstall) -> Result<()> {
@@ -297,9 +306,11 @@ async fn run(args: &[String]) -> Result<()> {
             let (profile, server, memory) = launch_options(rest)?;
             let (client, paths) = (http_client(), Paths::new()?);
             let instance = instance::load(&paths, id)?;
-            let mut child = with_progress(|tx| async move { start_instance(&client, &paths, &instance, profile, server, memory, &tx).await }).await?;
+            let memory = memory.unwrap_or(instance.memory_mb());
+            let p = paths.clone();
+            let mut child = with_progress(|tx| async move { start_instance(&client, &p, &instance, profile, server, memory, &tx).await }).await?;
             println!("started, pid {}", child.id());
-            let code = child.wait()?.code().unwrap_or(1);
+            let code = wait_and_record(&paths, id, &mut child)?;
             std::process::exit(code);
         }
         _ => {
@@ -332,9 +343,9 @@ mod tests {
     #[test]
     fn launch_option_parsing() {
         let (p, server, memory) = launch_options(&args(&["--name", "Bob", "--server", "mc.test", "--memory", "2048"])).unwrap();
-        assert_eq!((p.name, server, memory), ("Bob".into(), Some("mc.test".into()), 2048));
+        assert_eq!((p.name, server, memory), ("Bob".into(), Some("mc.test".into()), Some(2048)));
         let (p, server, memory) = launch_options(&[]).unwrap();
-        assert_eq!((p.name.as_str(), server, memory), ("Player", None, DEFAULT_MEMORY_MB));
+        assert_eq!((p.name.as_str(), server, memory), ("Player", None, None));
         for bad in [&["--server"][..], &["--srever", "h"], &["--memory=8"], &["--name", "--server", "x"], &["--memory", "lots"], &["--dir", "x"], &["--loader", "fabric"]] {
             assert!(launch_options(&args(bad)).is_err(), "{bad:?}");
         }

@@ -46,7 +46,7 @@ pub async fn install(
     let plan = sync::plan(&game, &instance.managed, pack.files)?;
     instance.minecraft = pack.minecraft;
     instance.loader = pack.loader;
-    instance::save(paths, instance)?;
+    instance::save_synced(paths, instance)?;
     sync::apply(client, paths, instance, plan, progress).await
 }
 

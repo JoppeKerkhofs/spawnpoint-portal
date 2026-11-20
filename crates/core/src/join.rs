@@ -3,7 +3,7 @@ use tokio::task::JoinSet;
 
 use crate::download::{Hash, ProgressTx};
 use crate::instance::{self, Instance, PackRef, Source};
-use crate::launch::{DEFAULT_MEMORY_MB, Profile};
+use crate::launch::Profile;
 use crate::loader::{self, Loader, LoaderKind};
 use crate::pack::{self, PackInstall, curseforge};
 use crate::panel::{self, ClientMods, Panel, Server};
@@ -49,12 +49,16 @@ pub fn parse_target(arg: &str, panels: &[Panel]) -> Result<(Panel, String)> {
     Ok((panel.clone(), slug.to_string()))
 }
 
+fn pack_ref_of(mp: &panel::Modpack, version: String) -> PackRef {
+    PackRef { catalogue: mp.catalogue.clone(), project: mp.project.clone(), version, version_name: mp.version_name.clone() }
+}
+
 async fn prepare(client: &Client, paths: &Paths, panel: &Panel, server: &Server) -> Result<(PackInstall, Option<PackRef>)> {
     let pack = match &server.modpack {
         None => None,
         Some(mp) => {
             let version = mp.version.clone().ok_or_else(|| Error::NotReady("the server is still installing its pack".into()))?;
-            let pack_ref = PackRef { catalogue: mp.catalogue.clone(), project: mp.project.clone(), version };
+            let pack_ref = pack_ref_of(mp, version);
             let resolved = if mp.catalogue == "curseforge" {
                 curseforge::resolve(client, paths, panel, &server.slug).await?
             } else {
@@ -111,7 +115,7 @@ pub async fn join(
     let (instance, server, manual) = sync(client, paths, panel, slug, progress).await?;
     check_host(&server.hostname)?;
     skip_onboarding(&instance::game_dir(paths, &instance.id))?;
-    let child = play::start_instance(client, paths, &instance, profile, Some(server.hostname), DEFAULT_MEMORY_MB, progress).await?;
+    let child = play::start_instance(client, paths, &instance, profile, Some(server.hostname), instance.memory_mb(), progress).await?;
     Ok((child, instance, manual))
 }
 
@@ -421,5 +425,12 @@ mod tests {
         std::fs::write(game.join("options.txt"), "mine:1\n").unwrap();
         skip_onboarding(&game).unwrap();
         assert_eq!(std::fs::read_to_string(game.join("options.txt")).unwrap(), "mine:1\n");
+    }
+
+    #[test]
+    fn the_pack_ref_carries_the_version_name() {
+        let mp = panel::Modpack { catalogue: "ftb".into(), project: "1".into(), version: Some("9".into()), version_name: Some("1.3.7".into()) };
+        let r = pack_ref_of(&mp, "9".into());
+        assert_eq!((r.version.as_str(), r.version_name.as_deref()), ("9", Some("1.3.7")));
     }
 }

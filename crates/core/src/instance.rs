@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::launch::DEFAULT_MEMORY_MB;
 use crate::loader::Loader;
 use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
@@ -15,6 +16,24 @@ pub struct Instance {
     pub loader: Option<Loader>,
     pub source: Source,
     pub managed: Vec<ManagedFile>,
+    #[serde(default)]
+    pub memory_mb: Option<u32>,
+    #[serde(default)]
+    pub last_played: Option<LastPlayed>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LastPlayed {
+    pub started_at: u64,
+    pub seconds: u64,
+}
+
+pub const MEMORY_CHOICES_MB: [u32; 4] = [4096, 6144, 8192, 10240];
+
+impl Instance {
+    pub fn memory_mb(&self) -> u32 {
+        self.memory_mb.unwrap_or(DEFAULT_MEMORY_MB)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,6 +49,8 @@ pub struct PackRef {
     pub catalogue: String,
     pub project: String,
     pub version: String,
+    #[serde(default)]
+    pub version_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -87,6 +108,8 @@ pub fn create(
                     loader,
                     source,
                     managed: Vec::new(),
+                    memory_mb: None,
+                    last_played: None,
                 };
                 save(paths, &instance)?;
                 return Ok(instance);
@@ -119,6 +142,35 @@ pub fn save(paths: &Paths, instance: &Instance) -> Result<()> {
     std::fs::write(&tmp, serde_json::to_vec_pretty(instance)?)?;
     std::fs::rename(tmp, folder.join("instance.json"))?;
     Ok(())
+}
+
+// ponytail: no lock between two update calls in one process; add one if the window ever writes from two places at once.
+pub fn update(paths: &Paths, id: &str, change: impl FnOnce(&mut Instance)) -> Result<Instance> {
+    let mut instance = load(paths, id)?;
+    change(&mut instance);
+    save(paths, &instance)?;
+    Ok(instance)
+}
+
+pub fn set_memory(paths: &Paths, id: &str, mb: u32) -> Result<Instance> {
+    if !MEMORY_CHOICES_MB.contains(&mb) {
+        return Err(Error::Other(format!("{mb} MB is not one of the memory choices")));
+    }
+    update(paths, id, |i| i.memory_mb = Some(mb))
+}
+
+pub fn record_played(paths: &Paths, id: &str, started_at: u64, seconds: u64) -> Result<Instance> {
+    update(paths, id, |i| i.last_played = Some(LastPlayed { started_at, seconds }))
+}
+
+// A sync works on an instance loaded earlier: what the player set meanwhile stays.
+pub fn save_synced(paths: &Paths, instance: &Instance) -> Result<()> {
+    let mut merged = instance.clone();
+    if let Ok(disk) = load(paths, &instance.id) {
+        merged.memory_mb = disk.memory_mb;
+        merged.last_played = disk.last_played;
+    }
+    save(paths, &merged)
 }
 
 pub fn list(paths: &Paths) -> Result<Vec<Instance>> {
@@ -283,7 +335,7 @@ mod tests {
     #[test]
     fn source_round_trips() {
         let (_t, p) = tmp();
-        let pack = PackRef { catalogue: "ftb".into(), project: "1".into(), version: "2".into() };
+        let pack = PackRef { catalogue: "ftb".into(), project: "1".into(), version: "2".into(), version_name: None };
         let source = Source::Server { panel: "p1".into(), server: "atm10".into(), pack: Some(pack) };
         let mut i = create(&p, "S", "1.21.1", None, source.clone()).unwrap();
         i.managed.push(ManagedFile { path: "mods/a.jar".into(), sha1: "ab".into() });
@@ -316,5 +368,47 @@ mod tests {
         assert!(mods(&p, &inst).unwrap().is_empty());
         assert!(inst.managed.is_empty());
         assert!(load(&p, "m").unwrap().managed.is_empty());
+    }
+
+    #[test]
+    fn memory_is_one_of_the_choices() {
+        let (_t, p) = tmp();
+        let i = create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        assert_eq!(i.memory_mb(), 4096);
+        assert_eq!(set_memory(&p, "m", 6144).unwrap().memory_mb(), 6144);
+        assert!(set_memory(&p, "m", 5000).is_err());
+        assert_eq!(load(&p, "m").unwrap().memory_mb, Some(6144));
+    }
+
+    #[test]
+    fn last_play_is_recorded() {
+        let (_t, p) = tmp();
+        create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        record_played(&p, "m", 1_763_640_000, 4320).unwrap();
+        assert_eq!(load(&p, "m").unwrap().last_played, Some(LastPlayed { started_at: 1_763_640_000, seconds: 4320 }));
+    }
+
+    #[test]
+    fn a_sync_keeps_memory_and_play_set_meanwhile() {
+        let (_t, p) = tmp();
+        let mut stale = create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        set_memory(&p, "m", 8192).unwrap();
+        record_played(&p, "m", 10, 20).unwrap();
+        stale.minecraft = "1.20.1".into();
+        save_synced(&p, &stale).unwrap();
+        let now = load(&p, "m").unwrap();
+        assert_eq!((now.minecraft.as_str(), now.memory_mb, now.last_played.map(|l| l.seconds)), ("1.20.1", Some(8192), Some(20)));
+    }
+
+    #[test]
+    fn old_instance_files_still_load() {
+        let (_t, p) = tmp();
+        std::fs::create_dir_all(p.instances().join("old")).unwrap();
+        let old = r#"{"id":"old","name":"Old","minecraft":"1.21.1","loader":null,
+            "source":{"kind":"server","panel":"p","server":"s","pack":{"catalogue":"ftb","project":"1","version":"2"}},"managed":[]}"#;
+        std::fs::write(p.instances().join("old/instance.json"), old).unwrap();
+        let i = load(&p, "old").unwrap();
+        assert_eq!((i.memory_mb, i.last_played), (None, None));
+        assert!(matches!(i.source, Source::Server { pack: Some(PackRef { version_name: None, .. }), .. }));
     }
 }

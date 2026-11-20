@@ -232,7 +232,7 @@ pub async fn apply(
             instance.managed.push(ManagedFile { path: w.path.clone(), sha1 });
         }
     }
-    instance::save(paths, instance)?;
+    instance::save_synced(paths, instance)?;
     result?;
     Ok(plan.manual)
 }
