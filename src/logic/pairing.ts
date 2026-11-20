@@ -8,16 +8,14 @@ export const needsConsent = (s: string): boolean => /^http:\/\//i.test(s.trim())
 export const canGetCode = (address: string, consent: boolean): boolean =>
   looksLikeAddress(address) && (!needsConsent(address) || consent);
 
-export type PollVerdict = "continue" | "unreachable" | "linked" | "expired" | "failed" | "stopped";
+export type PollVerdict = "continue" | "unreachable" | "linked" | "expired" | "failed";
 
 // An unreachable panel is not an expiry: polling goes on and the view says so.
 export function pollVerdict(
   now: number,
   expiresAt: number,
   result: { linked?: Linked | null; error?: unknown } | null,
-  stopped: boolean,
 ): PollVerdict {
-  if (stopped) return "stopped";
   if (result?.linked) return "linked";
   if (now >= expiresAt) return "expired";
   if (result?.error) return (result.error as { kind?: string }).kind === "unreachable" ? "unreachable" : "failed";

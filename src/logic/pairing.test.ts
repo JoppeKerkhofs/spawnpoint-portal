@@ -18,14 +18,13 @@ test("address and consent", () => {
 
 test("when polling stops", () => {
   const linked = { panel: p, missing: [] };
-  expect(pollVerdict(0, 1000, { linked: null }, false)).toBe("continue");
-  expect(pollVerdict(0, 1000, null, false)).toBe("continue");
-  expect(pollVerdict(0, 1000, { linked }, false)).toBe("linked");
-  expect(pollVerdict(1000, 1000, { linked: null }, false)).toBe("expired");
-  expect(pollVerdict(0, 1000, { error: { kind: "unreachable", message: "x" } }, false)).toBe("unreachable");
-  expect(pollVerdict(0, 1000, { error: { kind: "other", message: "the pairing code expired or was already used" } }, false)).toBe("failed");
-  expect(pollVerdict(1000, 1000, { error: { kind: "unreachable", message: "x" } }, false)).toBe("expired");
-  expect(pollVerdict(0, 1000, { linked }, true)).toBe("stopped");
+  expect(pollVerdict(0, 1000, { linked: null })).toBe("continue");
+  expect(pollVerdict(0, 1000, null)).toBe("continue");
+  expect(pollVerdict(0, 1000, { linked })).toBe("linked");
+  expect(pollVerdict(1000, 1000, { linked: null })).toBe("expired");
+  expect(pollVerdict(0, 1000, { error: { kind: "unreachable", message: "x" } })).toBe("unreachable");
+  expect(pollVerdict(0, 1000, { error: { kind: "other", message: "the pairing code expired or was already used" } })).toBe("failed");
+  expect(pollVerdict(1000, 1000, { error: { kind: "unreachable", message: "x" } })).toBe("expired");
 });
 
 test("linked status", () => {

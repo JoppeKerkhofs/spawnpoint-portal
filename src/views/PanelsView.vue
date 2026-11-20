@@ -13,7 +13,8 @@ import PairingCode from "../components/PairingCode.vue";
 import Spinner from "../components/Spinner.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { countdown, errorText } from "../logic/format";
-import { canGetCode, linkedStatus, missingText, needsConsent, pollVerdict } from "../logic/pairing";
+import { canGetCode, linkedStatus, missingText, needsConsent } from "../logic/pairing";
+import { pairingFlow } from "../logic/pairingFlow";
 import { view } from "../logic/operation";
 
 type Phase = "form" | "code" | "linked" | "expired";
@@ -41,12 +42,7 @@ const canStart = computed(() => canGetCode(address.value, consent.value) && !sta
 const left = computed(() => (pairing.value ? countdown(Date.parse(pairing.value.expires_at) - now.value) : ""));
 const status = (p: Panel) => linkedStatus(answers.value?.find((a) => a.panel.id === p.id));
 
-// Each linking attempt owns a number; a late poll answer from an older one is ignored.
-let session = 0;
-let gone = false;
 const body = ref<HTMLElement>();
-let poller: ReturnType<typeof setTimeout> | undefined;
-let ticker: ReturnType<typeof setInterval> | undefined;
 
 async function load() {
   try {
@@ -60,38 +56,34 @@ async function load() {
   servers().then((a) => (answers.value = a), () => {}); // A failing call leaves the status column empty.
 }
 
-function halt() {
-  session++;
-  clearTimeout(poller);
-  clearInterval(ticker);
-}
-
-function end(next: Phase, error: CommandError | null = null) {
-  halt();
-  if (pairing.value) panelPairCancel(pairing.value.pairing).catch(() => {});
-  failure.value = error;
-  phase.value = next;
-}
-
-function schedule(mine: number, number: number, expiresAt: number, interval: number) {
-  poller = setTimeout(async () => {
-    let result: { linked?: Linked | null; error?: unknown };
-    try {
-      result = { linked: await panelPairPoll(number) };
-    } catch (e) {
-      result = { error: e };
-    }
-    if (mine !== session) return;
-    const verdict = pollVerdict(Date.now(), expiresAt, result, false);
-    unreachable.value = verdict === "unreachable";
-    if (verdict === "continue" || verdict === "unreachable") schedule(mine, number, expiresAt, interval);
-    else if (verdict === "linked") {
-      halt();
-      linked.value = result.linked!;
+const flow = pairingFlow(
+  { start: panelPairStart, poll: panelPairPoll, cancel: panelPairCancel },
+  {
+    code(p) {
+      pairing.value = p;
+      now.value = Date.now();
+      unreachable.value = false;
+      openError.value = null;
+      phase.value = "code";
+    },
+    tick: (t) => (now.value = t),
+    unreachable: (v) => (unreachable.value = v),
+    linked(l) {
+      linked.value = l;
       phase.value = "linked";
       load();
-    } else end("expired", verdict === "failed" ? (result.error as CommandError) : null);
-  }, interval * 1000);
+    },
+    expired(error) {
+      failure.value = error;
+      phase.value = "expired";
+    },
+  },
+);
+
+function cancel() {
+  flow.cancel();
+  failure.value = null;
+  phase.value = "form";
 }
 
 async function start() {
@@ -99,21 +91,7 @@ async function start() {
   starting.value = true;
   startError.value = null;
   try {
-    const p = await panelPairStart(address.value.trim(), httpAddress.value && consent.value);
-    if (gone) return void panelPairCancel(p.pairing).catch(() => {});
-    halt();
-    const mine = session;
-    pairing.value = p;
-    now.value = Date.now();
-    unreachable.value = false;
-    openError.value = null;
-    const expiresAt = Date.parse(p.expires_at);
-    phase.value = "code";
-    ticker = setInterval(() => {
-      now.value = Date.now();
-      if (pollVerdict(now.value, expiresAt, null, false) === "expired") end("expired");
-    }, 1000);
-    schedule(mine, p.pairing, expiresAt, p.interval);
+    await flow.start(address.value.trim(), httpAddress.value && consent.value);
   } catch (e) {
     startError.value = e as CommandError;
   } finally {
@@ -156,11 +134,7 @@ watch(phase, async () => {
 });
 
 onMounted(load);
-onUnmounted(() => {
-  gone = true;
-  if (phase.value === "code") end("form");
-  else halt();
-});
+onUnmounted(() => flow.leave());
 </script>
 
 <template>
@@ -249,7 +223,7 @@ onUnmounted(() => {
             <Note v-if="openError" kind="err" role="alert">{{ errorText(openError) }}</Note>
             <div class="flex gap-2">
               <AppButton variant="primary" icon="external" @click="openPage">Open the approval page</AppButton>
-              <AppButton variant="secondary" @click="end('form')">Cancel</AppButton>
+              <AppButton variant="secondary" @click="cancel">Cancel</AppButton>
             </div>
           </div>
         </div>
