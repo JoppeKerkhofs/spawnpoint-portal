@@ -43,7 +43,11 @@ async fn with_progress<T, F: std::future::Future<Output = Result<T>>>(work: impl
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Progress>();
     let printer = tokio::spawn(async move {
         while let Some(p) = rx.recv().await {
-            print!("\r{} {}/{}", p.stage, p.done, p.total);
+            if p.steps > 0 {
+                print!("\r{}/{} {} {}/{}", p.step, p.steps, p.stage, p.done, p.total);
+            } else {
+                print!("\r{} {}/{}", p.stage, p.done, p.total);
+            }
             let _ = std::io::stdout().flush();
         }
         println!();
