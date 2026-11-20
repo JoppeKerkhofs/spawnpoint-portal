@@ -11,6 +11,7 @@ pub struct AppState {
     pub client: reqwest::Client,
     pub paths: Paths,
     pub busy: Mutex<HashSet<String>>,
+    pub running: Mutex<HashSet<String>>,
     pub pairing: Mutex<Option<Kept>>,
 }
 
@@ -51,6 +52,27 @@ pub fn claim<'a>(busy: &'a Mutex<HashSet<String>>, key: &str) -> CmdResult<Claim
         return Err(CommandError { kind: "busy".into(), message: "already starting".into() });
     }
     Ok(Claim { busy, key: key.to_string() })
+}
+
+pub fn refuse_if_running(running: &Mutex<HashSet<String>>, id: &str) -> CmdResult<()> {
+    if running.lock().unwrap_or_else(|e| e.into_inner()).contains(id) {
+        return Err(CommandError { kind: "busy".into(), message: "this instance is running".into() });
+    }
+    Ok(())
+}
+
+struct RunGuard<'a>(&'a Mutex<HashSet<String>>, &'a str);
+
+impl Drop for RunGuard<'_> {
+    fn drop(&mut self) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(self.1);
+    }
+}
+
+// Takes the instance out of `running` after `work`, also when `work` panics.
+pub fn end_run(running: &Mutex<HashSet<String>>, id: &str, work: impl FnOnce()) {
+    let _guard = RunGuard(running, id);
+    work();
 }
 
 pub fn safe_url(url: &str) -> CmdResult<&str> {
@@ -151,6 +173,21 @@ mod tests {
         assert!(claim(&busy, "atm10").is_ok());
         drop(first);
         assert!(claim(&busy, "join:home/atm10").is_ok());
+    }
+
+    #[test]
+    fn a_running_instance_is_refused() {
+        let running = Mutex::new(HashSet::from(["atm10".to_string()]));
+        assert_eq!(refuse_if_running(&running, "atm10").unwrap_err(), CommandError { kind: "busy".into(), message: "this instance is running".into() });
+        assert!(refuse_if_running(&running, "other").is_ok());
+    }
+
+    #[test]
+    fn a_run_ends_even_if_recording_it_panics() {
+        let running = Mutex::new(HashSet::from(["atm10".to_string()]));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| end_run(&running, "atm10", || panic!("record failed"))));
+        assert!(r.is_err());
+        assert!(running.lock().unwrap().is_empty());
     }
 
     #[test]

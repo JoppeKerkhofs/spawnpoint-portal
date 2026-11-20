@@ -24,6 +24,7 @@ pub fn run() {
             instances::instance_check_manual,
             instances::instance_launch,
             instances::join,
+            instances::running,
             instances::minecraft_versions,
             instances::open_mods_folder,
             instances::open_instance_folder,
@@ -43,6 +44,7 @@ pub fn run() {
                 client: portal_core::http_client(),
                 paths: portal_core::Paths::new()?,
                 busy: Mutex::new(HashSet::new()),
+                running: Mutex::new(HashSet::new()),
                 pairing: Mutex::new(None),
             });
             Ok(())

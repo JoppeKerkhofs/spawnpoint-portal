@@ -11,7 +11,7 @@ use crate::paths::check_id;
 use crate::sync::{Manual, Origin, Wanted, safe_path};
 use crate::{Error, Paths, Result, play};
 
-fn find_instance(paths: &Paths, panel_id: &str, slug: &str) -> Result<Option<Instance>> {
+pub fn find_instance(paths: &Paths, panel_id: &str, slug: &str) -> Result<Option<Instance>> {
     Ok(instance::list(paths)?.into_iter().find(|i| matches!(&i.source, Source::Server { panel, server, .. } if panel == panel_id && server == slug)))
 }
 
@@ -240,6 +240,18 @@ mod tests {
 
     fn run(s: &Server, pack: Option<PackInstall>, mods: ClientMods) -> Result<PackInstall> {
         build(s, pack, mods, fake)
+    }
+
+    #[test]
+    fn an_instance_is_found_by_its_panel_and_server() {
+        let dir = crate::download::testing::tmp_dir();
+        let paths = Paths { root: dir.join("root") };
+        assert!(find_instance(&paths, "home", "atm10").unwrap().is_none());
+        let source = |p: &str, s: &str| Source::Server { panel: p.into(), server: s.into(), pack: None };
+        instance::create(&paths, "Other", "1.21.1", None, source("home", "other")).unwrap();
+        let made = instance::create(&paths, "ATM", "1.21.1", None, source("home", "atm10")).unwrap();
+        assert_eq!(find_instance(&paths, "home", "atm10").unwrap().unwrap().id, made.id);
+        assert!(find_instance(&paths, "away", "atm10").unwrap().is_none());
     }
 
     #[test]

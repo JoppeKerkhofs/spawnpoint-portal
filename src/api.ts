@@ -86,12 +86,13 @@ export const instanceMods = (id: string) => invoke<ModFile[]>("instance_mods", {
 export const instanceCreate = (name: string, minecraft: string, loader: string | null) =>
   invoke<Instance>("instance_create", { name, minecraft, loader });
 export const instanceDelete = (id: string) => invoke<void>("instance_delete", { id });
-export const instanceAddMod = (id: string, path: string) => invoke<void>("instance_add_mod", { id, path });
+export const instanceAddMod = (id: string) => invoke<boolean>("instance_add_mod", { id });
 export const instanceRemoveMod = (id: string, name: string) => invoke<void>("instance_remove_mod", { id, name });
 export const instanceSetMemory = (id: string, mb: number) => invoke<Instance>("instance_set_memory", { id, mb });
 export const instanceCheckManual = (id: string) => invoke<Instance>("instance_check_manual", { id });
 export const instanceLaunch = (id: string) => invoke<Instance>("instance_launch", { id });
 export const join = (panelId: string, slug: string) => invoke<Instance>("join", { panelId, slug });
+export const running = () => invoke<string[]>("running");
 export const minecraftVersions = () => invoke<string[]>("minecraft_versions");
 export const openModsFolder = (id: string) => invoke<void>("open_mods_folder", { id });
 export const openInstanceFolder = (id: string) => invoke<void>("open_instance_folder", { id });

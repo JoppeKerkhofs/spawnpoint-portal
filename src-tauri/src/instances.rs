@@ -1,4 +1,4 @@
-use crate::state::{AppState, CmdResult, CommandError, claim, forward_progress};
+use crate::state::{AppState, CmdResult, CommandError, claim, end_run, forward_progress, refuse_if_running};
 use portal_core::download::numbered;
 use portal_core::instance::{self, Instance, Listing, ModFile, Source};
 use portal_core::launch::Profile;
@@ -7,7 +7,8 @@ use portal_core::{Error, Paths, gamefiles, join as core_join, panel, play, setti
 use serde::Serialize;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -33,9 +34,13 @@ fn forwarder(app: &AppHandle) -> portal_core::download::ProgressTx {
 
 fn watch(app: AppHandle, paths: Paths, id: String, mut child: std::process::Child) {
     let started_at = now_secs();
+    app.state::<AppState>().running.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone());
     tauri::async_runtime::spawn(async move {
         let code = tokio::task::spawn_blocking(move || child.wait()).await.ok().and_then(|r| r.ok()).and_then(|s| s.code());
-        let _ = instance::record_played(&paths, &id, started_at, seconds_played(started_at, now_secs()));
+        let state = app.state::<AppState>();
+        end_run(&state.running, &id, || {
+            let _ = instance::record_played(&paths, &id, started_at, seconds_played(started_at, now_secs()));
+        });
         let _ = app.emit("game-exited", GameExited { instance: id, code });
     });
 }
@@ -68,13 +73,23 @@ pub async fn instance_create(state: State<'_, AppState>, name: String, minecraft
 #[tauri::command]
 pub async fn instance_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     let _claim = claim(&state.busy, &id)?;
+    refuse_if_running(&state.running, &id)?;
     Ok(instance::delete(&state.paths, &id)?)
 }
 
 #[tauri::command]
-pub async fn instance_add_mod(state: State<'_, AppState>, id: String, path: String) -> CmdResult<()> {
-    let inst = instance::load(&state.paths, &id)?;
-    Ok(instance::add_mod(&state.paths, &inst, Path::new(&path))?)
+pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<bool> {
+    let paths = state.paths.clone();
+    let added = tokio::task::spawn_blocking(move || -> portal_core::Result<bool> {
+        let inst = instance::load(&paths, &id)?;
+        let Some(file) = app.dialog().file().add_filter("Mod", &["jar"]).blocking_pick_file() else { return Ok(false) };
+        let file = file.into_path().map_err(|e| Error::Other(e.to_string()))?;
+        instance::add_mod(&paths, &inst, &file)?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| Error::Other(e.to_string()))??;
+    Ok(added)
 }
 
 #[tauri::command]
@@ -96,19 +111,29 @@ pub async fn instance_check_manual(state: State<'_, AppState>, id: String) -> Cm
 #[tauri::command]
 pub async fn instance_launch(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<Instance> {
     let claim = claim(&state.busy, &id)?;
+    refuse_if_running(&state.running, &id)?;
     let inst = instance::load(&state.paths, &id)?;
     let profile = Profile::offline(&settings::load(&state.paths).player_name);
     let stages = play::launch_stages(inst.loader.as_ref().map(|l| l.kind));
     let progress = numbered(stages, forwarder(&app));
     let child = play::start_instance(&state.client, &state.paths, &inst, profile, None, inst.memory_mb(), &progress).await?;
-    drop(claim);
     watch(app, state.paths.clone(), id, child);
+    drop(claim);
     Ok(inst)
 }
 
 #[tauri::command]
 pub async fn join(app: AppHandle, state: State<'_, AppState>, panel_id: String, slug: String) -> CmdResult<Instance> {
     let _claim = claim(&state.busy, &format!("join:{panel_id}/{slug}"))?;
+    let existing = core_join::find_instance(&state.paths, &panel_id, &slug)?;
+    let _instance_claim = match &existing {
+        Some(i) => {
+            let held = claim(&state.busy, &i.id)?;
+            refuse_if_running(&state.running, &i.id)?;
+            Some(held)
+        }
+        None => None,
+    };
     let linked = panel::list(&state.paths)?
         .into_iter()
         .find(|p| p.id == panel_id)
@@ -117,6 +142,13 @@ pub async fn join(app: AppHandle, state: State<'_, AppState>, panel_id: String, 
     let (child, inst, _) = core_join::join(&state.client, &state.paths, &linked, &slug, profile, &forwarder(&app)).await?;
     watch(app, state.paths.clone(), inst.id.clone(), child);
     Ok(inst)
+}
+
+#[tauri::command]
+pub async fn running(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
+    let mut ids: Vec<String> = state.running.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect();
+    ids.sort();
+    Ok(ids)
 }
 
 #[tauri::command]
