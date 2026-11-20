@@ -174,7 +174,10 @@ onMounted(() => {
   panels().then((p) => (knownPanels.value = p), () => {});
   defaults().then((d) => (choices.value = d), () => {});
 });
-onUnmounted(() => (lastPlayed.value = null));
+onUnmounted(() => {
+  lastPlayed.value = null;
+  afterJoin.value = null;
+});
 </script>
 
 <template>
