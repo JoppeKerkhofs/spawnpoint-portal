@@ -69,6 +69,21 @@ pub fn claim<'a>(busy: &'a Mutex<HashSet<String>>, key: &str) -> CmdResult<Claim
     Ok(Claim { busy, key: key.to_string() })
 }
 
+pub fn refuse_while_playing(running: &Mutex<HashMap<String, u64>>) -> CmdResult<()> {
+    if !running.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+        return Err(CommandError { kind: "busy".into(), message: "Close your game before updating.".into() });
+    }
+    Ok(())
+}
+
+pub fn may_install(running: &Mutex<HashMap<String, u64>>, busy: &Mutex<HashSet<String>>) -> CmdResult<()> {
+    refuse_while_playing(running)?;
+    if !busy.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+        return Err(CommandError { kind: "busy".into(), message: "Wait for the current task to finish.".into() });
+    }
+    Ok(())
+}
+
 pub fn refuse_if_running(running: &Mutex<HashMap<String, u64>>, id: &str) -> CmdResult<()> {
     if running.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id) {
         return Err(CommandError { kind: "busy".into(), message: "this instance is running".into() });
@@ -272,6 +287,21 @@ mod tests {
         assert_eq!(shown(&running), Some(("b".to_string(), 300)));
         running.lock().unwrap().insert("d".into(), 300);
         assert_eq!(shown(&running), Some(("d".to_string(), 300)));
+    }
+
+    #[test]
+    fn an_update_waits_for_games_and_tasks() {
+        let running = Mutex::new(HashMap::new());
+        let busy = Mutex::new(HashSet::new());
+        assert!(may_install(&running, &busy).is_ok());
+        busy.lock().unwrap().insert("atm10".to_string());
+        assert_eq!(may_install(&running, &busy).unwrap_err(), CommandError { kind: "busy".into(), message: "Wait for the current task to finish.".into() });
+        running.lock().unwrap().insert("atm10".to_string(), 100);
+        assert_eq!(may_install(&running, &busy).unwrap_err(), CommandError { kind: "busy".into(), message: "Close your game before updating.".into() });
+        busy.lock().unwrap().clear();
+        assert_eq!(may_install(&running, &busy).unwrap_err().message, "Close your game before updating.");
+        running.lock().unwrap().clear();
+        assert!(may_install(&running, &busy).is_ok());
     }
 
     #[test]

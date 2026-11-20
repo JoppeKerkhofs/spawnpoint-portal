@@ -1,6 +1,7 @@
 pub mod instances;
 pub mod panels;
 pub mod state;
+pub mod updates;
 
 use state::AppState;
 use std::collections::{HashMap, HashSet};
@@ -12,6 +13,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             instances::instances,
             instances::instance_get,
@@ -43,6 +45,9 @@ pub fn run() {
             panels::settings_get,
             panels::settings_set,
             panels::open_page,
+            updates::app_version,
+            updates::update_check,
+            updates::update_install,
         ])
         .setup(|app| {
             app.manage(AppState {

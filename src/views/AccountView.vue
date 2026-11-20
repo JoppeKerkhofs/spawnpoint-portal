@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { settingsGet, settingsSet, type CommandError } from "../api";
+import { appVersion, settingsGet, settingsSet, type CommandError } from "../api";
 import AppButton from "../components/AppButton.vue";
 import Note from "../components/Note.vue";
+import Spinner from "../components/Spinner.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { nameHelp } from "../logic/account";
 import { errorText } from "../logic/format";
 import { look, setLook, type Appearance, type Theme } from "../logic/look";
-import { playerName } from "../logic/operation";
+import { busy, playerName, playing } from "../logic/operation";
+import { availableVersion, canInstall, checkForUpdate, installBlock, installUpdate, update } from "../logic/update";
 
 const name = ref(playerName.value);
 const saved = ref(playerName.value);
@@ -16,9 +18,14 @@ const justSaved = ref(false);
 const saving = ref(false);
 const error = ref<CommandError | null>(null);
 
+const version = ref("");
+const newVersion = computed(() => availableVersion(update.value));
+const block = computed(() => installBlock(busy.value, playing.value.length > 0));
+
 const help = computed(() => nameHelp(name.value, saved.value, justSaved.value));
 
 onMounted(async () => {
+  appVersion().then((v) => (version.value = v), () => {});
   try {
     const s = await settingsGet();
     if (name.value === saved.value) name.value = s.player_name;
@@ -149,6 +156,28 @@ const appearance = computed({
           Show what I'm playing on Discord
         </label>
         <div class="text-xs text-(--muted)">Discord shows "In menu" while the launcher is open, and the instance's name and Minecraft version while a game runs. Never the server's address.</div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="about-title">
+      <div class="card-head"><h2 id="about-title" class="card-title mc-name">About</h2></div>
+      <div class="card-body flex flex-col gap-2.5">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <span class="min-w-0 flex-[1_1_200px]">Version {{ version }}</span>
+          <AppButton variant="secondary" :disabled="update.phase === 'checking' || update.phase === 'installing'" @click="checkForUpdate(true)">
+            <Spinner v-if="update.phase === 'checking'" />Check for updates
+          </AppButton>
+        </div>
+        <div v-if="update.phase === 'current'" role="status">You have the newest version.</div>
+        <template v-if="newVersion">
+          <div role="status">Version {{ newVersion }} is available.</div>
+          <div v-if="update.phase === 'installing'" class="flex items-center gap-2" role="status"><Spinner />Downloading the update…</div>
+          <div v-else class="flex flex-wrap items-center gap-2.5">
+            <AppButton variant="primary" :disabled="!canInstall(update, busy, playing.length > 0)" @click="installUpdate">Install and restart</AppButton>
+            <span v-if="block" class="text-xs text-(--muted)">{{ block }}</span>
+          </div>
+        </template>
+        <Note v-if="update.phase === 'failed'" kind="err" role="alert">{{ errorText(update.error) }}</Note>
       </div>
     </section>
     </div>

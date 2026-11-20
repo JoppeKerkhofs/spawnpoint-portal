@@ -598,3 +598,4 @@ html[data-theme="blocky"] .content { gap: 14px; }
 .dot { flex: none; box-sizing: border-box; width: 8px; height: 8px; border-radius: 50%; background: var(--dot-idle); }
 .dot.is-playing { background: var(--dot-playing); }
 html[data-theme="blocky"] .dot { width: 10px; height: 10px; border: 2px solid var(--border); }
+.update-dot { flex: none; margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--dot-playing); }

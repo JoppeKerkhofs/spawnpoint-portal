@@ -10,6 +10,7 @@ import AccountView from "./views/AccountView.vue";
 import PanelsView from "./views/PanelsView.vue";
 import ServerView from "./views/ServerView.vue";
 import ServersView from "./views/ServersView.vue";
+import { checkForUpdate } from "./logic/update";
 import { gameExited, loadPlaying, openInstanceId, playerName, view } from "./logic/operation";
 
 // Moves focus to the new view's h1 so a screen reader hears where it is.
@@ -27,6 +28,7 @@ onMounted(async () => {
     // A game that exits then stays "Playing" until the window reloads.
   }
   loadPlaying();
+  checkForUpdate(false);
 });
 onUnmounted(() => unlisten?.());
 </script>

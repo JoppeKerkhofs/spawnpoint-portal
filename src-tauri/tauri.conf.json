@@ -40,5 +40,11 @@
     "windows": {
       "nsis": { "installMode": "currentUser" }
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZBNjJEMzA0MjYxMTNGMzYKUldRMlB4RW1CTk5pK21OYUFPRXlPYU14MldsNnZWMXVHbDZFUGU4T05ZN0EwbXo1WGJuY3pydkwK",
+      "endpoints": ["https://spawnpoint.joppek.be/portal/latest.json"]
+    }
   }
 }

@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { initials } from "../logic/visuals";
 import { playerName, view, type View } from "../logic/operation";
+import { availableVersion, update } from "../logic/update";
 import Icon, { type IconName } from "./Icon.vue";
 import Logo from "./Logo.vue";
 
@@ -12,6 +13,7 @@ const items: { id: View; label: string; icon: IconName }[] = [
   { id: "account", label: "Account", icon: "user" },
 ];
 
+const updateReady = computed(() => availableVersion(update.value) !== null);
 const active = computed(() => (view.value === "instance" ? "instances" : view.value === "server" ? "servers" : view.value));
 </script>
 
@@ -23,12 +25,13 @@ const active = computed(() => (view.value === "instance" ? "instances" : view.va
       :key="i.id"
       type="button"
       class="nav"
-      :aria-label="i.label"
+      :aria-label="i.id === 'account' && updateReady ? 'Account, Update available' : i.label"
       :title="i.label"
       :aria-current="active === i.id ? 'page' : undefined"
       @click="view = i.id"
     >
       <Icon :name="i.icon" :size="18" /><span class="nav-label">{{ i.label }}</span>
+      <span v-if="i.id === 'account' && updateReady" class="update-dot" aria-hidden="true" />
     </button>
     <button
       type="button"

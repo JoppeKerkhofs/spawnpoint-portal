@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { count, stageText } from "../logic/format";
+import { availableVersion, update } from "../logic/update";
 import { closeFailure, lastPlayed, liveText, op, playerName, playing, trailing, view } from "../logic/operation";
 import AppButton from "./AppButton.vue";
 import Icon from "./Icon.vue";
@@ -9,6 +10,7 @@ import Spinner from "./Spinner.vue";
 
 const text = computed(() => trailing(view.value, op.value, playing.value, { playerName: playerName.value, lastPlayed: lastPlayed.value }));
 const live = computed(() => liveText(op.value, playing.value));
+const version = computed(() => availableVersion(update.value));
 const working = computed(() => op.value.phase === "preparing" || op.value.phase === "starting");
 </script>
 
@@ -27,6 +29,7 @@ const working = computed(() => op.value.phase === "preparing" || op.value.phase 
       <ProgressBar :value="op.done" :max="Math.max(op.total, 1)" :label="stageText(op.stage)" />
       <span class="tabular">{{ count(op.done) }} of {{ count(op.total) }} files</span>
     </template>
+    <AppButton v-if="version && op.phase !== 'failed'" variant="secondary" size="small" @click="view = 'account'">Version {{ version }} is available</AppButton>
     <AppButton v-if="op.phase === 'failed'" variant="secondary" size="small" @click="closeFailure">Close</AppButton>
   </footer>
 </template>

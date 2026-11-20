@@ -232,3 +232,7 @@ export const settingsGet = () => invoke<Settings>("settings_get");
 export const settingsSet = (playerName: string, discord: boolean) =>
   invoke<Settings>("settings_set", { playerName, discord });
 export const openPage = (url: string) => invoke<void>("open_page", { url });
+
+export const appVersion = () => invoke<string>("app_version");
+export const updateCheck = () => invoke<string | null>("update_check");
+export const updateInstall = () => invoke<void>("update_install");
