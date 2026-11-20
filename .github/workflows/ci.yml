@@ -1,0 +1,79 @@
+name: Checks
+
+on:
+  pull_request:
+  schedule:
+    # Mondays 05:00 UTC: new advisories appear in dependencies nobody touched.
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    if: github.event_name != 'schedule'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - run: npm ci
+      - run: npm run build
+      - run: cargo test --workspace
+      - run: npx vue-tsc --noEmit
+      - run: npm test
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-audit
+
+      - name: Known vulnerabilities in the Rust crates
+        run: cargo audit
+
+      - name: Known vulnerabilities in the npm packages that ship
+        run: npm audit --omit=dev --audit-level=high
+
+  workflows:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        env:
+          ACTIONLINT: 1.7.12
+        run: |
+          set -eu
+          curl --fail --silent --show-error --location \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT}/actionlint_${ACTIONLINT}_linux_amd64.tar.gz" \
+            | tar -xz actionlint
+          ./actionlint -color
+
+      - name: zizmor
+        run: pipx run zizmor==1.32.0 .github/workflows
