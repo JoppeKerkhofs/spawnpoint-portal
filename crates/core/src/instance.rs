@@ -297,7 +297,7 @@ pub fn mods(paths: &Paths, instance: &Instance) -> Result<Vec<ModFile>> {
             out.push(ModFile { name, size: meta.len(), managed });
         }
     }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out.sort_by_cached_key(|f| f.name.to_lowercase());
     Ok(out)
 }
 
@@ -432,6 +432,16 @@ mod tests {
         assert_eq!(load(&p, "s").unwrap(), i);
         assert_eq!(load(&p, "s").unwrap().source, source);
         assert!(!game_dir(&p, "s").parent().unwrap().join("instance.json.tmp").exists());
+    }
+
+    #[test]
+    fn mods_sort_case_insensitively() {
+        let (t, p) = tmp();
+        let inst = create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        add_mod(&p, &inst, &jar_named(&t, "FarmersDelight.jar")).unwrap();
+        add_mod(&p, &inst, &jar_named(&t, "appleskin.jar")).unwrap();
+        let names: Vec<_> = mods(&p, &inst).unwrap().into_iter().map(|f| f.name).collect();
+        assert_eq!(names, ["appleskin.jar", "FarmersDelight.jar"]);
     }
 
     #[test]

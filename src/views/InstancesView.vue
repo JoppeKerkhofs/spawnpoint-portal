@@ -1,9 +1,9 @@
 <script lang="ts">
 import { ref } from "vue";
-import type { CommandError, Listing, Panel } from "../api";
+import type { CommandError, Panel } from "../api";
+import { instanceList as list } from "../logic/instances";
 
 // Outside the component, so leaving and re-entering the view shows the earlier answer at once.
-const list = ref<Listing | null>(null);
 const knownPanels = ref<Panel[]>([]);
 const loading = ref(false);
 const loadError = ref<CommandError | null>(null);
@@ -23,7 +23,7 @@ import Skeleton from "../components/Skeleton.vue";
 import StatePill from "../components/StatePill.vue";
 import Tile from "../components/Tile.vue";
 import ViewHead from "../components/ViewHead.vue";
-import { errorText } from "../logic/format";
+import { errorText, minecraftText } from "../logic/format";
 import { canCreate, instancesState, instancesSummary, kindOf, kindTone, loaderText, playButton, sourceText } from "../logic/instances";
 import { look } from "../logic/look";
 import { markPlaying, op, openInstance, playing, view, withProgress } from "../logic/operation";
@@ -61,6 +61,7 @@ const versionError = ref<CommandError | null>(null);
 const creating = ref(false);
 const createError = ref<CommandError | null>(null);
 const nameInput = ref<HTMLInputElement>();
+const newButton = ref<{ $el: HTMLElement }>();
 
 async function loadVersions() {
   versionError.value = null;
@@ -75,6 +76,7 @@ async function loadVersions() {
 function closeForm() {
   formOpen.value = false;
   name.value = "";
+  nextTick(() => newButton.value?.$el.focus());
 }
 
 function toggleForm() {
@@ -124,7 +126,7 @@ onMounted(load);
 <template>
   <ViewHead title="Instances" :summary="summary">
     <template #actions>
-      <AppButton variant="primary" icon="plus" :aria-expanded="formOpen" @click="toggleForm">New instance</AppButton>
+      <AppButton ref="newButton" variant="primary" icon="plus" :aria-expanded="formOpen" @click="toggleForm">New instance</AppButton>
     </template>
   </ViewHead>
   <div class="content">
@@ -219,7 +221,7 @@ onMounted(load);
           <StatePill v-if="isPlaying(i)" tone="ok" class="mt-[3px]">Game running</StatePill>
         </div>
         <div class="w-[190px] min-w-0 shrink-0">
-          <div class="truncate font-semibold">Minecraft {{ i.minecraft }}</div>
+          <div class="truncate font-semibold">{{ minecraftText(i.minecraft) }}</div>
           <div class="truncate text-xs text-(--muted)" :title="loaderText(i.loader)">{{ loaderText(i.loader) }}</div>
         </div>
         <div class="w-[160px] min-w-0 shrink-0 min-[1000px]:w-[230px]">

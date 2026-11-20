@@ -1,6 +1,14 @@
+import { ref } from "vue";
 import type { Instance, Listing, Loader, PackRef, Panel } from "../api";
 import type { Op, Playing } from "./operation";
 import { catalogueName, loaderName } from "./servers";
+
+// Shared with the One instance view, which drops a deleted instance before switching back.
+export const instanceList = ref<Listing | null>(null);
+
+export function dropInstance(id: string): void {
+  if (instanceList.value) instanceList.value = { ...instanceList.value, instances: instanceList.value.instances.filter((i) => i.id !== id) };
+}
 
 export type InstancesState = "loading" | "empty" | "filled";
 

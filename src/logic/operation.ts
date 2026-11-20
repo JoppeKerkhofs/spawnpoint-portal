@@ -2,7 +2,7 @@ import { computed, ref, type ComputedRef, type Ref } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { defaults, instanceGet, onProgress as listenProgress, running, type CommandError, type Instance, type Progress } from "../api";
 import { normalizeError } from "./errors";
-import { clock, errorText, stageText } from "./format";
+import { clock, errorText, memoryLabel, stageText } from "./format";
 
 export type View = "servers" | "instances" | "instance" | "panels" | "account";
 export const view: Ref<View> = ref("servers");
@@ -121,7 +121,7 @@ export function trailing(
   const since = `since ${clock(p.since)}`;
   const muted =
     v === "instance"
-      ? `with ${Number((p.memoryMb / 1024).toFixed(1))} GB of memory`
+      ? `with ${memoryLabel(p.memoryMb)} of memory`
       : v === "account"
         ? `${since} · as ${ctx.playerName}`
         : p.host

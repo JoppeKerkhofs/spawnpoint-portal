@@ -21,14 +21,14 @@ import Skeleton from "../components/Skeleton.vue";
 import StatePill from "../components/StatePill.vue";
 import Tile from "../components/Tile.vue";
 import ViewHead from "../components/ViewHead.vue";
-import { andList, errorText } from "../logic/format";
+import { andList, errorText, minecraftText } from "../logic/format";
 import { look } from "../logic/look";
 import { markPlaying, op, openInstance, playing, view, withProgress } from "../logic/operation";
 import { joinButton, playersText, runsText, serverKey, serversState, serversSummary } from "../logic/servers";
 import { serverPill, serverTexture } from "../logic/visuals";
 
 const state = computed(() => serversState(list.value));
-const summary = computed(() => serversSummary(list.value));
+const summary = computed(() => serversSummary(list.value, loadError.value !== null));
 const opKey = computed(() => (op.value.phase === "idle" ? null : (op.value.key ?? null)));
 const blocky = computed(() => look.value.theme === "blocky");
 const panelNames = computed(() => andList((list.value ?? []).map((p) => p.panel.name)));
@@ -66,6 +66,11 @@ onMounted(load);
     </template>
   </ViewHead>
   <div class="content">
+    <Note v-if="loadError && list" kind="err" role="alert">
+      <strong>Couldn’t ask your panels.</strong>
+      <div>{{ errorText(loadError) }}</div>
+    </Note>
+
     <Note v-if="loadError && !list" kind="err" role="alert">
       <strong>Couldn’t ask your panels.</strong>
       <div>{{ errorText(loadError) }}</div>
@@ -120,7 +125,7 @@ onMounted(load);
               <div class="mt-[3px] text-xs text-(--muted)">{{ playersText(s.players) }}</div>
             </div>
             <div class="w-[170px] min-w-0 shrink-0">
-              <div class="truncate font-semibold">Minecraft {{ s.game_version }}</div>
+              <div class="truncate font-semibold">{{ minecraftText(s.game_version) }}</div>
               <div class="truncate text-xs text-(--muted)" :title="runsText(s)">{{ runsText(s) }}</div>
             </div>
             <div class="flex w-32 shrink-0 flex-col items-end gap-[3px]">

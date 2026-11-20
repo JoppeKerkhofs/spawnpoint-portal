@@ -112,6 +112,7 @@ pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: St
 
 #[tauri::command]
 pub async fn instance_remove_mod(state: State<'_, AppState>, id: String, name: String) -> CmdResult<()> {
+    refuse_if_running(&state.running, &id)?;
     let mut inst = instance::load(&state.paths, &id)?;
     Ok(instance::remove_mod(&state.paths, &mut inst, &name)?)
 }

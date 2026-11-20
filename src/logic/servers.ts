@@ -1,4 +1,5 @@
 import type { PanelServers, Players, Server } from "../api";
+import { upper } from "./format";
 import type { Op, Playing } from "./operation";
 
 export type ServersState = "loading" | "none-linked" | "none-answered" | "filled";
@@ -13,10 +14,10 @@ export function serversState(list: PanelServers[] | null): ServersState {
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-export function serversSummary(list: PanelServers[] | null): string {
+export function serversSummary(list: PanelServers[] | null, failed = false): string {
   switch (serversState(list)) {
     case "loading":
-      return "Asking your panels what they run…";
+      return failed ? "" : "Asking your panels what they run…";
     case "none-linked":
       return "Nothing linked yet";
     case "none-answered":
@@ -37,7 +38,6 @@ export function playersText(p: Players | null): string {
 
 const catalogues: Record<string, string> = { ftb: "FTB", modrinth: "Modrinth", curseforge: "CurseForge" };
 const loaders: Record<string, string> = { fabric: "Fabric", neoforge: "NeoForge", forge: "Forge" };
-const upper = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export const catalogueName = (c: string) => catalogues[c] ?? upper(c);
 export const loaderName = (l: string) => loaders[l] ?? upper(l);

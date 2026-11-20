@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import type { PanelServers, Players, Server } from "../api";
 import type { Playing } from "./operation";
 import { joinButton, playersText, runsText, serversState, serversSummary } from "./servers";
+import { minecraftText } from "./format";
 
 const srv = (extra: Partial<Server> = {}): Server => ({
   slug: "s", name: "S", hostname: "s.example", state: "running", game_version: "26.3", modpack: null, loader: null, players: null, ...extra,
@@ -23,6 +24,17 @@ test("state and summary", () => {
   expect(serversSummary([joppe(), failed("lien")])).toBe("5 servers from 1 of 2 panels · 2 running");
   expect(serversSummary([joppe(), lienBack()])).toBe("6 servers from 2 panels · 3 running");
   expect(serversSummary([lienBack()])).toBe("1 server from 1 panel · 1 running");
+});
+
+test("a failed first ask leaves the summary empty", () => {
+  expect(serversSummary(null, true)).toBe("");
+  expect(serversSummary([lienBack()], true)).toBe("1 server from 1 panel · 1 running");
+});
+
+test("an unknown game version is a dash", () => {
+  expect(minecraftText("26.3")).toBe("Minecraft 26.3");
+  expect(minecraftText(null)).toBe("—");
+  expect(minecraftText("")).toBe("—");
 });
 
 test("what a server runs", () => {

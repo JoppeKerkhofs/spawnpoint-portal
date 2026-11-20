@@ -4,8 +4,8 @@ import { expect, test } from "vitest";
 const fs = (globalThis as any).process.getBuiltinModule("node:fs");
 const css: string = fs.readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
-function tokens(header: string): Record<string, string> {
-  const start = css.indexOf(header);
+function tokens(header: string, after = ""): Record<string, string> {
+  const start = css.indexOf(header, Math.max(0, css.indexOf(after)));
   expect(start, header).toBeGreaterThan(-1);
   const body = css.slice(start, css.indexOf("\n}", start));
   return Object.fromEntries([...body.matchAll(/(--[\w-]+):\s*(#[0-9a-f]{6})\s*;/gi)].map((m) => [m[1], m[2]]));
@@ -23,6 +23,7 @@ function ratio(a: string, b: string): number {
 
 const light = tokens('html[data-theme="default"] {');
 const dark = { ...light, ...tokens('html[data-theme="default"].dark {') };
+const blocky = { ...light, ...tokens('html[data-theme="blocky"] {', "Tokens: blocky") };
 
 test.each([
   ["light focus ring", light, "--focus", ["--bg", "--surface"]],
@@ -32,4 +33,12 @@ test.each([
   ["dark focus ring", dark, "--focus", ["--bg", "--surface"]],
 ] as const)("%s has 3:1 against the page and the cards", (_, set, token, grounds) => {
   for (const ground of grounds) expect(ratio(set[token], set[ground]), `${token} on ${ground}`).toBeGreaterThanOrEqual(3);
+});
+
+test("a note's heading takes the note's colour", () => {
+  expect(css).toMatch(/\.note h2\s*\{\s*color:\s*inherit/);
+});
+
+test.each([["light", light], ["dark", dark], ["blocky", blocky]] as const)("note text in %s is 4.5:1 on each note background", (_, set) => {
+  for (const kind of ["warn", "info", "err"]) expect(ratio(set[`--note-${kind}-fg`], set[`--note-${kind}-bg`]), kind).toBeGreaterThanOrEqual(4.5);
 });

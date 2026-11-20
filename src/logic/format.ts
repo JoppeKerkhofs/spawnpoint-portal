@@ -10,10 +10,14 @@ const stages: Record<string, string> = {
   mods: "Mods",
 };
 
-const upper = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+export const upper = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 export const stageText = (stage: string) => stages[stage] ?? upper(stage);
+
+export const minecraftText = (v: string | null): string => (v ? `Minecraft ${v}` : "—");
+
+export const memoryLabel = (mb: number): string => `${Number((mb / 1024).toFixed(1))} GB`;
 
 export const count = (n: number) => n.toLocaleString("en-US");
 

@@ -273,6 +273,7 @@ html[data-theme="blocky"] :is(h1, h2, h3, h4, .mc-name) {
 }
 
 h1, h2, h3 { color: var(--heading); font-family: var(--font-heading); }
+.note h2 { color: inherit; }
 .mono { font-family: var(--font-mono); font-size: var(--mono-size); }
 .tabular { font-variant-numeric: tabular-nums; }
 
@@ -387,6 +388,7 @@ html[data-theme="blocky"] .card > .card-head:not(:first-child) { border-top: 3px
 .note[data-kind="warn"] { background: var(--note-warn-bg); border-color: var(--note-warn-border); color: var(--note-warn-fg); }
 .note[data-kind="err"] { background: var(--note-err-bg); border-color: var(--note-err-border); color: var(--note-err-fg); }
 .note > .icon { flex: none; }
+.note-ok > .icon { color: var(--ok-icon); }
 .note-text { flex: 1 1 auto; min-width: 0; }
 
 /* ---------- Dialog ---------- */

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Instance, Source } from "../api";
 import type { Playing } from "./operation";
-import { canCreate, instancesState, instancesSummary, kindOf, kindTone, loaderText, packText, playButton, sourceText } from "./instances";
+import { canCreate, dropInstance, instanceList, instancesState, instancesSummary, kindOf, kindTone, loaderText, packText, playButton, sourceText } from "./instances";
 
 const inst = (extra: Partial<Instance> = {}): Instance => ({
   id: "i", name: "N", minecraft: "1.20.1", loader: null, source: { kind: "manual" } as Source, managed: [], memory_mb: null,
@@ -47,4 +47,12 @@ test('play button', () => {
   expect(playButton(i, prep, 'other', [])).toEqual({ label: 'Play', aria: 'Play Homestead', disabled: true })
   expect(playButton(i, { phase: 'starting', name: 'x', key: 'i' }, 'i', [])).toMatchObject({ label: 'Starting…', disabled: true })
   expect(playButton(i, idle, null, [on('other')])).toMatchObject({ label: 'Play', disabled: false })
+})
+test('a deleted instance leaves the shared list at once', () => {
+  instanceList.value = { instances: [inst({ id: 'a' }), inst({ id: 'b' })], unreadable: [] }
+  dropInstance('a')
+  expect(instanceList.value.instances.map((i) => i.id)).toEqual(['b'])
+  instanceList.value = null
+  dropInstance('b')
+  expect(instanceList.value).toBeNull()
 })

@@ -36,7 +36,7 @@ impl fmt::Display for Error {
             Error::Secret(m) => write!(f, "credential store error: {m}"),
             Error::Panel { panel, message } => write!(f, "panel {panel}: {message}"),
             Error::Unreachable { panel } => write!(f, "panel {panel}: cannot be reached"),
-            Error::Busy(id) => write!(f, "{id} is already being synced"),
+            Error::Busy(_) => f.write_str("this instance is being prepared; try again in a moment"),
             Error::NotReady(m) | Error::Unsupported(m) | Error::Other(m) => f.write_str(m),
         }
     }
@@ -102,5 +102,7 @@ mod tests {
         assert_eq!(Error::Unreachable { panel: "Home".into() }.to_string(), "panel Home: cannot be reached");
         assert_eq!(Error::NotReady("x".into()).kind(), "not_ready");
         assert_eq!(Error::Other("x".into()).kind(), "other");
+        let busy = Error::Busy("m".into());
+        assert_eq!((busy.kind(), busy.to_string()), ("busy", "this instance is being prepared; try again in a moment".into()));
     }
 }

@@ -1,4 +1,5 @@
 import type { Instance, ModFile, Panel } from "../api";
+import { minecraftText } from "./format";
 import { loaderText, packText } from "./instances";
 
 export type ModFilter = "all" | "pack" | "own";
@@ -24,7 +25,7 @@ export function instanceSummary(i: Instance, panels: Panel[]): string {
   const s = i.source;
   const pack = s.kind === "pack" ? s.pack : s.kind === "server" ? s.pack : null;
   return [
-    `Minecraft ${i.minecraft}`,
+    minecraftText(i.minecraft),
     i.loader && loaderText(i.loader),
     pack && packText(pack),
     s.kind === "server" && `from ${i.name} on ${panels.find((p) => p.id === s.panel)?.name ?? s.panel}`,
@@ -40,14 +41,15 @@ export const skippedName = (path: string): string => path.replace(/^mods\//, "")
 // Only an https address is shown as a link; the backend refuses anything else as well.
 export const isHttps = (url: string): boolean => /^https:\/\//i.test(url);
 
-export function deleteBody(i: Instance, mods: ModFile[]): string {
-  const { all, own } = modCounts(mods);
-  const including = own > 0 ? ` (including your ${own} own)` : "";
+export function deleteBody(i: Instance, mods: ModFile[] | null): string {
+  let what = "its mods";
+  if (mods) {
+    const { all, own } = modCounts(mods);
+    what = `${modsText(all)}${own > 0 ? ` (including your ${own} own)` : ""}`;
+  }
   const again = i.source.kind === "server" ? ` You can always join the ${i.name} server again to get a fresh copy.` : "";
-  return `This removes the whole instance folder: ${modsText(all)}${including}, its configs, and its saved worlds. It can’t be undone.${again}`;
+  return `This removes the whole instance folder: ${what}, its configs, and its saved worlds. It can’t be undone.${again}`;
 }
-
-export const memoryLabel = (mb: number): string => `${Number((mb / 1024).toFixed(1))} GB`;
 
 // The core's choices, plus a stored value outside them so the select never shows a wrong one.
 export const memoryOptions = (choices: number[], current: number): number[] =>

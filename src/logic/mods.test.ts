@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type { Instance, ModFile, Source } from "../api";
-import { deleteBody, filterMods, handHeading, instanceSummary, isHttps, memoryLabel, memoryOptions, modCounts, modsText, noModsText, orderMods, skippedName } from "./mods";
+import { memoryLabel } from "./format";
+import { deleteBody, filterMods, handHeading, instanceSummary, isHttps, memoryOptions, modCounts, modsText, noModsText, orderMods, skippedName } from "./mods";
 
 const m = (name: string, managed: boolean): ModFile => ({ name, size: 1, managed });
 const inst = (extra: Partial<Instance> = {}): Instance => ({
@@ -30,6 +31,10 @@ test('texts', () => {
   expect(skippedName('mods/iris-mc1.20.1-1.7.2.jar')).toBe('iris-mc1.20.1-1.7.2.jar'); expect(skippedName('config/x.toml')).toBe('config/x.toml')
   expect(deleteBody(homestead(), [m('a.jar', true), m('b.jar', false)])).toBe('This removes the whole instance folder: 2 mods (including your 1 own), its configs, and its saved worlds. It can’t be undone. You can always join the Homestead server again to get a fresh copy.')
   expect(deleteBody(inst({ name: 'Old times', source: { kind: 'manual' } }), [m('a.jar', true)])).toBe('This removes the whole instance folder: 1 mod, its configs, and its saved worlds. It can’t be undone.')
+})
+test('delete body without a loaded list', () => {
+  expect(deleteBody(inst({ name: 'Old times' }), null)).toBe('This removes the whole instance folder: its mods, its configs, and its saved worlds. It can’t be undone.')
+  expect(instanceSummary(inst({ minecraft: '' }), panels)).toBe('—')
 })
 test('links and memory', () => {
   expect(isHttps('https://www.curseforge.com/x')).toBe(true); expect(isHttps('http://x')).toBe(false); expect(isHttps('javascript:alert(1)')).toBe(false); expect(isHttps('')).toBe(false)

@@ -29,8 +29,8 @@ import SegFilter from "../components/SegFilter.vue";
 import Skeleton from "../components/Skeleton.vue";
 import Tile from "../components/Tile.vue";
 import ViewHead from "../components/ViewHead.vue";
-import { errorText, lastPlayedText, megabytes } from "../logic/format";
-import { playButton } from "../logic/instances";
+import { errorText, lastPlayedText, megabytes, memoryLabel } from "../logic/format";
+import { dropInstance, playButton } from "../logic/instances";
 import { look } from "../logic/look";
 import {
   deleteBody,
@@ -38,7 +38,6 @@ import {
   handHeading,
   instanceSummary,
   isHttps,
-  memoryLabel,
   memoryOptions,
   modCounts,
   modsText,
@@ -143,6 +142,7 @@ async function confirmDelete() {
   actionError.value = null;
   try {
     await instanceDelete(id);
+    dropInstance(id);
     view.value = "instances";
   } catch (e) {
     fail(e);
@@ -229,7 +229,7 @@ onUnmounted(() => (lastPlayed.value = null));
           </div>
         </section>
       </Note>
-      <Note v-else-if="checkedClear" kind="info" icon="check" role="status">All files are in place. {{ instance.name }} is ready to play.</Note>
+      <Note v-else-if="checkedClear" kind="info" icon="check" role="status" class="note-ok">All files are in place. {{ instance.name }} is ready to play.</Note>
 
       <Note v-for="path in instance.skipped" :key="path" kind="info" role="note" aria-label="Skipped file">
         The last sync left one pack file out: <span class="mono font-bold">{{ skippedName(path) }}</span>. Your own file with the same name is in its place, and Portal never
@@ -280,6 +280,6 @@ onUnmounted(() => (lastPlayed.value = null));
     This deletes <span class="mono font-bold">{{ removing?.name }}</span> from {{ instance?.name }}’s mods folder. It’s your own file, so no sync will bring it back.
   </ConfirmDialog>
   <ConfirmDialog :open="deleting" :title="`Delete ${instance?.name}?`" action="Delete instance" @confirm="confirmDelete" @cancel="deleting = false">
-    {{ instance ? deleteBody(instance, mods ?? []) : "" }}
+    {{ instance ? deleteBody(instance, mods) : "" }}
   </ConfirmDialog>
 </template>

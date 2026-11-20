@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   openPairingPage, panelPairCancel, panelPairPoll, panelPairStart, panelRemove, panels, servers,
   type CommandError, type Linked, type Panel, type PairingView, type PanelServers,
@@ -43,6 +43,8 @@ const status = (p: Panel) => linkedStatus(answers.value?.find((a) => a.panel.id 
 
 // Each linking attempt owns a number; a late poll answer from an older one is ignored.
 let session = 0;
+let gone = false;
+const body = ref<HTMLElement>();
 let poller: ReturnType<typeof setTimeout> | undefined;
 let ticker: ReturnType<typeof setInterval> | undefined;
 
@@ -98,6 +100,7 @@ async function start() {
   startError.value = null;
   try {
     const p = await panelPairStart(address.value.trim(), httpAddress.value && consent.value);
+    if (gone) return void panelPairCancel().catch(() => {});
     halt();
     const mine = session;
     pairing.value = p;
@@ -147,8 +150,17 @@ async function remove() {
   load();
 }
 
+watch(phase, async () => {
+  await nextTick();
+  body.value?.querySelector<HTMLElement>("input, button, a[href]")?.focus();
+});
+
 onMounted(load);
-onUnmounted(() => (phase.value === "code" ? end("form") : halt()));
+onUnmounted(() => {
+  gone = true;
+  if (phase.value === "code") end("form");
+  else halt();
+});
 </script>
 
 <template>
@@ -187,7 +199,7 @@ onUnmounted(() => (phase.value === "code" ? end("form") : halt()));
 
     <section class="card" aria-labelledby="link-title">
       <div class="card-head"><h2 id="link-title" class="card-title mc-name">Link a panel</h2></div>
-      <div class="card-body">
+      <div ref="body" class="card-body">
         <form v-if="phase === 'form'" class="flex max-w-[560px] flex-col gap-2.5" @submit.prevent="start">
           <div>
             <label class="label" for="panel-address">Panel address</label>
