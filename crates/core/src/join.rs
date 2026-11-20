@@ -15,6 +15,13 @@ pub fn find_instance(paths: &Paths, panel_id: &str, slug: &str) -> Result<Option
     Ok(instance::list(paths)?.into_iter().find(|i| matches!(&i.source, Source::Server { panel, server, .. } if panel == panel_id && server == slug)))
 }
 
+// The one place a server's picture becomes its instance's; a player's own is never replaced.
+pub(crate) fn take_picture(instance: &mut Instance, picture: Option<String>) {
+    if !instance.own_picture {
+        instance.picture = picture;
+    }
+}
+
 pub fn instance_for(paths: &Paths, panel: &Panel, server: &Server) -> Result<Instance> {
     if let Some(found) = find_instance(paths, &panel.id, &server.slug)? {
         return Ok(found);
@@ -110,6 +117,7 @@ async fn sync_numbered(
         None => instance_for(paths, panel, &server)?,
     };
     instance.source = Source::Server { panel: panel.id.clone(), server: server.slug.clone(), pack: pack_ref };
+    take_picture(&mut instance, server.picture.clone());
     match pack::install(client, paths, &mut instance, wanted, progress).await {
         Ok(manual) => Ok((instance, server, manual, progress.clone())),
         Err(e) => {
@@ -226,6 +234,7 @@ mod tests {
             modpack: None,
             loader: loader.map(|(n, v)| ServerLoader { name: n.into(), version: v.map(Into::into) }),
             players: None,
+            picture: None,
         }
     }
 

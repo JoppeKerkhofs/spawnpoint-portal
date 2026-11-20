@@ -54,6 +54,8 @@ export interface Instance {
   last_played: LastPlayed | null;
   manual: Manual[];
   skipped: string[];
+  picture: string | null;
+  own_picture: boolean;
 }
 
 export interface ModFile {
@@ -93,6 +95,7 @@ export const instanceDelete = (id: string) => invoke<void>("instance_delete", { 
 export const instanceAddMod = (id: string) => invoke<boolean>("instance_add_mod", { id });
 export const instanceRemoveMod = (id: string, name: string) => invoke<void>("instance_remove_mod", { id, name });
 export const instanceSetMemory = (id: string, mb: number) => invoke<Instance>("instance_set_memory", { id, mb });
+export const instanceSetPicture = (id: string, picture: string | null) => invoke<Instance>("instance_set_picture", { id, picture });
 export const instanceCheckManual = (id: string) => invoke<Instance>("instance_check_manual", { id });
 export const instanceLaunch = (id: string) => invoke<Instance>("instance_launch", { id });
 export interface Joined {
@@ -154,6 +157,7 @@ export interface Server {
   modpack: Modpack | null;
   loader: ServerLoader | null;
   players: Players | null;
+  picture: string | null;
 }
 
 export interface PanelServers {

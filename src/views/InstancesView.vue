@@ -21,6 +21,7 @@ import KindBadge from "../components/KindBadge.vue";
 import Note from "../components/Note.vue";
 import Skeleton from "../components/Skeleton.vue";
 import StatePill from "../components/StatePill.vue";
+import Picture from "../components/Picture.vue";
 import Tile from "../components/Tile.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { errorText, minecraftText } from "../logic/format";
@@ -210,10 +211,12 @@ onMounted(load);
         <span class="w-[150px] shrink-0" />
       </div>
       <div v-for="i in list!.instances" :key="i.id" class="row row-link" @click="openInstance(i.id)">
-        <span v-if="blocky" class="flex w-[34px] shrink-0 items-center justify-center">
-          <BlockCube :texture="instanceTexture(i)" :size="26" />
-        </span>
-        <Tile v-else :name="i.name" :texture="instanceTexture(i)" />
+        <Picture :picture="i.picture" :size="blocky ? 34 : 32">
+          <span v-if="blocky" class="flex w-[34px] shrink-0 items-center justify-center">
+            <BlockCube :texture="instanceTexture(i)" :size="26" />
+          </span>
+          <Tile v-else :name="i.name" :texture="instanceTexture(i)" />
+        </Picture>
         <div class="min-w-0 flex-1">
           <button type="button" class="mc-name block max-w-full truncate text-left text-[15px] font-bold" :title="i.name" @click="openInstance(i.id)">
             {{ i.name }}

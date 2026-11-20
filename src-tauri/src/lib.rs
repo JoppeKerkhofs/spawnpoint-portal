@@ -21,6 +21,7 @@ pub fn run() {
             instances::instance_add_mod,
             instances::instance_remove_mod,
             instances::instance_set_memory,
+            instances::instance_set_picture,
             instances::instance_check_manual,
             instances::instance_launch,
             instances::join,

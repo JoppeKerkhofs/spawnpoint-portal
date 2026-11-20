@@ -5,7 +5,7 @@ import { canCreate, dropInstance, instanceList, instancesState, instancesSummary
 
 const inst = (extra: Partial<Instance> = {}): Instance => ({
   id: "i", name: "N", minecraft: "1.20.1", loader: null, source: { kind: "manual" } as Source, managed: [], memory_mb: null,
-  last_played: null, manual: [], skipped: [], ...extra,
+  last_played: null, manual: [], skipped: [], picture: null, own_picture: false, ...extra,
 });
 const six = () => Array.from({ length: 6 }, (_, n) => inst({ id: `i${n}` }));
 

@@ -150,6 +150,26 @@ pub struct Players {
     pub max: u32,
 }
 
+const LOGO_HOSTS: [&str; 3] = ["https://cdn.modrinth.com/", "https://media.forgecdn.net/", "https://cdn.feed-the-beast.com/"];
+const PNG_PREFIX: &str = "data:image/png;base64,";
+
+/// The one rule for a picture that reaches an `<img src>`: a small PNG data URI or a known logo address.
+pub fn picture(s: &str) -> Option<&str> {
+    let ok = match s.strip_prefix(PNG_PREFIX) {
+        Some(data) => s.len() <= 200_000 && data.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=')),
+        None => {
+            LOGO_HOSTS.iter().any(|h| s.starts_with(h))
+                && s.len() <= 300
+                && s.bytes().all(|b| b.is_ascii_graphic() && !matches!(b, b'"' | b'\'' | b'<' | b'>' | b'\\'))
+        }
+    };
+    ok.then_some(s)
+}
+
+fn clean_picture<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Option<String>, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.filter(|s| picture(s).is_some()))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Server {
     pub slug: String,
@@ -160,6 +180,8 @@ pub struct Server {
     pub modpack: Option<Modpack>,
     pub loader: Option<ServerLoader>,
     pub players: Option<Players>,
+    #[serde(default, deserialize_with = "clean_picture")]
+    pub picture: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -359,6 +381,45 @@ pub async fn client_pack_files(panel: &Panel, slug: &str, files: &[u64]) -> Resu
 mod tests {
     use super::*;
     use crate::download::testing::tmp_dir;
+
+    #[test]
+    fn a_picture_is_a_small_png_or_a_known_logo() {
+        let ok = |s: &str| picture(s).is_some();
+        assert!(ok("data:image/png;base64,iVBORw0KGgo="));
+        assert!(ok("https://cdn.modrinth.com/data/x/icon.png"));
+        assert!(ok("https://media.forgecdn.net/avatars/1/2.png"));
+        assert!(ok("https://cdn.feed-the-beast.com/a/b.webp"));
+        for bad in [
+            "javascript:alert(1)",
+            "http://cdn.modrinth.com/a.png",
+            "https://example.org/a.png",
+            "https://cdn.modrinth.com.evil.example/a.png",
+            "data:image/jpeg;base64,AAAA",
+            "data:image/png;base64,AA\"AA",
+            "data:image/png;base64,AA AA",
+            "https://cdn.modrinth.com/a\"b.png",
+            "https://cdn.modrinth.com/a b.png",
+            "https://cdn.modrinth.com/a<b.png",
+            "https://cdn.modrinth.com/a\\b.png",
+            "https://cdn.modrinth.com/\u{e9}.png",
+            "",
+        ] {
+            assert!(!ok(bad), "{bad}");
+        }
+        assert!(!ok(&format!("data:image/png;base64,{}", "A".repeat(200_000))));
+        assert!(ok(&format!("data:image/png;base64,{}", "A".repeat(200_000 - 22))));
+        assert!(!ok(&format!("https://cdn.modrinth.com/{}", "a".repeat(300))));
+    }
+
+    #[test]
+    fn a_server_with_a_bad_picture_loads_with_none() {
+        let json = |p: &str| format!(r#"{{"slug":"s","name":"S","hostname":"h","state":"running","game_version":null,"modpack":null,"loader":null,"players":null{p}}}"#);
+        let get = |p: &str| serde_json::from_str::<Server>(&json(p)).unwrap().picture;
+        assert_eq!(get(""), None);
+        assert_eq!(get(r#","picture":null"#), None);
+        assert_eq!(get(r#","picture":"javascript:alert(1)""#), None);
+        assert_eq!(get(r#","picture":"https://cdn.modrinth.com/a.png""#).as_deref(), Some("https://cdn.modrinth.com/a.png"));
+    }
 
     #[test]
     fn the_host_keeps_its_port() {

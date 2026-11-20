@@ -118,6 +118,11 @@ pub async fn instance_remove_mod(state: State<'_, AppState>, id: String, name: S
 }
 
 #[tauri::command]
+pub async fn instance_set_picture(state: State<'_, AppState>, id: String, picture: Option<String>) -> CmdResult<Instance> {
+    Ok(instance::set_picture(&state.paths, &id, picture)?)
+}
+
+#[tauri::command]
 pub async fn instance_set_memory(state: State<'_, AppState>, id: String, mb: u32) -> CmdResult<Instance> {
     Ok(instance::set_memory(&state.paths, &id, mb)?)
 }

@@ -357,6 +357,8 @@ html[data-theme="blocky"] .badge { padding: 0 6px; border: 2px solid var(--borde
   background: var(--tile-bg); color: var(--tile-fg);
 }
 .tile-44 { font-size: 18px; }
+.picture { flex: none; border-radius: var(--radius); image-rendering: pixelated; object-fit: cover; }
+.btn:has(:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* ---------- Spinner, skeleton ---------- */
 .spinner { flex: none; animation: spin 0.8s linear infinite; }

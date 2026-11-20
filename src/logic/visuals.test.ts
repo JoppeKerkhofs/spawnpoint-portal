@@ -5,11 +5,11 @@ import { initials, instanceTexture, serverPill, serverTexture } from "./visuals"
 const mp = (catalogue: string) => ({ catalogue, project: "p", version: null, version_name: null });
 const ref = (project: string): PackRef => ({ catalogue: "modrinth", project, version: "1", version_name: null });
 const server = (o: Partial<Server>): Server => ({
-  slug: "s", name: "S", hostname: "h", state: "running", game_version: null, modpack: null, loader: null, players: null, ...o,
+  slug: "s", name: "S", hostname: "h", state: "running", game_version: null, modpack: null, loader: null, players: null, picture: null, ...o,
 });
 const inst = (o: Partial<Instance>): Instance => ({
   id: "i", name: "I", minecraft: "1.21", loader: null, source: { kind: "manual" }, managed: [],
-  memory_mb: null, last_played: null, manual: [], skipped: [], ...o,
+  memory_mb: null, last_played: null, manual: [], skipped: [], picture: null, own_picture: false, ...o,
 });
 
 describe("visuals", () => {

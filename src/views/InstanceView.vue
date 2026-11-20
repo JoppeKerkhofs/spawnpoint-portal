@@ -10,6 +10,7 @@ import {
   instanceMods,
   instanceRemoveMod,
   instanceSetMemory,
+  instanceSetPicture,
   openModsFolder,
   openPage,
   panels,
@@ -27,11 +28,13 @@ import KindBadge from "../components/KindBadge.vue";
 import Note from "../components/Note.vue";
 import SegFilter from "../components/SegFilter.vue";
 import Skeleton from "../components/Skeleton.vue";
+import Picture from "../components/Picture.vue";
 import Tile from "../components/Tile.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { errorText, lastPlayedText, megabytes, memoryLabel } from "../logic/format";
 import { dropInstance, playButton } from "../logic/instances";
 import { look } from "../logic/look";
+import { pictureFromFile } from "../logic/picture";
 import {
   deleteBody,
   filterMods,
@@ -106,6 +109,28 @@ async function setMemory(event: Event) {
   } catch (e) {
     fail(e);
     select.value = String(memory.value);
+  }
+}
+
+async function choosePicture(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  actionError.value = null;
+  try {
+    instance.value = await instanceSetPicture(id, await pictureFromFile(file));
+  } catch (e) {
+    fail(e instanceof Error ? { kind: "other", message: "That image could not be read." } : e);
+  }
+}
+
+async function removePicture() {
+  actionError.value = null;
+  try {
+    instance.value = await instanceSetPicture(id, null);
+  } catch (e) {
+    fail(e);
   }
 }
 
@@ -188,10 +213,12 @@ onUnmounted(() => {
       </button>
     </template>
     <template v-if="instance" #lead>
-      <span v-if="blocky" class="flex h-[52px] w-[52px] items-center justify-center">
-        <BlockCube :texture="instanceTexture(instance)" :size="40" spin bob />
-      </span>
-      <Tile v-else :name="instance.name" :texture="instanceTexture(instance)" :size="44" />
+      <Picture :picture="instance.picture" :size="blocky ? 52 : 44">
+        <span v-if="blocky" class="flex h-[52px] w-[52px] items-center justify-center">
+          <BlockCube :texture="instanceTexture(instance)" :size="40" spin bob />
+        </span>
+        <Tile v-else :name="instance.name" :texture="instanceTexture(instance)" :size="44" />
+      </Picture>
     </template>
     <template v-if="instance && play" #actions>
       <div class="flex items-center gap-2">
@@ -200,6 +227,11 @@ onUnmounted(() => {
           <option v-for="mb in memoryChoices" :key="mb" :value="mb">{{ memoryLabel(mb) }}</option>
         </select>
       </div>
+      <label class="btn btn-secondary cursor-pointer">
+        Change picture
+        <input type="file" accept="image/png,image/jpeg,image/webp" class="sr-only" @change="choosePicture" />
+      </label>
+      <AppButton v-if="instance.own_picture" variant="secondary" @click="removePicture">Remove picture</AppButton>
       <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id))">Mods folder</AppButton>
       <AppButton variant="danger" icon="trash" @click="deleting = true">Delete</AppButton>
       <AppButton variant="primary" icon="play" :disabled="play.disabled" :aria-label="play.aria" @click="launch">{{ play.label }}</AppButton>

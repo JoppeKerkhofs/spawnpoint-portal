@@ -26,6 +26,10 @@ pub struct Instance {
     pub manual: Vec<Manual>,
     #[serde(default)]
     pub skipped: Vec<String>,
+    #[serde(default)]
+    pub picture: Option<String>,
+    #[serde(default)]
+    pub own_picture: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -118,6 +122,8 @@ pub fn create(
                     last_played: None,
                     manual: Vec::new(),
                     skipped: Vec::new(),
+                    picture: None,
+                    own_picture: false,
                 };
                 save(paths, &instance)?;
                 return Ok(instance);
@@ -179,6 +185,15 @@ pub fn set_memory(paths: &Paths, id: &str, mb: u32) -> Result<Instance> {
     update(paths, id, |i| i.memory_mb = Some(mb))
 }
 
+pub fn set_picture(paths: &Paths, id: &str, picture: Option<String>) -> Result<Instance> {
+    if let Some(p) = &picture
+        && !(p.starts_with("data:") && crate::panel::picture(p).is_some())
+    {
+        return Err(Error::Other("that is not a picture the launcher can show".into()));
+    }
+    update(paths, id, |i| (i.own_picture, i.picture) = (picture.is_some(), picture))
+}
+
 pub fn record_played(paths: &Paths, id: &str, started_at: u64, seconds: u64) -> Result<Instance> {
     update(paths, id, |i| i.last_played = Some(LastPlayed { started_at, seconds }))
 }
@@ -213,6 +228,10 @@ pub fn save_synced(paths: &Paths, instance: &mut Instance) -> Result<()> {
     if let Ok(disk) = load(paths, &instance.id) {
         instance.memory_mb = disk.memory_mb;
         instance.last_played = disk.last_played;
+        instance.own_picture = disk.own_picture;
+        if disk.own_picture {
+            instance.picture = disk.picture;
+        }
     }
     save(paths, instance)
 }
@@ -498,6 +517,46 @@ mod tests {
         assert_eq!((stale.memory_mb, stale.last_played.as_ref().map(|l| l.seconds)), (Some(8192), Some(20)));
         let now = load(&p, "m").unwrap();
         assert_eq!((now.minecraft.as_str(), now.memory_mb, now.last_played.map(|l| l.seconds)), ("1.20.1", Some(8192), Some(20)));
+    }
+
+    #[test]
+    fn a_sync_replaces_a_server_picture_but_not_an_own_one() {
+        let (_t, p) = tmp();
+        let mut i = create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        i.picture = Some("https://cdn.modrinth.com/old.png".into());
+        save(&p, &i).unwrap();
+        let mut synced = load(&p, "m").unwrap();
+        crate::join::take_picture(&mut synced, Some("https://cdn.modrinth.com/new.png".into()));
+        save_synced(&p, &mut synced).unwrap();
+        assert_eq!(load(&p, "m").unwrap().picture.as_deref(), Some("https://cdn.modrinth.com/new.png"));
+        crate::join::take_picture(&mut synced, None);
+        assert_eq!(synced.picture, None);
+
+        let mut stale = load(&p, "m").unwrap();
+        set_picture(&p, "m", Some("data:image/png;base64,AAAA".into())).unwrap();
+        crate::join::take_picture(&mut stale, Some("https://cdn.modrinth.com/x.png".into()));
+        save_synced(&p, &mut stale).unwrap();
+        let own = load(&p, "m").unwrap();
+        assert_eq!((own.picture.as_deref(), own.own_picture), (Some("data:image/png;base64,AAAA"), true));
+        assert_eq!((stale.picture.as_deref(), stale.own_picture), (Some("data:image/png;base64,AAAA"), true));
+        crate::join::take_picture(&mut stale, None);
+        assert_eq!(stale.picture.as_deref(), Some("data:image/png;base64,AAAA"));
+
+        assert!(set_picture(&p, "m", Some("https://cdn.modrinth.com/a.png".into())).is_err());
+        let back = set_picture(&p, "m", None).unwrap();
+        assert_eq!((back.picture, back.own_picture), (None, false));
+    }
+
+    #[test]
+    fn an_instance_file_without_pictures_loads() {
+        let (_t, p) = tmp();
+        create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        let file = dir(&p, "m").join("instance.json");
+        let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        v.as_object_mut().unwrap().retain(|k, _| k != "picture" && k != "own_picture");
+        std::fs::write(&file, serde_json::to_vec(&v).unwrap()).unwrap();
+        let i = load(&p, "m").unwrap();
+        assert_eq!((i.picture, i.own_picture), (None, false));
     }
 
     #[test]

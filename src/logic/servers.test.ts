@@ -5,7 +5,7 @@ import { joinButton, joinNote, playersText, runsText, serversState, serversSumma
 import { minecraftText } from "./format";
 
 const srv = (extra: Partial<Server> = {}): Server => ({
-  slug: "s", name: "S", hostname: "s.example", state: "running", game_version: "26.3", modpack: null, loader: null, players: null, ...extra,
+  slug: "s", name: "S", hostname: "s.example", state: "running", game_version: "26.3", modpack: null, loader: null, players: null, picture: null, ...extra,
 });
 const panel = (id: string) => ({ id, address: `https://${id}.example`, name: id });
 const joppe = (): PanelServers => ({

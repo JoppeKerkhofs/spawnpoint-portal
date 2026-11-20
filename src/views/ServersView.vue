@@ -19,6 +19,7 @@ import Icon from "../components/Icon.vue";
 import Note from "../components/Note.vue";
 import Skeleton from "../components/Skeleton.vue";
 import StatePill from "../components/StatePill.vue";
+import Picture from "../components/Picture.vue";
 import Tile from "../components/Tile.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { andList, errorText, minecraftText } from "../logic/format";
@@ -115,10 +116,12 @@ onMounted(load);
         </div>
         <template v-else>
           <div v-for="s in entry.servers" :key="s.slug" class="row">
-            <span v-if="blocky" class="flex w-[34px] shrink-0 items-center justify-center">
-              <BlockCube :texture="serverTexture(s)" :size="26" :spin="s.state !== 'offline'" :bob="s.state === 'running'" :dim="s.state !== 'running'" />
-            </span>
-            <Tile v-else :name="s.name" :texture="serverTexture(s)" :error="s.state === 'error'" />
+            <Picture :picture="s.picture" :size="blocky ? 34 : 32">
+              <span v-if="blocky" class="flex w-[34px] shrink-0 items-center justify-center">
+                <BlockCube :texture="serverTexture(s)" :size="26" :spin="s.state !== 'offline'" :bob="s.state === 'running'" :dim="s.state !== 'running'" />
+              </span>
+              <Tile v-else :name="s.name" :texture="serverTexture(s)" :error="s.state === 'error'" />
+            </Picture>
             <div class="min-w-0 flex-1">
               <div class="mc-name truncate text-[15px] font-bold" :title="s.name">{{ s.name }}</div>
               <div class="mono truncate text-xs text-(--muted)" :title="s.hostname">{{ s.hostname }}</div>
