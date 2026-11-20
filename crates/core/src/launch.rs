@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
-use crate::version::{allowed, library_files, Argument, Features, OneOrMany, VersionJson};
+use crate::version::{allowed, library_files, Argument, Arguments, Features, OneOrMany, VersionJson};
 use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
 
@@ -38,6 +38,10 @@ pub struct LaunchOptions {
     pub profile: Profile,
     pub server: Option<String>,
     pub memory_mb: u32,
+}
+
+pub fn supported(release_time: &str) -> bool {
+    release_time >= "2013-09-19T15:52:37"
 }
 
 pub fn jar_path(paths: &Paths, version: &VersionJson) -> PathBuf {
@@ -82,8 +86,19 @@ fn expand(args: &[Argument], features: &Features, vars: &BTreeMap<&str, String>,
 }
 
 pub fn arguments(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> Result<Vec<String>> {
-    let Some(args) = &version.arguments else {
-        return Err(Error::Unsupported("Minecraft older than 1.13 is not supported yet".into()));
+    let legacy;
+    let args = match (&version.arguments, &version.minecraft_arguments) {
+        (Some(args), _) => args,
+        (None, Some(text)) => {
+            let plain = |s: &str| Argument::Plain(s.into());
+            legacy = Arguments {
+                jvm: ["-Djava.library.path=${natives_directory}", "-Dminecraft.launcher.brand=${launcher_name}",
+                    "-Dminecraft.launcher.version=${launcher_version}", "-cp", "${classpath}"].map(plain).into(),
+                game: text.split(' ').map(plain).collect(),
+            };
+            &legacy
+        }
+        _ => return Err(Error::Unsupported("version has no launch arguments".into())),
     };
     let cp = classpath(paths, version)?
         .iter()
@@ -115,6 +130,9 @@ pub fn arguments(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> 
         ("classpath_separator", ";".into()),
         ("library_directory", paths.libraries().to_string_lossy().into_owned()),
         ("quickPlayMultiplayer", format!("{host}:25565")),
+        ("user_properties", "{}".into()),
+        ("game_assets", paths.assets().join("virtual").join(version.assets.as_deref().unwrap_or_default()).to_string_lossy().into_owned()),
+        ("auth_session", format!("token:{}:{}", opts.profile.access_token, opts.profile.uuid)),
     ]);
 
     let mut out = vec![format!("-Xmx{}M", opts.memory_mb)];
@@ -188,6 +206,8 @@ mod tests {
         let text = match name {
             "1.21.1" => include_str!("../tests/fixtures/version-1.21.1.json"),
             "1.16.5" => include_str!("../tests/fixtures/version-1.16.5.json"),
+            "1.7.10" => include_str!("../tests/fixtures/version-1.7.10.json"),
+            "1.6.4" => include_str!("../tests/fixtures/version-1.6.4.json"),
             _ => include_str!("../tests/fixtures/version-1.12.2.json"),
         };
         serde_json::from_str(text).unwrap()
@@ -267,8 +287,46 @@ mod tests {
     }
 
     #[test]
-    fn older_than_1_13_is_refused() {
-        assert!(matches!(arguments(&paths(), &v("1.12.2"), &opts(None)), Err(Error::Unsupported(_))));
+    fn legacy_1_12_2() {
+        let a = arguments(&paths(), &v("1.12.2"), &opts(Some("mc.example.org"))).unwrap();
+        assert_eq!(a[0], "-Xmx4096M");
+        assert!(a.iter().any(|x| x.starts_with("-Djava.library.path=") && x.ends_with(r"meta\natives\1.12.2")));
+        assert!(a.iter().any(|x| x.starts_with("-Dlog4j.configurationFile=")));
+        let main = a.iter().position(|x| x == "net.minecraft.client.main.Main").unwrap();
+        assert!(a.iter().position(|x| x == "-cp").unwrap() < main);
+        assert_eq!(after(&a, "--username"), "Steve");
+        assert_eq!(after(&a, "--gameDir"), r"C:\games\my instance");
+        assert_eq!(after(&a, "--accessToken"), "0");
+        assert_eq!(after(&a, "--server"), "mc.example.org");
+        assert_eq!(after(&a, "--port"), "25565");
+        assert!(!a.iter().any(|x| x.contains("${")));
+    }
+
+    #[test]
+    fn legacy_1_7_10_user_properties() {
+        let a = arguments(&paths(), &v("1.7.10"), &opts(None)).unwrap();
+        assert_eq!(after(&a, "--userProperties"), "{}");
+        assert!(!a.iter().any(|x| x.contains("${")));
+    }
+
+    #[test]
+    fn legacy_1_6_4_uses_the_virtual_assets() {
+        let a = arguments(&paths(), &v("1.6.4"), &opts(None)).unwrap();
+        assert!(after(&a, "--assetsDir").ends_with(r"meta\assets\virtual\legacy"));
+        assert!(after(&a, "--session").starts_with("token:0:"));
+        assert!(!a.iter().any(|x| x.contains("${")));
+    }
+
+    #[test]
+    fn a_version_with_no_arguments_at_all_is_refused() {
+        let version: VersionJson = serde_json::from_str(r#"{"id":"x","mainClass":"m"}"#).unwrap();
+        assert!(matches!(arguments(&paths(), &version, &opts(None)), Err(Error::Unsupported(_))));
+    }
+
+    #[test]
+    fn cut_off_at_1_6_4() {
+        assert!(supported("2013-09-19T15:52:37+00:00") && supported("2024-08-08T12:24:45+00:00"));
+        assert!(!supported("2013-07-08T22:00:00+00:00"));
     }
 
     #[test]

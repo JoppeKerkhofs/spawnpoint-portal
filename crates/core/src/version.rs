@@ -21,6 +21,7 @@ pub struct VersionJson {
     pub java_version: Option<JavaVersion>,
     pub logging: Option<Logging>,
     pub minecraft_arguments: Option<String>,
+    pub release_time: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,6 +259,7 @@ pub fn merge(parent: VersionJson, child: VersionJson) -> VersionJson {
         asset_index: child.asset_index.or(parent.asset_index),
         assets: child.assets.or(parent.assets),
         downloads: child.downloads.or(parent.downloads),
+        release_time: child.release_time.or(parent.release_time),
         libraries,
         java_version: child.java_version.or(parent.java_version),
         logging: child.logging.or(parent.logging),
@@ -284,6 +286,20 @@ mod tests {
             _ => unreachable!(),
         };
         serde_json::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn old_versions_pick_only_the_windows_natives() {
+        let natives = |text: &str| -> Vec<String> {
+            let version: VersionJson = serde_json::from_str(text).unwrap();
+            library_files(&version).unwrap().into_iter().filter(|f| f.native).map(|f| f.path).collect()
+        };
+        let n = natives(include_str!("../tests/fixtures/version-1.7.10.json"));
+        assert_eq!(n.len(), 4);
+        assert!(n.iter().all(|p| p.ends_with("natives-windows.jar") || p.ends_with("natives-windows-64.jar")), "{n:?}");
+        let n = natives(include_str!("../tests/fixtures/version-1.6.4.json"));
+        assert_eq!(n.len(), 2);
+        assert!(n.iter().all(|p| p.ends_with("natives-windows.jar")), "{n:?}");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use crate::download::{Progress, ProgressTx, blocking};
 use crate::gamefiles::{install, version_json};
 use crate::instance::{self, Instance};
-use crate::launch::{arguments, command, extract_natives, LaunchOptions, Profile};
+use crate::launch::{arguments, command, extract_natives, supported, LaunchOptions, Profile};
 use crate::loader::{profile, resolve, Loader, LoaderKind};
 use crate::version::merge;
 use crate::{java, Paths, Result};
@@ -31,6 +31,9 @@ pub fn launch_stages(loader: Option<LoaderKind>) -> Vec<&'static str> {
 
 pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progress: &ProgressTx) -> Result<std::process::Child> {
     let version = version_json(client, paths, &request.minecraft).await?;
+    if version.release_time.as_deref().is_some_and(|t| !supported(t)) {
+        return Err(crate::Error::Unsupported("Minecraft older than 1.6.4 is not supported".into()));
+    }
     let game_dir = std::path::absolute(&request.game_dir)?;
     let opts = LaunchOptions {
         game_dir: game_dir.clone(),
@@ -38,7 +41,7 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
         server: request.server.clone(),
         memory_mb: request.memory_mb,
     };
-    // Refuses Minecraft older than 1.13 before anything is downloaded.
+    // Refuses a version without launch arguments before anything is downloaded.
     arguments(paths, &version, &opts)?;
     let loader = match &request.loader {
         Some(l) => Some(resolve(client, &request.minecraft, l).await?),
