@@ -94,7 +94,7 @@ pub fn arguments(paths: &Paths, version: &VersionJson, opts: &LaunchOptions) -> 
             legacy = Arguments {
                 jvm: ["-Djava.library.path=${natives_directory}", "-Dminecraft.launcher.brand=${launcher_name}",
                     "-Dminecraft.launcher.version=${launcher_version}", "-cp", "${classpath}"].map(plain).into(),
-                game: text.split(' ').map(plain).collect(),
+                game: text.split_whitespace().map(plain).collect(),
             };
             &legacy
         }
@@ -371,5 +371,15 @@ mod tests {
         let names: Vec<_> = std::fs::read_dir(&dest).unwrap().map(|e| e.unwrap().file_name()).collect();
         assert_eq!(names, ["a.dll"]);
         assert!(!dest.parent().unwrap().join("evil.dll").exists());
+    }
+
+    #[test]
+    fn legacy_arguments_split_on_any_whitespace() {
+        let mut version = v("1.12.2");
+        version.minecraft_arguments = Some("--a  1 --b	2".into());
+        let a = arguments(&paths(), &version, &opts(None)).unwrap();
+        assert!(!a.iter().any(|x| x.is_empty()), "{a:?}");
+        assert_eq!(after(&a, "--a"), "1");
+        assert_eq!(after(&a, "--b"), "2");
     }
 }

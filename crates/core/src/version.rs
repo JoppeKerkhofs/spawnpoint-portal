@@ -266,7 +266,8 @@ pub fn merge(parent: VersionJson, child: VersionJson) -> VersionJson {
         release_time: child.release_time.or(parent.release_time),
         libraries,
         java_version: child.java_version.or(parent.java_version),
-        logging: child.logging.or(parent.logging),
+        // An empty `logging: {}` must not hide the parent's log4j configuration.
+        logging: child.logging.filter(|l| l.client.is_some()).or(parent.logging),
         minecraft_arguments: child.minecraft_arguments.or(parent.minecraft_arguments),
     }
 }
@@ -444,5 +445,12 @@ mod tests {
         let files = library_files(&with_libraries(lib)).unwrap();
         assert_eq!(files[0].path, "a/b/c/1/c-1-natives-windows-64.jar");
         assert!(files[0].native);
+    }
+
+    #[test]
+    fn an_empty_logging_object_keeps_the_parents_configuration() {
+        let child: VersionJson = serde_json::from_str(r#"{"id":"c","mainClass":"m","logging":{}}"#).unwrap();
+        let merged = merge(v("1.12.2"), child);
+        assert!(merged.logging.and_then(|l| l.client).is_some());
     }
 }

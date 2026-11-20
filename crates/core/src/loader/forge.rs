@@ -11,6 +11,7 @@ use crate::version::{library_files, maven_path, Library, LibraryFile, VersionJso
 use crate::{Error, Paths, Result};
 
 const NEOFORGE_VERSIONS: &str = "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge";
+const FORGE_MAVEN: &str = "https://maven.minecraftforge.net/";
 const FORGE_PROMOTIONS: &str = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
 
 #[derive(Deserialize)]
@@ -86,12 +87,24 @@ fn display_name(kind: LoaderKind) -> &'static str {
     }
 }
 
+// The metadata lists builds such as 1.7.2-10.12.2.1161-mc172 whose name the promotions do not give.
+fn metadata_version(xml: &str, minecraft: &str, version: &str) -> Option<String> {
+    let exact = format!("{minecraft}-{version}");
+    let prefix = format!("{exact}-");
+    xml.split("<version>")
+        .skip(1)
+        .filter_map(|rest| rest.split("</version>").next())
+        .find(|v| *v == exact || v.starts_with(&prefix))
+        .map(String::from)
+}
+
 pub async fn installer(
     client: &Client,
     paths: &Paths,
     kind: LoaderKind,
     minecraft: &str,
     version: &str,
+    maven: &str,
 ) -> Result<(String, PathBuf)> {
     if kind == LoaderKind::Fabric {
         return Err(Error::Other("Fabric has no installer".into()));
@@ -100,12 +113,15 @@ pub async fn installer(
     check_relative(minecraft)?;
     check_relative(version)?;
     let path = paths.installers().join(format!("{}-{minecraft}-{version}.jar", kind.as_str()));
-    let mut item = Download { url: installer_url(kind, minecraft, version), path: path.clone(), hash: None, size: None, bearer: None };
+    let mut item = Download { url: installer_url(kind, minecraft, version).replacen(FORGE_MAVEN, maven, 1), path: path.clone(), hash: None, size: None, bearer: None };
     let mut found = fetch(client, &item).await;
-    // Some Forge builds (1.7.10, 1.8.9) are published as <minecraft>-<version>-<minecraft>.
     if kind == LoaderKind::Forge && matches!(found, Err(Error::Status { status: 404, .. })) {
-        item.url = installer_url(kind, minecraft, &format!("{version}-{minecraft}"));
-        found = fetch(client, &item).await;
+        let metadata = get_ok(client, &format!("{maven}net/minecraftforge/forge/maven-metadata.xml")).await;
+        if let Some(entry) = metadata_version(&metadata?.text().await?, minecraft, version) {
+            check_relative(&entry)?;
+            item.url = format!("{maven}net/minecraftforge/forge/{entry}/forge-{entry}-installer.jar");
+            found = fetch(client, &item).await;
+        }
     }
     found.map_err(|e| match e {
         Error::Status { status: 404, .. } => {
@@ -160,13 +176,20 @@ fn client_version(profile: &LegacyProfile) -> VersionJson {
     let mut version = profile.version.clone();
     version.libraries.retain(|l| l.client_req != Some(false) && l.natives.is_none());
     version.release_time = None;
+    version.logging = None;
     version
 }
 
-fn https(url: &str) -> String {
-    match url.strip_prefix("http://files.minecraftforge.net/maven/") {
-        Some(rest) => format!("https://maven.minecraftforge.net/{rest}"),
-        None => url.replacen("http://", "https://", 1),
+fn https(url: &str) -> Result<String> {
+    let lower = url.to_ascii_lowercase();
+    if let Some(rest) = lower.strip_prefix("http://files.minecraftforge.net/maven/") {
+        Ok(format!("{FORGE_MAVEN}{rest}"))
+    } else if lower.starts_with("https://") {
+        Ok(url.to_string())
+    } else if lower.starts_with("http://") {
+        Ok(format!("https://{}", &url["http://".len()..]))
+    } else {
+        Err(Error::Other(format!("library url {url:?} is not https")))
     }
 }
 
@@ -174,7 +197,9 @@ pub fn legacy_libraries(profile: &LegacyProfile) -> Result<Vec<LibraryFile>> {
     let mut version = client_version(profile);
     version.libraries.retain(|l| l.name != profile.install.path);
     let mut files = library_files(&version)?;
-    files.iter_mut().for_each(|f| f.url = https(&f.url));
+    for f in &mut files {
+        f.url = https(&f.url)?;
+    }
     Ok(files)
 }
 
@@ -417,8 +442,14 @@ async fn fetch_libraries(client: &Client, libraries: &Path, files: Vec<LibraryFi
         let relative = item.path.strip_prefix(libraries).unwrap_or(&item.path).to_string_lossy().replace("\\", "/");
         let mut found = false;
         for mirror in mirrors {
-            let alternative = Download { url: format!("{mirror}{relative}"), ..item.clone() };
-            found = found || fetch(client, &alternative).await.is_ok();
+            match fetch(client, &Download { url: format!("{mirror}{relative}"), ..item.clone() }).await {
+                Ok(()) => {
+                    found = true;
+                    break;
+                }
+                Err(Error::Status { status: 404, .. }) => {}
+                Err(e) => return Err(e),
+            }
         }
         if !found {
             let name = item.path.file_name().unwrap_or_default().to_string_lossy();
@@ -468,7 +499,7 @@ pub async fn install(
     java: &Path,
     progress: &ProgressTx,
 ) -> Result<VersionJson> {
-    let (version, jar) = installer(client, paths, kind, minecraft, version).await?;
+    let (version, jar) = installer(client, paths, kind, minecraft, version, FORGE_MAVEN).await?;
     let own_jar = jar.clone();
     let text = blocking(move || {
         let mut text = String::new();
@@ -928,5 +959,77 @@ Other: x
     fn the_legacy_installer_must_be_for_the_requested_minecraft() {
         let err = check_minecraft("Forge", "10.13.4.1614", &legacy(OLD_17).install.minecraft, "1.12.2").unwrap_err();
         assert_eq!(err.to_string(), "Forge 10.13.4.1614 is for Minecraft 1.7.10, not 1.12.2");
+    }
+
+    #[test]
+    fn the_metadata_scan_matches_whole_versions_only() {
+        let xml = "<versioning><versions><version>1.7.2-10.12.2.11610</version><version>1.7.2-10.12.2.1161-mc172</version>            <version>1.10-12.18.0.2000-1.10.0</version><version>1.7.10-10.13.4.1614-1.7.10</version><version>1.8-11.14.0.1299</version></versions></versioning>";
+        assert_eq!(metadata_version(xml, "1.7.2", "10.12.2.1161").as_deref(), Some("1.7.2-10.12.2.1161-mc172"));
+        assert_eq!(metadata_version(xml, "1.10", "12.18.0.2000").as_deref(), Some("1.10-12.18.0.2000-1.10.0"));
+        assert_eq!(metadata_version(xml, "1.7.10", "10.13.4.1614").as_deref(), Some("1.7.10-10.13.4.1614-1.7.10"));
+        assert_eq!(metadata_version(xml, "1.8", "11.14.0.1299").as_deref(), Some("1.8-11.14.0.1299"));
+        assert_eq!(metadata_version(xml, "1.7.2", "10.12.2.116"), None);
+    }
+
+    #[tokio::test]
+    async fn an_installer_published_under_another_name_is_found_in_the_metadata() {
+        use crate::download::testing::{serve_routes, tmp_dir};
+        let dir = tmp_dir();
+        let paths = Paths { root: dir.join("data") };
+        let xml = b"<version>1.7.2-10.12.2.11610</version><version>1.7.2-10.12.2.1161-mc172</version>".to_vec();
+        let jar = "1.7.2-10.12.2.1161-mc172/forge-1.7.2-10.12.2.1161-mc172-installer.jar";
+        let (base, _, _) = serve_routes(vec![
+            ("/net/minecraftforge/forge/maven-metadata.xml", 200, xml, String::new()),
+            (jar, 200, b"jar".to_vec(), String::new()),
+        ])
+        .await;
+        let maven = format!("{base}/");
+        let (version, path) = installer(&crate::http_client(), &paths, LoaderKind::Forge, "1.7.2", "10.12.2.1161", &maven).await.unwrap();
+        assert_eq!(version, "10.12.2.1161");
+        assert_eq!(std::fs::read(path).unwrap(), b"jar");
+
+        let err = installer(&crate::http_client(), &paths, LoaderKind::Forge, "1.7.2", "9.9.9.9", &maven).await.unwrap_err();
+        assert_eq!(err.to_string(), "Forge 9.9.9.9 does not exist for Minecraft 1.7.2");
+    }
+
+    #[test]
+    fn a_legacy_profile_never_replaces_the_vanilla_logging() {
+        let parent: VersionJson = serde_json::from_str(include_str!("../../tests/fixtures/version-1.12.2.json")).unwrap();
+        let mut profile = legacy(OLD_112);
+        assert!(profile.version.logging.is_some());
+        let merged = crate::version::merge(parent.clone(), client_version(&profile));
+        assert_eq!(merged.logging.as_ref().unwrap().client.as_ref().unwrap().argument, parent.logging.as_ref().unwrap().client.as_ref().unwrap().argument);
+        profile.version.logging = parent.logging.clone();
+        assert!(client_version(&profile).logging.is_none());
+        let paths = Paths { root: r"C:\data root".into() };
+        let opts = crate::launch::LaunchOptions { game_dir: r"C:\g".into(), profile: crate::launch::Profile::offline("Steve"), server: None, memory_mb: 2048 };
+        let args = crate::launch::arguments(&paths, &merged, &opts).unwrap();
+        assert!(args.iter().any(|a| a.starts_with("-Dlog4j.configurationFile")), "{args:?}");
+    }
+
+    #[test]
+    fn only_https_library_urls_are_accepted() {
+        let with_url = |url: &str| {
+            let mut p = legacy(OLD_17);
+            p.version.libraries = serde_json::from_value(serde_json::json!([{ "name": "a:b:1", "url": url }])).unwrap();
+            legacy_libraries(&p)
+        };
+        assert_eq!(with_url("HTTP://example.com/m/").unwrap()[0].url, "https://example.com/m/a/b/1/b-1.jar");
+        assert_eq!(with_url("HTTP://files.minecraftforge.net/maven/").unwrap()[0].url, "https://maven.minecraftforge.net/a/b/1/b-1.jar");
+        assert!(with_url("ftp://example.com/m/").is_err());
+        assert!(with_url("//example.com/m/").is_err());
+    }
+
+    #[tokio::test]
+    async fn only_a_404_everywhere_means_cannot_unpack() {
+        use crate::download::testing::{serve, tmp_dir};
+        let dir = tmp_dir();
+        let (missing, _) = serve(404, b"").await;
+        let (broken, _) = serve(500, b"").await;
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let client = crate::http_client();
+        let file = vec![lib_file(format!("{missing}/a/b/1/b-1.jar"))];
+        let err = fetch_libraries(&client, &dir, file, &[&format!("{missing}/"), &format!("{broken}/")], "Forge", &tx).await.unwrap_err();
+        assert!(matches!(err, Error::Status { status: 500, .. }), "{err}");
     }
 }
