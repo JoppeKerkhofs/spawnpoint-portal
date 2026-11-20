@@ -64,11 +64,20 @@ pub fn forge_supported(release_time: &str) -> Result<()> {
     }
 }
 
+fn forge_on(manifest: &gamefiles::Manifest, minecraft: &str) -> Result<()> {
+    forge_supported(&gamefiles::find(manifest, minecraft)?.release_time)
+}
+
 // For a new instance: no version JSON is loaded yet, so the manifest says whether Forge can exist.
-pub async fn resolve_new(client: &Client, minecraft: &str, loader: &Loader) -> Result<Loader> {
-    if loader.kind == LoaderKind::Forge {
-        forge_supported(&gamefiles::find(&gamefiles::manifest(client).await?, minecraft)?.release_time)?;
+pub async fn check_new(client: &Client, minecraft: &str, loader: &Loader) -> Result<()> {
+    match loader.kind {
+        LoaderKind::Forge => forge_on(&gamefiles::manifest(client).await?, minecraft),
+        _ => Ok(()),
     }
+}
+
+pub async fn resolve_new(client: &Client, minecraft: &str, loader: &Loader) -> Result<Loader> {
+    check_new(client, minecraft, loader).await?;
     resolve(client, minecraft, loader).await
 }
 
@@ -125,6 +134,18 @@ mod tests {
         assert_eq!(err.to_string(), "Forge is not supported on Minecraft older than 1.6");
         assert!(matches!(err, Error::Unsupported(_)));
         assert!(forge_supported("2013-06-28T14:48:41+00:00").is_ok() && forge_supported("2013-07-05T13:09:02+00:00").is_ok());
+    }
+
+    #[test]
+    fn a_manifest_decides_whether_forge_can_exist_on_a_new_instance() {
+        let mut m: gamefiles::Manifest = serde_json::from_str(include_str!("../tests/fixtures/version_manifest_v2.json")).unwrap();
+        for (id, time) in [("1.5.2", "2013-04-25T15:45:00+00:00"), ("1.6.1", "2013-06-28T14:48:41+00:00")] {
+            let mut v = m.versions[0].clone();
+            (v.id, v.release_time) = (id.into(), time.into());
+            m.versions.push(v);
+        }
+        assert!(matches!(forge_on(&m, "1.5.2"), Err(Error::Unsupported(_))));
+        assert!(forge_on(&m, "1.6.1").is_ok() && forge_on(&m, "1.12.2").is_ok());
     }
 
     #[test]

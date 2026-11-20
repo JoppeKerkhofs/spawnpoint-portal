@@ -42,6 +42,9 @@ pub async fn install(
     pack: PackInstall,
     progress: &ProgressTx,
 ) -> Result<Vec<Manual>> {
+    if let Some(l) = &pack.loader {
+        crate::loader::check_new(client, &pack.minecraft, l).await?;
+    }
     let _lock = instance::lock(&instance.id)?;
     let game = instance::game_dir(paths, &instance.id);
     let (dir, managed, tx) = (game.clone(), instance.managed.clone(), progress.clone());
@@ -85,6 +88,21 @@ mod tests {
         assert_eq!(saved, inst);
         assert_eq!(saved.loader, Some(Loader::parse("fabric:0.1").unwrap()));
         assert_eq!(saved.managed.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_forge_pack_is_checked_before_anything_is_written() {
+        let t = tmp_dir();
+        let paths = Paths { root: t.join("root") };
+        let mut inst = create(&paths, "F", "", None, Source::Manual).unwrap();
+        let before = std::fs::read(paths.instances().join("f/instance.json")).unwrap();
+        let forge = Some(Loader::parse("forge:7.8.1.738").unwrap());
+        let pack = PackInstall { minecraft: "1.5.2".into(), loader: forge, files: vec![] };
+        let dead = reqwest::Client::builder().proxy(reqwest::Proxy::all("http://127.0.0.1:1").unwrap()).build().unwrap();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        assert!(install(&dead, &paths, &mut inst, pack, &tx).await.is_err());
+        assert_eq!((inst.minecraft.as_str(), inst.loader.clone()), ("", None));
+        assert_eq!(std::fs::read(paths.instances().join("f/instance.json")).unwrap(), before);
     }
 
     #[tokio::test]
