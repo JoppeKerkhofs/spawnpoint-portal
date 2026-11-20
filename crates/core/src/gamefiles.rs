@@ -54,7 +54,7 @@ pub fn supported_releases(manifest: &Manifest) -> Vec<String> {
     let mut out = Vec::new();
     for v in manifest.versions.iter().filter(|v| v.kind == "release") {
         out.push(v.id.clone());
-        if v.id == "1.13" {
+        if v.id == "1.6.4" {
             break;
         }
     }
@@ -263,17 +263,19 @@ mod tests {
     }
 
     #[test]
-    fn supported_releases_stop_at_1_13() {
+    fn supported_releases_stop_at_1_6_4() {
         let mut m: Manifest = serde_json::from_str(include_str!("../tests/fixtures/version_manifest_v2.json")).unwrap();
-        // the fixture has no 1.13: add one before 1.12.2
+        // the fixture has no 1.6.4: add one after 1.12.2, and a 1.6.2 below it
         let at = m.versions.iter().position(|v| v.id == "1.12.2").unwrap();
-        let mut v13 = m.versions[at].clone();
-        v13.id = "1.13".into();
-        m.versions.insert(at, v13);
+        for id in ["1.6.2", "1.6.4"] {
+            let mut v = m.versions[at].clone();
+            v.id = id.into();
+            m.versions.insert(at + 1, v);
+        }
         let r = supported_releases(&m);
-        assert_eq!(r.last().unwrap(), "1.13");
-        assert!(!r.iter().any(|v| v == "1.12.2"));
+        assert_eq!(r.last().unwrap(), "1.6.4");
+        assert!(!r.iter().any(|v| v == "1.6.2"));
         // the fixture's latest release (26.3) is not listed; the first release is
-        assert_eq!(r, ["1.21.1", "1.20.1", "1.16.5", "1.13"]);
+        assert_eq!(r, ["1.21.1", "1.20.1", "1.16.5", "1.12.2", "1.6.4"]);
     }
 }

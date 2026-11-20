@@ -69,6 +69,10 @@ pub struct Library {
     pub rules: Option<Vec<Rule>>,
     pub natives: Option<BTreeMap<String, String>>,
     pub extract: Option<Extract>,
+    #[serde(rename = "clientreq")]
+    pub client_req: Option<bool>,
+    #[serde(rename = "serverreq")]
+    pub server_req: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

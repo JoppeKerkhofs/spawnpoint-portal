@@ -100,8 +100,14 @@ pub async fn installer(
     check_relative(minecraft)?;
     check_relative(version)?;
     let path = paths.installers().join(format!("{}-{minecraft}-{version}.jar", kind.as_str()));
-    let item = Download { url: installer_url(kind, minecraft, version), path: path.clone(), hash: None, size: None, bearer: None };
-    fetch(client, &item).await.map_err(|e| match e {
+    let mut item = Download { url: installer_url(kind, minecraft, version), path: path.clone(), hash: None, size: None, bearer: None };
+    let mut found = fetch(client, &item).await;
+    // Some Forge builds (1.7.10, 1.8.9) are published as <minecraft>-<version>-<minecraft>.
+    if kind == LoaderKind::Forge && matches!(found, Err(Error::Status { status: 404, .. })) {
+        item.url = installer_url(kind, minecraft, &format!("{version}-{minecraft}"));
+        found = fetch(client, &item).await;
+    }
+    found.map_err(|e| match e {
         Error::Status { status: 404, .. } => {
             Error::Other(format!("{name} {version} does not exist for Minecraft {minecraft}"))
         }
@@ -116,6 +122,60 @@ pub struct InstallProfile {
     pub libraries: Vec<Library>,
     pub data: BTreeMap<String, DataEntry>,
     pub processors: Vec<Processor>,
+}
+
+pub enum Installer {
+    Processors(InstallProfile),
+    Legacy(LegacyProfile),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LegacyProfile {
+    pub install: LegacyInstall,
+    #[serde(rename = "versionInfo")]
+    pub version: VersionJson,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LegacyInstall {
+    pub path: String,
+    #[serde(rename = "filePath")]
+    pub file_path: String,
+    pub minecraft: String,
+}
+
+pub fn read_profile(json: &str) -> Result<Installer> {
+    let value: serde_json::Value = serde_json::from_str(json)?;
+    if value.get("install").is_some() && value.get("versionInfo").is_some() {
+        Ok(Installer::Legacy(serde_json::from_value(value)?))
+    } else if value.get("processors").is_some() || value.get("spec").is_some() {
+        Ok(Installer::Processors(serde_json::from_value(value)?))
+    } else {
+        Err(Error::Other("unknown installer format".into()))
+    }
+}
+
+// What the game needs from a legacy profile; natives and the vanilla release time come from Minecraft's own JSON.
+fn client_version(profile: &LegacyProfile) -> VersionJson {
+    let mut version = profile.version.clone();
+    version.libraries.retain(|l| l.client_req != Some(false) && l.natives.is_none());
+    version.release_time = None;
+    version
+}
+
+fn https(url: &str) -> String {
+    match url.strip_prefix("http://files.minecraftforge.net/maven/") {
+        Some(rest) => format!("https://maven.minecraftforge.net/{rest}"),
+        None => url.replacen("http://", "https://", 1),
+    }
+}
+
+pub fn legacy_libraries(profile: &LegacyProfile) -> Result<Vec<LibraryFile>> {
+    let mut version = client_version(profile);
+    version.libraries.retain(|l| l.name != profile.install.path);
+    let mut files = library_files(&version)?;
+    files.iter_mut().for_each(|f| f.url = https(&f.url));
+    Ok(files)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,14 +300,14 @@ fn last_lines(text: &str, n: usize) -> String {
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
-type Installer = zip::ZipArchive<std::fs::File>;
+type Archive = zip::ZipArchive<std::fs::File>;
 
-fn read_json<T: serde::de::DeserializeOwned>(zip: &mut Installer, name: &str) -> Result<T> {
+fn read_json<T: serde::de::DeserializeOwned>(zip: &mut Archive, name: &str) -> Result<T> {
     Ok(serde_json::from_reader(zip.by_name(name)?)?)
 }
 
 // Copies unless dest already matches; Ok(false) when the installer has no such entry.
-fn copy_out(zip: &mut Installer, name: &str, dest: &Path, sha1: Option<&str>) -> Result<bool> {
+fn copy_out(zip: &mut Archive, name: &str, dest: &Path, sha1: Option<&str>) -> Result<bool> {
     let current = match sha1 {
         Some(h) => file_matches(dest, &Hash::Sha1(h.into())),
         None => dest.exists(),
@@ -340,6 +400,65 @@ fn folders(paths: &Paths, kind: LoaderKind, minecraft: &str, version: &str, prof
     )
 }
 
+const MIRRORS: [&str; 2] = ["https://maven.minecraftforge.net/", "https://libraries.minecraft.net/"];
+
+// Old Scala libraries exist on some mavens only as .pack.xz, which this launcher cannot unpack.
+async fn fetch_libraries(client: &Client, libraries: &Path, files: Vec<LibraryFile>, mirrors: &[&str], what: &str, progress: &ProgressTx) -> Result<()> {
+    let items = files
+        .into_iter()
+        .map(|f| Ok(Download { url: f.url, path: under(libraries, &f.path)?, hash: None, size: None, bearer: None }))
+        .collect::<Result<Vec<_>>>()?;
+    loop {
+        let url = match fetch_all(client, "loader libraries", items.clone(), progress).await {
+            Err(Error::Status { url, status: 404 }) => url,
+            result => return result,
+        };
+        let item = items.iter().find(|i| i.url == url).ok_or(Error::Status { url, status: 404 })?;
+        let relative = item.path.strip_prefix(libraries).unwrap_or(&item.path).to_string_lossy().replace("\\", "/");
+        let mut found = false;
+        for mirror in mirrors {
+            let alternative = Download { url: format!("{mirror}{relative}"), ..item.clone() };
+            found = found || fetch(client, &alternative).await.is_ok();
+        }
+        if !found {
+            let name = item.path.file_name().unwrap_or_default().to_string_lossy();
+            return Err(Error::Unsupported(format!("{what} needs a library this launcher cannot unpack: {name}")));
+        }
+    }
+}
+
+async fn install_legacy(
+    client: &Client,
+    paths: &Paths,
+    minecraft: &str,
+    version: &str,
+    jar: &Path,
+    profile: LegacyProfile,
+    progress: &ProgressTx,
+) -> Result<VersionJson> {
+    check_minecraft("Forge", version, &profile.install.minecraft, minecraft)?;
+    let loader_json = client_version(&profile);
+    loader_json.check_ids()?;
+    check_relative(&profile.install.file_path)?;
+    let forge = under(&paths.libraries(), &maven_path(&profile.install.path)?)?;
+    let file = paths.versions().join(&loader_json.id).join(format!("{}.json", loader_json.id));
+    let (own_jar, own_profile, own_json) = (jar.to_path_buf(), profile.clone(), loader_json.clone());
+    blocking(move || {
+        let mut zip: Archive = zip::ZipArchive::new(std::fs::File::open(own_jar)?)?;
+        if !copy_out(&mut zip, &own_profile.install.file_path, &forge, None)? {
+            return Err(Error::Other(format!("the installer has no {}", own_profile.install.file_path)));
+        }
+        std::fs::create_dir_all(file.parent().unwrap_or(Path::new("")))?;
+        std::fs::write(&file, serde_json::to_vec(&own_json)?)?;
+        Ok(())
+    })
+    .await?;
+    let what = format!("Forge {version} for Minecraft {minecraft}");
+    fetch_libraries(client, &paths.libraries(), legacy_libraries(&profile)?, &MIRRORS, &what, progress).await?;
+    let _ = progress.send(Progress { step: 0, steps: 0, stage: "loader".into(), done: 1, total: 1 });
+    Ok(loader_json)
+}
+
 pub async fn install(
     client: &Client,
     paths: &Paths,
@@ -350,10 +469,20 @@ pub async fn install(
     progress: &ProgressTx,
 ) -> Result<VersionJson> {
     let (version, jar) = installer(client, paths, kind, minecraft, version).await?;
+    let own_jar = jar.clone();
+    let text = blocking(move || {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut zip::ZipArchive::new(std::fs::File::open(own_jar)?)?.by_name("install_profile.json")?, &mut text)?;
+        Ok(text)
+    })
+    .await?;
+    let profile = match read_profile(&text)? {
+        Installer::Legacy(legacy) => return install_legacy(client, paths, minecraft, &version, &jar, legacy, progress).await,
+        Installer::Processors(profile) => profile,
+    };
     let (own_paths, own_jar, own_minecraft, own_version) = (paths.clone(), jar.clone(), minecraft.to_string(), version.clone());
     let (profile, loader_json, steps, downloads) = blocking(move || {
-        let mut zip: Installer = zip::ZipArchive::new(std::fs::File::open(&own_jar)?)?;
-        let profile: InstallProfile = read_json(&mut zip, "install_profile.json")?;
+        let mut zip: Archive = zip::ZipArchive::new(std::fs::File::open(&own_jar)?)?;
         let loader_json: VersionJson = read_json(&mut zip, "version.json")?;
         check_minecraft(display_name(kind), &own_version, &profile.minecraft, &own_minecraft)?;
         loader_json.check_ids()?;
@@ -398,7 +527,7 @@ pub async fn install(
     let inner_names: Vec<String> = profile.data.values().filter_map(|e| e.client.strip_prefix('/')).map(String::from).collect();
     let (own_jar, own_extracted) = (jar.clone(), extracted.clone());
     blocking(move || {
-        let mut zip: Installer = zip::ZipArchive::new(std::fs::File::open(&own_jar)?)?;
+        let mut zip: Archive = zip::ZipArchive::new(std::fs::File::open(&own_jar)?)?;
         for inner in &inner_names {
             if !copy_out(&mut zip, inner, &under(&own_extracted, inner)?, None)? {
                 return Err(Error::Other(format!("the installer has no {inner}")));
@@ -443,6 +572,11 @@ mod tests {
         assert_eq!(newest_forge(j, "1.20.1").unwrap(), "47.4.28");
         assert_eq!(newest_forge(j, "1.16.5").unwrap(), "36.2.34");
         assert!(newest_forge(j, "0.0.1").is_err());
+    }
+
+    #[test]
+    fn installer_url_with_the_minecraft_suffix() {
+        assert_eq!(installer_url(LoaderKind::Forge, "1.7.10", "10.13.4.1614-1.7.10"), "https://maven.minecraftforge.net/net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/forge-1.7.10-10.13.4.1614-1.7.10-installer.jar");
     }
 
     #[test]
@@ -608,7 +742,7 @@ Other: x
         Tmp(dir)
     }
 
-    fn installer_with(dir: &Path, entry: &str, body: &[u8]) -> Installer {
+    fn installer_with(dir: &Path, entry: &str, body: &[u8]) -> Archive {
         let path = dir.join("installer.jar");
         let mut w = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
         w.start_file(entry, zip::write::SimpleFileOptions::default()).unwrap();
@@ -670,5 +804,129 @@ Other: x
         let tail = last_lines(&text, 20);
         assert!(tail.starts_with("l11
 ") && tail.ends_with("l30"));
+    }
+
+    const OLD_17: &str = include_str!("../../tests/fixtures/forge-1.7.10-install_profile.json");
+    const OLD_112: &str = include_str!("../../tests/fixtures/forge-1.12.2-old-install_profile.json");
+    const OLD_16: &str = include_str!("../../tests/fixtures/forge-1.6.4-install_profile.json");
+
+    fn legacy(json: &str) -> LegacyProfile {
+        let Installer::Legacy(p) = read_profile(json).unwrap() else { panic!() };
+        p
+    }
+
+    #[test]
+    fn the_installer_is_read_by_its_content() {
+        for json in [OLD_17, OLD_112, OLD_16] {
+            assert!(matches!(read_profile(json).unwrap(), Installer::Legacy(_)));
+        }
+        assert!(matches!(read_profile(include_str!("../../tests/fixtures/neoforge-install_profile.json")).unwrap(), Installer::Processors(_)));
+        assert!(matches!(read_profile(include_str!("../../tests/fixtures/forge-1.16.5-install_profile.json")).unwrap(), Installer::Processors(_)));
+        assert!(read_profile("{}").is_err());
+    }
+
+    #[test]
+    fn legacy_libraries_skip_forge_itself_and_server_only() {
+        let p = legacy(OLD_17);
+        let libs = legacy_libraries(&p).unwrap();
+        assert!(!libs.iter().any(|l| l.path.contains("minecraftforge/forge/")));
+        assert!(libs.iter().any(|l| l.path.contains("launchwrapper") && l.url.starts_with("https://libraries.minecraft.net/")));
+        assert!(libs.iter().all(|l| l.url.starts_with("https://")));
+        assert_eq!(p.version.main_class, "net.minecraft.launchwrapper.Launch");
+        let new = legacy_libraries(&legacy(OLD_112)).unwrap();
+        assert!(!new.iter().any(|l| l.path.contains("jline") || l.path.contains("/jna/")));
+        assert!(new.iter().any(|l| l.path.contains("trove4j")));
+        let oldest = legacy_libraries(&legacy(OLD_16)).unwrap();
+        assert!(!oldest.iter().any(|l| l.path.contains("lwjgl-platform") || l.path.contains("nightly") || l.native));
+    }
+
+    #[test]
+    fn old_hosts_are_rewritten_to_https() {
+        let mut p = legacy(OLD_17);
+        p.version.libraries = serde_json::from_value(serde_json::json!([
+            { "name": "a:b:1", "url": "http://files.minecraftforge.net/maven/" },
+            { "name": "a:c:1", "url": "http://example.com/m/" }
+        ]))
+        .unwrap();
+        let urls: Vec<String> = legacy_libraries(&p).unwrap().into_iter().map(|l| l.url).collect();
+        assert_eq!(urls, ["https://maven.minecraftforge.net/a/b/1/b-1.jar", "https://example.com/m/a/c/1/c-1.jar"]);
+    }
+
+    #[test]
+    fn a_legacy_profile_merges_with_its_minecraft() {
+        let cases = [
+            (OLD_16, include_str!("../../tests/fixtures/version-1.6.4.json")),
+            (OLD_17, include_str!("../../tests/fixtures/version-1.7.10.json")),
+            (OLD_112, include_str!("../../tests/fixtures/version-1.12.2.json")),
+        ];
+        let natives = |v: &VersionJson| library_files(v).unwrap().iter().filter(|f| f.native).count();
+        for (profile, parent) in cases {
+            let parent: VersionJson = serde_json::from_str(parent).unwrap();
+            let merged = crate::version::merge(parent.clone(), client_version(&legacy(profile)));
+            let id = &parent.id;
+            assert_eq!(merged.main_class, "net.minecraft.launchwrapper.Launch", "{id}");
+            assert_eq!(merged.release_time, parent.release_time, "{id}");
+            assert!(crate::launch::supported(merged.release_time.as_deref().unwrap()), "{id}");
+            assert!(merged.minecraft_arguments.as_deref().unwrap().contains("--tweakClass"), "{id}");
+            assert!(merged.downloads.is_some() && merged.asset_index.is_some(), "{id}");
+            assert_eq!(natives(&merged), natives(&parent), "{id}");
+            assert!(library_files(&merged).unwrap().iter().any(|f| f.path.contains("minecraftforge/")), "{id}");
+        }
+    }
+
+    fn lib_file(url: String) -> LibraryFile {
+        LibraryFile { path: "a/b/1/b-1.jar".into(), url, sha1: None, size: None, native: false }
+    }
+
+    #[tokio::test]
+    async fn a_library_missing_from_its_maven_is_looked_for_on_the_others() {
+        use crate::download::testing::{serve_routes, tmp_dir};
+        let dir = tmp_dir();
+        let (nothing, _) = crate::download::testing::serve(404, b"").await;
+        let (other, _, _) = serve_routes(vec![("/a/b/1/b-1.jar", 200, b"abc".to_vec(), String::new())]).await;
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let client = crate::http_client();
+        let file = || vec![lib_file(format!("{nothing}/a/b/1/b-1.jar"))];
+
+        fetch_libraries(&client, &dir, file(), &[&format!("{nothing}/"), &format!("{other}/")], "Forge 1 for Minecraft 1.7.10", &tx).await.unwrap();
+        assert_eq!(std::fs::read(dir.join("a/b/1/b-1.jar")).unwrap(), b"abc");
+
+        std::fs::remove_file(dir.join("a/b/1/b-1.jar")).unwrap();
+        let err = fetch_libraries(&client, &dir, file(), &[&format!("{nothing}/")], "Forge 1 for Minecraft 1.7.10", &tx).await.unwrap_err();
+        assert!(matches!(&err, Error::Unsupported(m) if m == "Forge 1 for Minecraft 1.7.10 needs a library this launcher cannot unpack: b-1.jar"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn the_legacy_install_is_not_redone_and_is_redone_when_files_are_missing() {
+        let dir = tmp("legacy");
+        let profile = r#"{"install":{"path":"a:forge:1","filePath":"forge-universal.jar","minecraft":"1.7.10"},
+            "versionInfo":{"id":"1.7.10-Forge1","mainClass":"m","releaseTime":"1960-01-01T00:00:00-0700","libraries":[{"name":"a:forge:1"}]}}"#;
+        let jar = dir.0.join("installer.jar");
+        installer_with(&dir.0, "forge-universal.jar", b"abc");
+        let paths = Paths { root: dir.0.join("data") };
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let client = crate::http_client();
+        let run = || install_legacy(&client, &paths, "1.7.10", "1", &jar, legacy(profile), &tx);
+
+        let version = run().await.unwrap();
+        assert_eq!(version.release_time, None);
+        let forge = paths.libraries().join("a/forge/1/forge-1.jar");
+        assert_eq!(std::fs::read(&forge).unwrap(), b"abc");
+        assert!(paths.versions().join("1.7.10-Forge1/1.7.10-Forge1.json").exists());
+
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1000);
+        std::fs::File::options().write(true).open(&forge).unwrap().set_modified(old).unwrap();
+        run().await.unwrap();
+        assert_eq!(std::fs::metadata(&forge).unwrap().modified().unwrap(), old);
+
+        std::fs::remove_file(&forge).unwrap();
+        run().await.unwrap();
+        assert_eq!(std::fs::read(&forge).unwrap(), b"abc");
+    }
+
+    #[test]
+    fn the_legacy_installer_must_be_for_the_requested_minecraft() {
+        let err = check_minecraft("Forge", "10.13.4.1614", &legacy(OLD_17).install.minecraft, "1.12.2").unwrap_err();
+        assert_eq!(err.to_string(), "Forge 10.13.4.1614 is for Minecraft 1.7.10, not 1.12.2");
     }
 }
