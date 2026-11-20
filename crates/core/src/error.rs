@@ -14,6 +14,7 @@ pub enum Error {
     NotReady(String),
     Panel { panel: String, message: String },
     Unreachable { panel: String },
+    Busy(String),
     Other(String),
 }
 
@@ -35,6 +36,7 @@ impl fmt::Display for Error {
             Error::Secret(m) => write!(f, "credential store error: {m}"),
             Error::Panel { panel, message } => write!(f, "panel {panel}: {message}"),
             Error::Unreachable { panel } => write!(f, "panel {panel}: cannot be reached"),
+            Error::Busy(id) => write!(f, "{id} is already being synced"),
             Error::NotReady(m) | Error::Unsupported(m) | Error::Other(m) => f.write_str(m),
         }
     }
@@ -51,6 +53,7 @@ impl Error {
             Error::Unsupported(_) => "unsupported",
             Error::NotReady(_) => "not_ready",
             Error::Secret(_) => "secret",
+            Error::Busy(_) => "busy",
             Error::Other(_) => "other",
         }
     }

@@ -94,6 +94,9 @@ fn print_manual(paths: &Paths, instance: &Instance, manual: &[Manual]) {
         let full = game.join(&m.path);
         println!("fetch by hand: {}  {}  -> {}", show(&m.name), show(&m.page), full.parent().unwrap_or(&game).display());
     }
+    for path in &instance.skipped {
+        println!("left alone, your file is in the way: {}", show(path));
+    }
 }
 
 // Text from a panel goes to the screen: no control characters, so no escape sequences.

@@ -1,11 +1,13 @@
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
 use crate::launch::DEFAULT_MEMORY_MB;
 use crate::loader::Loader;
 use crate::paths::check_relative;
+use crate::sync::Manual;
 use crate::{Error, Paths, Result};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -20,6 +22,10 @@ pub struct Instance {
     pub memory_mb: Option<u32>,
     #[serde(default)]
     pub last_played: Option<LastPlayed>,
+    #[serde(default)]
+    pub manual: Vec<Manual>,
+    #[serde(default)]
+    pub skipped: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -110,6 +116,8 @@ pub fn create(
                     managed: Vec::new(),
                     memory_mb: None,
                     last_played: None,
+                    manual: Vec::new(),
+                    skipped: Vec::new(),
                 };
                 save(paths, &instance)?;
                 return Ok(instance);
@@ -161,6 +169,30 @@ pub fn set_memory(paths: &Paths, id: &str, mb: u32) -> Result<Instance> {
 
 pub fn record_played(paths: &Paths, id: &str, started_at: u64, seconds: u64) -> Result<Instance> {
     update(paths, id, |i| i.last_played = Some(LastPlayed { started_at, seconds }))
+}
+
+pub fn check_manual(paths: &Paths, id: &str) -> Result<Instance> {
+    let game = game_dir(paths, id);
+    update(paths, id, |i| i.manual.retain(|m| !game.join(&m.path).exists()))
+}
+
+static SYNCING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+pub struct InstanceLock(String);
+
+impl Drop for InstanceLock {
+    fn drop(&mut self) {
+        SYNCING.lock().unwrap().retain(|i| *i != self.0);
+    }
+}
+
+pub fn lock(id: &str) -> Result<InstanceLock> {
+    let mut held = SYNCING.lock().unwrap();
+    if held.iter().any(|i| i == id) {
+        return Err(Error::Busy(id.into()));
+    }
+    held.push(id.into());
+    Ok(InstanceLock(id.into()))
 }
 
 // A sync works on an instance loaded earlier: what the player set meanwhile stays.
@@ -443,6 +475,7 @@ mod tests {
         std::fs::write(p.instances().join("old/instance.json"), old).unwrap();
         let i = load(&p, "old").unwrap();
         assert_eq!((i.memory_mb, i.last_played), (None, None));
+        assert!(i.manual.is_empty() && i.skipped.is_empty());
         assert!(matches!(i.source, Source::Server { pack: Some(PackRef { version_name: None, .. }), .. }));
     }
 
@@ -457,6 +490,27 @@ mod tests {
         let l = list_all(&p).unwrap();
         assert_eq!(l.instances.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["good"]);
         assert_eq!(l.unreadable, vec![Unreadable { folder: "empty".into() }, Unreadable { folder: "old-test".into() }]);
+    }
+
+    #[test]
+    fn check_manual_drops_files_that_arrived() {
+        let (_t, p) = tmp();
+        create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        let hand = |path: &str| Manual { path: path.into(), name: "x".into(), page: String::new() };
+        update(&p, "m", |i| i.manual = vec![hand("mods/a.jar"), hand("mods/b.jar")]).unwrap();
+        std::fs::write(game_dir(&p, "m").join("mods/a.jar"), b"x").unwrap();
+        let i = check_manual(&p, "m").unwrap();
+        assert_eq!(i.manual, vec![hand("mods/b.jar")]);
+        assert_eq!(load(&p, "m").unwrap().manual, vec![hand("mods/b.jar")]);
+    }
+
+    #[test]
+    fn one_sync_per_instance() {
+        let first = lock("lock-test").unwrap();
+        assert!(matches!(lock("lock-test"), Err(Error::Busy(_))));
+        assert!(lock("lock-test-2").is_ok());
+        drop(first);
+        assert!(lock("lock-test").is_ok());
     }
 
     #[test]

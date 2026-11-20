@@ -45,7 +45,7 @@ pub struct Manual {
     pub page: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SyncPlan {
     pub write: Vec<Wanted>,
     pub delete: Vec<ManagedFile>,
@@ -53,6 +53,8 @@ pub struct SyncPlan {
     pub manual: Vec<Manual>,
     // SHA-1 of the file that was at each write target when planned; absent = nothing was there
     pub replaces: HashMap<String, String>,
+    // wanted paths left alone because the player's own file or folder is there
+    pub skipped: Vec<String>,
 }
 
 const RESERVED: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
@@ -100,6 +102,7 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
         managed: vec![],
         manual: vec![],
         replaces: HashMap::new(),
+        skipped: vec![],
     };
 
     for w in list {
@@ -112,6 +115,9 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
             continue;
         }
         if !full.is_file() {
+            if !matches!(w.from, Origin::Manual { .. }) {
+                out.skipped.push(w.path);
+            }
             continue;
         }
         let sha1 = sha1_file(&full)?;
@@ -127,6 +133,8 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
         } else if ours {
             out.replaces.insert(w.path.clone(), sha1);
             out.write.push(w);
+        } else if !manual {
+            out.skipped.push(w.path);
         }
     }
 
@@ -187,8 +195,10 @@ pub async fn apply(
     let mut downloads = Vec::new();
     let mut attempted = vec![false; writes.len()];
     let mut result = Ok(());
+    let mut skipped = plan.skipped;
     for (i, (w, file)) in plan.write.iter().zip(&writes).enumerate() {
         if !still_ours(file, w, &plan.replaces) {
+            skipped.push(w.path.clone());
             continue;
         }
         attempted[i] = true;
@@ -232,6 +242,8 @@ pub async fn apply(
             instance.managed.push(ManagedFile { path: w.path.clone(), sha1 });
         }
     }
+    instance.manual = plan.manual.clone();
+    instance.skipped = skipped;
     instance::save_synced(paths, instance)?;
     result?;
     Ok(plan.manual)
@@ -493,6 +505,7 @@ mod tests {
             managed: vec![],
             manual: vec![Manual { path: "m".into(), name: "M".into(), page: String::new() }],
             replaces: Default::default(),
+            skipped: vec![],
         };
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let manual = apply(&http_client(), &paths, &mut inst, plan, &tx).await.unwrap();
@@ -518,6 +531,7 @@ mod tests {
             managed: vec![],
             manual: vec![],
             replaces: Default::default(),
+            skipped: vec![],
         };
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         assert!(apply(&http_client(), &paths, &mut inst, plan, &tx).await.is_err());
@@ -536,6 +550,7 @@ mod tests {
             managed: vec![],
             manual: vec![],
             replaces: Default::default(),
+            skipped: vec![],
         };
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         assert!(apply(&http_client(), &paths, &mut inst, plan, &tx).await.is_err());
@@ -555,6 +570,7 @@ mod tests {
             managed: vec![],
             manual: vec![],
             replaces: [("a.jar".to_string(), sha(b"old"))].into(),
+            skipped: vec![],
         };
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         assert!(apply(&http_client(), &paths, &mut inst, plan, &tx).await.is_err());
@@ -578,6 +594,7 @@ mod tests {
             managed: vec![],
             manual: vec![],
             replaces: Default::default(),
+            skipped: vec![],
         };
         run(&paths, &mut inst, plan).await.unwrap();
         assert_eq!(std::fs::read(game.join("a.jar")).unwrap(), b"player edit");
@@ -596,6 +613,7 @@ mod tests {
             managed: vec![],
             manual: vec![],
             replaces: [("a.jar".to_string(), sha(b"old"))].into(),
+            skipped: vec![],
         };
         run(&paths, &mut inst, plan).await.unwrap();
         assert_eq!(std::fs::read(game.join("a.jar")).unwrap(), b"player edit");
@@ -616,11 +634,79 @@ mod tests {
                 managed: vec![],
                 manual: vec![],
                 replaces: Default::default(),
+                skipped: vec![],
             };
             run(&paths, &mut inst, plan).await.unwrap();
             assert_eq!(std::fs::read(game.join("a.jar")).unwrap(), b"player's");
             assert!(inst.managed.is_empty());
         }
+    }
+
+    #[test]
+    fn the_players_own_file_is_kept_and_reported() {
+        let p = plan(&disk(&[("a", b"X")]), &[], vec![w("a", b"2")]).unwrap();
+        expect(&p, &[], &[], &[], &[]);
+        assert_eq!(p.skipped, ["a"]);
+    }
+
+    #[test]
+    fn a_changed_managed_file_is_reported_and_kept() {
+        let p = plan(&disk(&[("a", b"X")]), &[m("a", b"1")], vec![w("a", b"2")]).unwrap();
+        expect(&p, &[], &[], &[], &[]);
+        assert_eq!(p.skipped, ["a"]);
+    }
+
+    #[test]
+    fn adopted_replaced_new_and_hand_files_are_not_skipped() {
+        let d = disk(&[("same", b"1"), ("ours", b"1"), ("hand", b"X")]);
+        let manual = Wanted { from: Origin::Manual { name: "H".into(), page: String::new() }, ..w("hand", b"1") };
+        let p = plan(&d, &[m("ours", b"1")], vec![w("same", b"1"), w("ours", b"2"), w("new", b"1"), manual]).unwrap();
+        assert!(p.skipped.is_empty());
+    }
+
+    #[test]
+    fn a_folder_in_the_way_is_reported() {
+        let p = plan(&disk(&[("dir/f", b"1")]), &[], vec![w("dir", b"2")]).unwrap();
+        assert_eq!(p.skipped, ["dir"]);
+    }
+
+    #[tokio::test]
+    async fn apply_keeps_hand_files_and_skips_in_the_instance() {
+        let (_t, paths, mut inst) = setup();
+        let plan = SyncPlan {
+            manual: vec![Manual { path: "mods/h.jar".into(), name: "H".into(), page: "p".into() }],
+            skipped: vec!["mods/own.jar".into()],
+            ..Default::default()
+        };
+        run(&paths, &mut inst, plan).await.unwrap();
+        let saved = instance::load(&paths, &inst.id).unwrap();
+        assert_eq!(saved.manual.iter().map(|m| m.path.as_str()).collect::<Vec<_>>(), ["mods/h.jar"]);
+        assert_eq!(saved.skipped, ["mods/own.jar"]);
+    }
+
+    #[tokio::test]
+    async fn a_failed_download_still_records_hand_files_and_skips() {
+        let (_t, paths, mut inst) = setup();
+        let (bad, _) = serve(404, b"").await;
+        let plan = SyncPlan {
+            write: vec![url_w("mods/bad.jar", &bad, b"bad")],
+            manual: vec![Manual { path: "h".into(), name: "H".into(), page: String::new() }],
+            skipped: vec!["own".into()],
+            ..Default::default()
+        };
+        assert!(run(&paths, &mut inst, plan).await.is_err());
+        let saved = instance::load(&paths, &inst.id).unwrap();
+        assert_eq!((saved.manual.len(), saved.skipped), (1, vec!["own".to_string()]));
+    }
+
+    #[tokio::test]
+    async fn a_file_that_appears_after_the_plan_is_reported() {
+        let (_t, paths, mut inst) = setup();
+        let game = instance::game_dir(&paths, &inst.id);
+        std::fs::write(game.join("a.jar"), b"player's").unwrap();
+        let plan = SyncPlan { write: vec![Wanted { from: Origin::Bytes(b"new".to_vec()), ..w("a.jar", b"new") }], ..Default::default() };
+        run(&paths, &mut inst, plan).await.unwrap();
+        assert_eq!(instance::load(&paths, &inst.id).unwrap().skipped, ["a.jar"]);
     }
 
     fn panel_plan(url: &str) -> SyncPlan {
@@ -631,6 +717,7 @@ mod tests {
             managed: vec![],
             manual: vec![],
             replaces: Default::default(),
+            skipped: vec![],
         }
     }
 

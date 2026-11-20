@@ -42,6 +42,7 @@ pub async fn install(
     pack: PackInstall,
     progress: &ProgressTx,
 ) -> Result<Vec<Manual>> {
+    let _lock = instance::lock(&instance.id)?;
     let game = instance::game_dir(paths, &instance.id);
     let plan = sync::plan(&game, &instance.managed, pack.files)?;
     instance.minecraft = pack.minecraft;
@@ -83,5 +84,19 @@ mod tests {
         assert_eq!(saved, inst);
         assert_eq!(saved.loader, Some(Loader::parse("fabric:0.1").unwrap()));
         assert_eq!(saved.managed.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_locked_instance_is_not_synced() {
+        let t = tmp_dir();
+        let paths = Paths { root: t.join("root") };
+        let mut inst = create(&paths, "L", "1.21.1", None, Source::Manual).unwrap();
+        let before = std::fs::read(paths.instances().join("l/instance.json")).unwrap();
+        let _held = instance::lock(&inst.id).unwrap();
+        let pack = PackInstall { minecraft: "1.20.1".into(), loader: None, files: vec![] };
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let r = install(&crate::http_client(), &paths, &mut inst, pack, &tx).await;
+        assert!(matches!(r, Err(Error::Busy(_))));
+        assert_eq!(std::fs::read(paths.instances().join("l/instance.json")).unwrap(), before);
     }
 }
