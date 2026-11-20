@@ -76,18 +76,19 @@ pub fn refuse_if_running(running: &Mutex<HashMap<String, u64>>, id: &str) -> Cmd
     Ok(())
 }
 
-struct RunGuard<'a>(&'a Mutex<HashMap<String, u64>>, &'a str);
-
-impl Drop for RunGuard<'_> {
-    fn drop(&mut self) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(self.1);
+// Takes the instance out of `running` and then runs `work`; a run already taken out is not worked twice.
+pub fn end_run(running: &Mutex<HashMap<String, u64>>, id: &str, work: impl FnOnce()) {
+    let was_running = running.lock().unwrap_or_else(|e| e.into_inner()).remove(id).is_some();
+    if was_running {
+        work();
     }
 }
 
-// Takes the instance out of `running` after `work`, also when `work` panics.
-pub fn end_run(running: &Mutex<HashMap<String, u64>>, id: &str, work: impl FnOnce()) {
-    let _guard = RunGuard(running, id);
-    work();
+// Records every game still running when the app exits; a run already ended by its waiter is skipped.
+pub fn end_all_runs(running: &Mutex<HashMap<String, u64>>, mut record: impl FnMut(&str, u64)) {
+    for r in list_running(running) {
+        end_run(running, &r.instance, || record(&r.instance, r.started_at));
+    }
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -238,6 +239,22 @@ mod tests {
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| end_run(&running, "atm10", || panic!("record failed"))));
         assert!(r.is_err());
         assert!(running.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_run_is_recorded_once_whichever_end_comes_first() {
+        let running = Mutex::new(HashMap::from([("a".to_string(), 100), ("b".to_string(), 200)]));
+        let mut recorded = Vec::new();
+        end_all_runs(&running, |id, at| recorded.push((id.to_string(), at)));
+        assert_eq!(recorded, [("a".to_string(), 100), ("b".to_string(), 200)]);
+        let mut again = 0;
+        end_run(&running, "a", || again += 1);
+        end_all_runs(&running, |_, _| again += 1);
+        assert_eq!(again, 0);
+        running.lock().unwrap().insert("c".into(), 300);
+        end_run(&running, "c", || again += 1);
+        end_all_runs(&running, |_, _| again += 1);
+        assert_eq!(again, 1);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::state::{AppState, CmdResult, CommandError, Running, claim, end_run, forward_progress, list_running, refuse_if_running, shown};
+use crate::state::{AppState, CmdResult, CommandError, Running, claim, end_all_runs, end_run, forward_progress, list_running, refuse_if_running, shown};
 use portal_core::download::numbered;
 use portal_core::instance::{self, Instance, Listing, ModFile};
 use portal_core::launch::{DEFAULT_MEMORY_MB, Profile};
@@ -58,6 +58,14 @@ pub fn refresh_presence(app: &AppHandle) {
             game.unwrap_or_else(discord::menu)
         });
         presence.set(activity);
+    });
+}
+
+// Runs on exit and cannot veto it: one small file write per running game, nothing slow.
+pub fn record_open_runs(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    end_all_runs(&state.running, |id, started_at| {
+        let _ = instance::record_played(&state.paths, id, started_at, seconds_played(started_at, now_secs()));
     });
 }
 

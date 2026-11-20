@@ -57,6 +57,11 @@ pub fn run() {
             instances::refresh_presence(app.handle());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                instances::record_open_runs(app);
+            }
+        });
 }
