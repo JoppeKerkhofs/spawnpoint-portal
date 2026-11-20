@@ -14,6 +14,7 @@ import Tile from "../components/Tile.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { andList, errorText, minecraftText } from "../logic/format";
 import { look } from "../logic/look";
+import { focusRow, serverRowKey, takeReturn } from "../logic/focus";
 import { op, openServer, playing, view } from "../logic/operation";
 import { joinButton, joinServer, list, loadError, loadServers as load, loading, playersText, runsText, serverKey, serversState, serversSummary } from "../logic/servers";
 import { serverPill, serverTexture } from "../logic/visuals";
@@ -27,7 +28,12 @@ const skeletonRow: Array<[string, string]> = [["32px", "32px"], ["flex", "14px"]
 
 const button = (panel: Panel, s: Server) => joinButton(s, serverKey(panel.id, s.slug), op.value, opKey.value, playing.value);
 
-onMounted(load);
+const back = takeReturn();
+onMounted(async () => {
+  focusRow(back);
+  await load();
+  focusRow(back);
+});
 </script>
 
 <template>
@@ -82,7 +88,7 @@ onMounted(load);
           <AppButton variant="secondary" size="small" :disabled="loading" @click="load">Try again</AppButton>
         </div>
         <template v-else>
-          <div v-for="s in entry.servers" :key="s.slug" class="row row-link" @click="openServer(entry.panel.id, s.slug)">
+          <div v-for="s in entry.servers" :key="s.slug" class="row row-link" :data-row="serverRowKey(entry.panel.id, s.slug)" @click="openServer(entry.panel.id, s.slug)">
             <Picture :picture="s.picture" :size="blocky ? 34 : 32">
               <span v-if="blocky" class="flex w-[34px] shrink-0 items-center justify-center">
                 <BlockCube :texture="serverTexture(s)" :size="26" :spin="s.state !== 'offline'" :bob="s.state === 'running'" :dim="s.state !== 'running'" />

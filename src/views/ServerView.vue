@@ -13,7 +13,8 @@ import ViewHead from "../components/ViewHead.vue";
 import { errorText } from "../logic/format";
 import { headUrl } from "../logic/picture";
 import { look } from "../logic/look";
-import { op, openInstance, openServerKey, playing, view } from "../logic/operation";
+import { leave, serverRowKey } from "../logic/focus";
+import { op, openInstance, openServerKey, playing } from "../logic/operation";
 import {
   detailRows,
   findServer,
@@ -30,6 +31,7 @@ import {
 } from "../logic/servers";
 import { serverPill, serverTexture } from "../logic/visuals";
 
+const back = () => leave(serverRowKey(openServerKey.value?.panel ?? "", openServerKey.value?.slug ?? ""), "servers");
 const found = computed(() => findServer(list.value, openServerKey.value?.panel ?? "", openServerKey.value?.slug ?? ""));
 const instanceId = ref<string | null>(null);
 const blocky = computed(() => look.value.theme === "blocky");
@@ -58,7 +60,7 @@ onMounted(() => {
 <template>
   <ViewHead :title="found?.server.name ?? 'Server'" :summary="found ? serverSummaryLine(found.server, found.panel) : ''">
     <template #back>
-      <button type="button" class="inline-flex items-center gap-1 text-xs hover:underline" @click="view = 'servers'">
+      <button type="button" class="inline-flex items-center gap-1 text-xs hover:underline" @click="back">
         <Icon name="chevron-left" :size="14" />Servers
       </button>
     </template>
@@ -84,7 +86,7 @@ onMounted(() => {
 
     <Note v-if="!found && list && !loading" kind="info" role="status">
       <div>This server is no longer on the panel.</div>
-      <AppButton variant="secondary" size="small" class="mt-2" @click="view = 'servers'">Back to Servers</AppButton>
+      <AppButton variant="secondary" size="small" class="mt-2" @click="back">Back to Servers</AppButton>
     </Note>
 
     <template v-if="found">

@@ -57,7 +57,8 @@ import {
   updatableMod,
   type ModFilter,
 } from "../logic/mods";
-import { afterJoin, busy, lastPlayed, markPlaying, op, openInstanceId, playing, view, withProgress } from "../logic/operation";
+import { instanceRowKey, leave } from "../logic/focus";
+import { afterJoin, busy, lastPlayed, markPlaying, op, openInstanceId, playing, withProgress } from "../logic/operation";
 import { instanceTexture } from "../logic/visuals";
 
 const id = openInstanceId.value ?? "";
@@ -212,7 +213,7 @@ async function confirmDelete() {
   try {
     await instanceDelete(id);
     dropInstance(id);
-    view.value = "instances";
+    leave(instanceRowKey(id), "instances");
   } catch (e) {
     fail(e);
   }
@@ -252,7 +253,7 @@ onUnmounted(() => {
 <template>
   <ViewHead :title="instance?.name ?? 'Instance'" :summary="instance ? instanceSummary(instance, knownPanels) : ''">
     <template #back>
-      <button type="button" class="inline-flex items-center gap-1 text-xs hover:underline" @click="view = 'instances'">
+      <button type="button" class="inline-flex items-center gap-1 text-xs hover:underline" @click="leave(instanceRowKey(id), 'instances')">
         <Icon name="chevron-left" :size="14" />Instances
       </button>
     </template>

@@ -27,6 +27,7 @@ import ViewHead from "../components/ViewHead.vue";
 import { errorText, minecraftText } from "../logic/format";
 import { canCreate, instancesState, instancesSummary, kindOf, kindTone, loaderText, playButton, sourceText } from "../logic/instances";
 import { look } from "../logic/look";
+import { focusRow, instanceRowKey, takeReturn } from "../logic/focus";
 import { markPlaying, op, openInstance, playing, view, withProgress } from "../logic/operation";
 import { instanceTexture } from "../logic/visuals";
 
@@ -121,7 +122,12 @@ async function showFolder(folder: string) {
   }
 }
 
-onMounted(load);
+const back = takeReturn();
+onMounted(async () => {
+  focusRow(back);
+  await load();
+  focusRow(back);
+});
 </script>
 
 <template>
@@ -210,7 +216,7 @@ onMounted(load);
         <span class="w-[160px] shrink-0 min-[1000px]:w-[230px]">Comes from</span>
         <span class="w-[150px] shrink-0" />
       </div>
-      <div v-for="i in list!.instances" :key="i.id" class="row row-link" @click="openInstance(i.id)">
+      <div v-for="i in list!.instances" :key="i.id" class="row row-link" :data-row="instanceRowKey(i.id)" @click="openInstance(i.id)">
         <Picture :picture="i.picture" :size="blocky ? 34 : 32">
           <span v-if="blocky" class="flex w-[34px] shrink-0 items-center justify-center">
             <BlockCube :texture="instanceTexture(i)" :size="26" />
