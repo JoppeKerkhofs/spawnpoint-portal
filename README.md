@@ -1,12 +1,51 @@
 # spawnpoint-portal
 
-A Minecraft launcher. `portal-core` is its library; the `portal` command-line tool drives it.
+A Minecraft launcher for Windows. It links to your Spawnpoint panels, lists their servers, and joins one with a single click: it syncs the server's pack into an instance and starts the game on that server.
 
-## Build
+It has three parts: `portal-core` (a Rust library with all the launcher logic), `portal` (a command-line tool), and Spawnpoint Portal, the window (Tauri v2 with a Vue 3 and TypeScript frontend).
+
+## Run in development
+
+    npm install
+    npm run tauri dev
+
+This needs Node.js, a Rust toolchain and the Tauri prerequisites for Windows.
+
+## Build the window
+
+    npm run tauri build -- --no-bundle
+
+The program is `target\release\spawnpoint-portal.exe`. This builds no installer and does no code signing.
+
+## Test
+
+    cargo test --workspace
+    npm test
+    npx vue-tsc --noEmit
+
+## Build the command-line tool
 
     cargo build
 
-## Commands
+## Where data lives
+
+Instances, game files, Java runtimes and settings are under `%APPDATA%\SpawnpointPortal`. A panel's key is kept in the Windows Credential Manager, never in a file. The window and the command line share both.
+
+## The window
+
+- **Servers**: every linked panel's servers, with state, players and what they run. Join syncs the pack and starts the game.
+- **Instances**: your instances, and a form to create a plain one. Instances Portal cannot read are listed with a button to show their folder.
+- **An instance**: memory, the mods folder, adding and removing your own mods, files a pack's author does not allow launchers to download (to fetch by hand), and delete.
+- **Panels**: link a panel by approving a code on its page, or remove one.
+- **Account**: the player name and the appearance (standard light, dark or following Windows, or blocky).
+
+The status bar shows the steps of a join and whether the game is running.
+
+## Command line
+
+The `portal` tool does everything the window does, and also installs packs without a server (`portal pack install`), which the window does not.
+
+### Commands
 
     portal versions                    list the release versions, newest first
     portal files <version>             download the game files of a version
