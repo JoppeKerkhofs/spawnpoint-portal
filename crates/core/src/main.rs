@@ -44,9 +44,9 @@ async fn with_progress<T, F: std::future::Future<Output = Result<T>>>(work: impl
     let printer = tokio::spawn(async move {
         while let Some(p) = rx.recv().await {
             if p.steps > 0 {
-                print!("\r{}/{} {} {}/{}", p.step, p.steps, p.stage, p.done, p.total);
+                print!("\r\x1b[K{}/{} {} {}/{}", p.step, p.steps, p.stage, p.done, p.total);
             } else {
-                print!("\r{} {}/{}", p.stage, p.done, p.total);
+                print!("\r\x1b[K{} {}/{}", p.stage, p.done, p.total);
             }
             let _ = std::io::stdout().flush();
         }
@@ -181,7 +181,7 @@ fn unix_now() -> u64 {
 fn wait_and_record(paths: &Paths, id: &str, child: &mut std::process::Child) -> Result<i32> {
     let started = unix_now();
     let code = child.wait()?.code().unwrap_or(1);
-    let _ = instance::record_played(paths, id, started, unix_now() - started);
+    let _ = instance::record_played(paths, id, started, unix_now().saturating_sub(started));
     Ok(code)
 }
 

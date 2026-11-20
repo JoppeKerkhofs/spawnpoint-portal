@@ -178,9 +178,14 @@ pub async fn apply(
     let deletes = plan.delete.iter().map(|d| target(&d.path)).collect::<Result<Vec<_>>>()?;
     let writes = plan.write.iter().map(|w| target(&w.path)).collect::<Result<Vec<_>>>()?;
 
+    let mut check_err: Option<Error> = None;
     for (d, file) in plan.delete.iter().zip(deletes) {
         let (path, sha1) = (file.clone(), d.sha1.clone());
-        let unchanged = blocking(move || Ok(path.is_file() && sha1_file(&path).is_ok_and(|s| s.eq_ignore_ascii_case(&sha1)))).await?;
+        let checked = blocking(move || Ok(path.is_file() && sha1_file(&path).is_ok_and(|s| s.eq_ignore_ascii_case(&sha1)))).await;
+        let unchanged = checked.unwrap_or_else(|e| {
+            check_err.get_or_insert(e);
+            false
+        });
         if !unchanged {
             continue;
         }
@@ -205,7 +210,11 @@ pub async fn apply(
     let mut skipped = plan.skipped;
     for (i, (w, file)) in plan.write.iter().zip(&writes).enumerate() {
         let (path, replaced, hash) = (file.clone(), plan.replaces.get(&w.path).cloned(), w.hash.clone());
-        if !blocking(move || Ok(still_ours(&path, replaced.as_deref(), hash.as_ref()))).await? {
+        let ours = blocking(move || Ok(still_ours(&path, replaced.as_deref(), hash.as_ref()))).await;
+        if !ours.unwrap_or_else(|e| {
+            check_err.get_or_insert(e);
+            false
+        }) {
             skipped.push(w.path.clone());
             continue;
         }
@@ -239,7 +248,7 @@ pub async fn apply(
     let old_sha: HashMap<String, &str> = old.iter().map(|m| (m.path.to_lowercase(), m.sha1.as_str())).collect();
     instance.managed = plan.managed;
     let checks: Vec<_> = plan.write.iter().zip(&writes).zip(attempted).map(|((w, file), tried)| (file.clone(), w.hash.clone(), tried)).collect();
-    let written = blocking(move || {
+    let written = match blocking(move || {
         Ok(checks
             .into_iter()
             .map(|(file, hash, tried)| {
@@ -251,7 +260,14 @@ pub async fn apply(
             })
             .collect::<Vec<_>>())
     })
-    .await?;
+    .await
+    {
+        Ok(found) => found,
+        Err(e) => {
+            check_err.get_or_insert(e);
+            vec![None; plan.write.len()]
+        }
+    };
     for (w, found) in plan.write.iter().zip(written) {
         let Some((arrived, sha1)) = found else { continue };
         let old_sha = old_sha.get(&w.path.to_lowercase()).copied();
@@ -264,6 +280,9 @@ pub async fn apply(
     instance.skipped = skipped;
     instance::save_synced(paths, instance)?;
     result?;
+    if let Some(e) = check_err {
+        return Err(e);
+    }
     Ok(plan.manual)
 }
 

@@ -114,7 +114,7 @@ async fn sync_numbered(
         Ok(manual) => Ok((instance, server, manual, progress.clone())),
         Err(e) => {
             // An empty version means install failed before writing anything.
-            if created && instance.minecraft.is_empty() {
+            if created && instance.minecraft.is_empty() && !matches!(e, Error::Busy(_)) {
                 let _ = instance::delete(paths, &instance.id);
             }
             Err(e)

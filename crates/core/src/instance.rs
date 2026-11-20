@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::launch::DEFAULT_MEMORY_MB;
 use crate::loader::Loader;
 use crate::paths::check_relative;
-use crate::sync::Manual;
+use crate::sync::{Manual, safe_path};
 use crate::{Error, Paths, Result};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -152,8 +152,15 @@ pub fn save(paths: &Paths, instance: &Instance) -> Result<()> {
     Ok(())
 }
 
-// ponytail: no lock between two update calls in one process; add one if the window ever writes from two places at once.
+// One load-then-save at a time in this process; never held across an await.
+static SAVING: Mutex<()> = Mutex::new(());
+
+fn saving() -> std::sync::MutexGuard<'static, ()> {
+    SAVING.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub fn update(paths: &Paths, id: &str, change: impl FnOnce(&mut Instance)) -> Result<Instance> {
+    let _saving = saving();
     let mut instance = load(paths, id)?;
     change(&mut instance);
     save(paths, &instance)?;
@@ -173,7 +180,7 @@ pub fn record_played(paths: &Paths, id: &str, started_at: u64, seconds: u64) -> 
 
 pub fn check_manual(paths: &Paths, id: &str) -> Result<Instance> {
     let game = game_dir(paths, id);
-    update(paths, id, |i| i.manual.retain(|m| !game.join(&m.path).exists()))
+    update(paths, id, |i| i.manual.retain(|m| safe_path(&m.path).is_ok_and(|p| !game.join(p).exists())))
 }
 
 static SYNCING: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -196,22 +203,22 @@ pub fn lock(id: &str) -> Result<InstanceLock> {
 }
 
 // A sync works on an instance loaded earlier: what the player set meanwhile stays.
-pub fn save_synced(paths: &Paths, instance: &Instance) -> Result<()> {
-    let mut merged = instance.clone();
+pub fn save_synced(paths: &Paths, instance: &mut Instance) -> Result<()> {
+    let _saving = saving();
     if let Ok(disk) = load(paths, &instance.id) {
-        merged.memory_mb = disk.memory_mb;
-        merged.last_played = disk.last_played;
+        instance.memory_mb = disk.memory_mb;
+        instance.last_played = disk.last_played;
     }
-    save(paths, &merged)
+    save(paths, instance)
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Listing {
     pub instances: Vec<Instance>,
     pub unreadable: Vec<Unreadable>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Unreadable {
     pub folder: String,
 }
@@ -259,6 +266,7 @@ pub fn delete(paths: &Paths, id: &str) -> Result<()> {
     if id != slug(id) {
         return Err(Error::Other(format!("{id:?} is not an instance id")));
     }
+    let _lock = lock(id)?;
     std::fs::remove_dir_all(dir(paths, id))?;
     Ok(())
 }
@@ -318,7 +326,7 @@ pub fn remove_mod(paths: &Paths, instance: &mut Instance, name: &str) -> Result<
     }
     let rel = format!("mods/{name}");
     instance.managed.retain(|m| m.path != rel);
-    save(paths, instance)
+    update(paths, &instance.id, |i| i.managed.retain(|m| m.path != rel)).map(|_| ())
 }
 
 #[cfg(test)]
@@ -461,7 +469,8 @@ mod tests {
         set_memory(&p, "m", 8192).unwrap();
         record_played(&p, "m", 10, 20).unwrap();
         stale.minecraft = "1.20.1".into();
-        save_synced(&p, &stale).unwrap();
+        save_synced(&p, &mut stale).unwrap();
+        assert_eq!((stale.memory_mb, stale.last_played.as_ref().map(|l| l.seconds)), (Some(8192), Some(20)));
         let now = load(&p, "m").unwrap();
         assert_eq!((now.minecraft.as_str(), now.memory_mb, now.last_played.map(|l| l.seconds)), ("1.20.1", Some(8192), Some(20)));
     }
@@ -502,6 +511,72 @@ mod tests {
         let i = check_manual(&p, "m").unwrap();
         assert_eq!(i.manual, vec![hand("mods/b.jar")]);
         assert_eq!(load(&p, "m").unwrap().manual, vec![hand("mods/b.jar")]);
+    }
+
+    #[test]
+    fn saves_of_one_instance_do_not_interleave() {
+        use std::sync::atomic::AtomicBool;
+        let (_t, p) = tmp();
+        let mut synced = create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        let managed = |i: usize| vec![ManagedFile { path: format!("m{i}"), sha1: "x".into() }];
+        let index = |i: &Instance| i.managed.first().map_or(0, |m| m.path[1..].parse::<usize>().unwrap());
+        let done = AtomicBool::new(false);
+        struct Stop<'a>(&'a AtomicBool);
+        impl Drop for Stop<'_> {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        std::thread::scope(|s| {
+            let _stop = Stop(&done);
+            let observer = s.spawn(|| {
+                let (mut played, mut synced_at) = (0, 0);
+                while !done.load(Ordering::SeqCst) {
+                    if let Ok(i) = load(&p, "m") {
+                        let now = i.last_played.as_ref().map_or(0, |l| l.started_at);
+                        assert!(now >= played, "a last play was lost");
+                        assert!(index(&i) >= synced_at, "a sync's managed list was reverted");
+                        (played, synced_at) = (now, index(&i));
+                    }
+                }
+            });
+            let writers = [
+                s.spawn(|| (1..=300).for_each(|n| { set_memory(&p, "m", MEMORY_CHOICES_MB[n % 4]).unwrap(); })),
+                s.spawn(|| (1..=300).for_each(|n| { record_played(&p, "m", n, 0).unwrap(); })),
+                s.spawn(|| (1..=300).for_each(|_| { check_manual(&p, "m").unwrap(); })),
+                s.spawn(|| (1..=300).for_each(|_| { check_manual(&p, "m").unwrap(); })),
+            ];
+            for i in 1..=300 {
+                synced.managed = managed(i);
+                save_synced(&p, &mut synced).unwrap();
+            }
+            writers.into_iter().for_each(|w| w.join().unwrap());
+            drop(_stop);
+            observer.join().unwrap();
+        });
+        let end = load(&p, "m").unwrap();
+        assert_eq!((end.memory_mb, end.last_played.map(|l| l.started_at), end.managed), (Some(MEMORY_CHOICES_MB[0]), Some(300), managed(300)));
+    }
+
+    #[test]
+    fn a_locked_instance_is_not_deleted() {
+        let (_t, p) = tmp();
+        create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        let held = lock("m").unwrap();
+        assert!(matches!(delete(&p, "m"), Err(Error::Busy(_))));
+        assert!(load(&p, "m").is_ok());
+        drop(held);
+        delete(&p, "m").unwrap();
+        assert!(load(&p, "m").is_err());
+    }
+
+    #[test]
+    fn check_manual_drops_unsafe_paths() {
+        let (_t, p) = tmp();
+        create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        let hand = |path: &str| Manual { path: path.into(), name: "x".into(), page: String::new() };
+        update(&p, "m", |i| i.manual = vec![hand("../nothing-here"), hand("mods/b.jar")]).unwrap();
+        assert_eq!(check_manual(&p, "m").unwrap().manual, vec![hand("mods/b.jar")]);
     }
 
     #[test]
