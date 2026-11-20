@@ -1,6 +1,7 @@
 use crate::download::{fetch, fetch_all, get_ok, Download, Hash, ProgressTx};
 use crate::version::{library_files, LibraryFile, VersionJson};
 use crate::paths::check_relative;
+use crate::sync::safe_path;
 use crate::{Error, Paths, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -35,6 +36,8 @@ pub struct ManifestVersion {
 #[derive(Deserialize)]
 struct AssetIndex {
     objects: BTreeMap<String, AssetObject>,
+    #[serde(default)]
+    r#virtual: bool,
 }
 
 #[derive(Deserialize)]
@@ -103,6 +106,22 @@ pub fn asset_downloads(index_json: &str, assets_dir: &Path) -> Result<Vec<Downlo
     Ok(downloads)
 }
 
+pub fn virtual_copies(index_json: &str, assets_dir: &Path, index_id: &str) -> Result<Vec<(PathBuf, PathBuf)>> {
+    let index: AssetIndex = serde_json::from_str(index_json)?;
+    if !index.r#virtual {
+        return Ok(Vec::new());
+    }
+    let target = assets_dir.join("virtual").join(index_id);
+    index
+        .objects
+        .iter()
+        .map(|(name, o)| {
+            let prefix = o.hash.get(..2).ok_or_else(|| Error::Other(format!("asset hash {:?} is too short", o.hash)))?;
+            Ok((assets_dir.join("objects").join(prefix).join(&o.hash), target.join(safe_path(name)?)))
+        })
+        .collect()
+}
+
 fn once_per_path(items: Vec<Download>) -> Vec<Download> {
     let mut seen = HashSet::new();
     items.into_iter().filter(|d| seen.insert(d.path.clone())).collect()
@@ -158,7 +177,16 @@ pub async fn install(client: &Client, paths: &Paths, version: &VersionJson, prog
             size: Some(log.file.size), bearer: None,
         });
     }
-    fetch_all(client, "assets", once_per_path(files), progress).await
+    fetch_all(client, "assets", once_per_path(files), progress).await?;
+    for (from, to) in virtual_copies(&tokio::fs::read_to_string(&index_file).await?, &assets, &index_ref.id)? {
+        let size = std::fs::metadata(&from)?.len();
+        if std::fs::metadata(&to).is_ok_and(|m| m.len() == size) {
+            continue;
+        }
+        std::fs::create_dir_all(to.parent().unwrap_or(&assets))?;
+        std::fs::copy(&from, &to)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -187,6 +215,26 @@ mod tests {
         let h = "b62ca8ec10d07e6bf5ac8dae0c8c1d2e6a1e3356";
         assert_eq!(d[0].url, format!("https://resources.download.minecraft.net/{}/{}", &h[..2], h));
         assert_eq!(d[0].path, Path::new("A").join("objects").join(&h[..2]).join(h));
+    }
+
+    #[test]
+    fn legacy_index_is_copied_out() {
+        let c = virtual_copies(include_str!("../tests/fixtures/asset-index-legacy.json"), Path::new("A"), "legacy").unwrap();
+        assert_eq!(c.len(), 3);
+        assert!(c[0].1.starts_with(Path::new("A").join("virtual").join("legacy")));
+        assert!(c[0].0.starts_with(Path::new("A").join("objects")));
+    }
+
+    #[test]
+    fn a_modern_index_is_not() {
+        assert!(virtual_copies(include_str!("../tests/fixtures/asset-index.json"), Path::new("A"), "17").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_virtual_name_cannot_escape() {
+        let h = "aa".repeat(20);
+        let index = format!(r#"{{"virtual":true,"objects":{{"../x":{{"hash":"{h}","size":1}}}}}}"#);
+        assert!(virtual_copies(&index, Path::new("A"), "legacy").is_err());
     }
 
     #[test]
