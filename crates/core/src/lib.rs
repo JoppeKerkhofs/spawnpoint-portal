@@ -28,7 +28,7 @@ pub fn http_client() -> reqwest::Client {
         let from = attempt.previous().last().map_or("", |u| u.scheme());
         if downgrades(from, attempt.url().scheme()) {
             attempt.error("a redirect from https to plain http was refused")
-        } else if attempt.previous().len() >= 10 {
+        } else if attempt.previous().len() > 10 {
             attempt.error("too many redirects")
         } else {
             attempt.follow()

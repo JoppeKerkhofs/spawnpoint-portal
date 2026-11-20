@@ -4,7 +4,7 @@ A Minecraft launcher for Windows. It links to your Spawnpoint panels, lists thei
 
 It has three parts: `portal-core` (a Rust library with all the launcher logic), `portal` (a command-line tool), and Spawnpoint Portal, the window (Tauri v2 with a Vue 3 and TypeScript frontend).
 
-Minecraft 1.6.4 and newer are supported. Fabric and NeoForge start at the versions they exist for; Forge works from 1.6.4 on, except that a Forge for 1.6.4 or 1.7.x that needs a `.pack.xz` library is refused with a message naming it.
+Minecraft 1.6.4 and newer are supported. Fabric and NeoForge start at the versions they exist for; Forge works from 1.6.4 on, except that a Forge for 1.6.4 or 1.7.x that needs a `.pack.xz` library is refused with a message naming it. Forge on Minecraft 1.7.2 does not start on Java 8 without the legacyjavafixer mod in the instance's mods folder.
 
 ## Run in development
 

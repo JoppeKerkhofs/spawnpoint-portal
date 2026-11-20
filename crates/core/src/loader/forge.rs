@@ -94,6 +94,7 @@ fn metadata_version(xml: &str, minecraft: &str, version: &str) -> Option<String>
     xml.split("<version>")
         .skip(1)
         .filter_map(|rest| rest.split("</version>").next())
+        .filter(|v| !v.contains(|c: char| matches!(c, '/' | '\\' | '?' | '#') || c.is_whitespace()))
         .find(|v| *v == exact || v.starts_with(&prefix))
         .map(String::from)
 }
@@ -969,6 +970,9 @@ Other: x
         assert_eq!(metadata_version(xml, "1.7.10", "10.13.4.1614").as_deref(), Some("1.7.10-10.13.4.1614-1.7.10"));
         assert_eq!(metadata_version(xml, "1.8", "11.14.0.1299").as_deref(), Some("1.8-11.14.0.1299"));
         assert_eq!(metadata_version(xml, "1.7.2", "10.12.2.116"), None);
+        for bad in ["1.7.2-1.0/../x", "1.7.2-1.0\\x", "1.7.2-1.0?x", "1.7.2-1.0#x", "1.7.2-1.0 x"] {
+            assert_eq!(metadata_version(&format!("<version>{bad}</version>"), "1.7.2", "1.0"), None, "{bad}");
+        }
     }
 
     #[tokio::test]
