@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   defaults,
   instanceAddMod,
@@ -11,12 +11,15 @@ import {
   instanceRemoveMod,
   instanceSetMemory,
   instanceSetPicture,
+  modsInstall,
+  modsInstalled,
   openModsFolder,
   openPage,
   panels,
   type CommandError,
   type Defaults,
   type Instance,
+  type InstalledMod,
   type ModFile,
   type Panel,
 } from "../api";
@@ -25,6 +28,7 @@ import BlockCube from "../components/BlockCube.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import Icon from "../components/Icon.vue";
 import KindBadge from "../components/KindBadge.vue";
+import ModBrowser from "../components/ModBrowser.vue";
 import Note from "../components/Note.vue";
 import SegFilter from "../components/SegFilter.vue";
 import Skeleton from "../components/Skeleton.vue";
@@ -37,8 +41,10 @@ import { look } from "../logic/look";
 import { pictureFromFile } from "../logic/picture";
 import {
   deleteBody,
+  browseNote,
   filterMods,
   handHeading,
+  installedSentence,
   instanceSummary,
   isHttps,
   memoryOptions,
@@ -49,7 +55,7 @@ import {
   skippedName,
   type ModFilter,
 } from "../logic/mods";
-import { afterJoin, lastPlayed, markPlaying, op, openInstanceId, playing, view, withProgress } from "../logic/operation";
+import { afterJoin, busy, lastPlayed, markPlaying, op, openInstanceId, playing, view, withProgress } from "../logic/operation";
 import { instanceTexture } from "../logic/visuals";
 
 const id = openInstanceId.value ?? "";
@@ -65,12 +71,21 @@ const filter = ref<ModFilter>("all");
 const query = ref("");
 const removing = ref<ModFile | null>(null);
 const deleting = ref(false);
+const browsing = ref(false);
+const browseButton = ref<InstanceType<typeof AppButton> | null>(null);
+const known = ref<InstalledMod[] | null>(null);
+const modsNote = ref<{ text: string; kind: "info" | "warn" } | null>(null);
 
 const skeletonRow: Array<[string, string]> = [["flex", "14px"], ["64px", "14px"], ["70px", "18px"], ["96px", "28px"]];
 const blocky = computed(() => look.value.theme === "blocky");
 const opKey = computed(() => (op.value.phase === "idle" ? null : (op.value.key ?? null)));
 const isPlaying = computed(() => playing.value.some((p) => p.instance === id));
 const play = computed(() => (instance.value ? playButton(instance.value, op.value, opKey.value, playing.value) : null));
+const byFile = computed(() => new Map((known.value ?? []).map((k) => [k.file, k])));
+const updatable = (m: ModFile) => {
+  const k = m.managed ? undefined : byFile.value.get(m.name);
+  return k?.update && k.project ? k : undefined;
+};
 const counts = computed(() => modCounts(mods.value ?? []));
 const shown = computed(() => filterMods(orderMods(mods.value ?? []), filter.value, query.value));
 const filters = computed(() => [
@@ -97,6 +112,34 @@ async function loadMods() {
   } catch (e) {
     modsError.value = e as CommandError;
   }
+}
+
+// An extra after the list: without Modrinth the list is the same, only without its buttons.
+async function loadKnown() {
+  try {
+    known.value = await modsInstalled(id);
+  } catch {
+    known.value = null;
+  }
+}
+
+const refresh = async () => {
+  await loadMods();
+  await loadKnown();
+};
+
+async function installMod(project: string) {
+  actionError.value = null;
+  modsNote.value = null;
+  const done = await withProgress(instance.value!.name, () => modsInstall(id, project), `mod:${project}`);
+  if (done) modsNote.value = { text: installedSentence(done), kind: done.failed.length ? "warn" : "info" };
+  await refresh();
+}
+
+async function closeBrowser() {
+  browsing.value = false;
+  await nextTick();
+  (browseButton.value?.$el as HTMLElement | undefined)?.focus();
 }
 
 const fail = (e: unknown) => (actionError.value = e as CommandError);
@@ -143,7 +186,7 @@ async function launch() {
 async function addMod() {
   actionError.value = null;
   try {
-    if (await instanceAddMod(id)) await loadMods();
+    if (await instanceAddMod(id)) await refresh();
   } catch (e) {
     fail(e);
   }
@@ -159,7 +202,7 @@ async function confirmRemove() {
   } catch (e) {
     fail(e);
   }
-  await loadMods();
+  await refresh();
 }
 
 async function confirmDelete() {
@@ -195,7 +238,7 @@ watch(instance, (i) => (lastPlayed.value = i ? lastPlayedText(i.name, i.last_pla
 
 onMounted(() => {
   loadInstance();
-  loadMods();
+  loadMods().then(loadKnown);
   panels().then((p) => (knownPanels.value = p), () => {});
   defaults().then((d) => (choices.value = d), () => {});
 });
@@ -268,12 +311,23 @@ onUnmounted(() => {
 
       <Note v-if="afterJoin?.instance === instance.id" kind="info" role="note">{{ afterJoin.text }}</Note>
 
+      <Note v-if="modsNote" :kind="modsNote.kind" role="status">{{ modsNote.text }}</Note>
+
       <Note v-for="path in instance.skipped" :key="path" kind="info" role="note" aria-label="Skipped file">
         The last sync left one pack file out: <span class="mono font-bold">{{ skippedName(path) }}</span>. Your own file with the same name is in its place, and Portal never
         touches your files. Remove yours if you want the pack’s version.
       </Note>
 
-      <section class="card" aria-labelledby="mods-heading">
+      <ModBrowser
+        v-if="browsing && instance.loader"
+        :id="id"
+        :minecraft="instance.minecraft"
+        :loader="instance.loader"
+        :installed="known"
+        @install="installMod"
+        @back="closeBrowser"
+      />
+      <section v-else class="card" aria-labelledby="mods-heading">
         <div class="card-head flex-wrap">
           <h2 id="mods-heading" class="card-title mc-name">Mods</h2>
           <span class="card-meta tabular">{{ modsText(counts.all) }}</span>
@@ -281,8 +335,10 @@ onUnmounted(() => {
           <SegFilter v-model="filter" :options="filters" />
           <label for="mod-search" class="sr-only">Search mods</label>
           <input id="mod-search" v-model="query" class="input" style="width: 170px; height: 30px" placeholder="Search mods" />
+          <AppButton v-if="instance.loader" ref="browseButton" variant="secondary" size="small" icon="plus" @click="browsing = true">Browse mods</AppButton>
           <AppButton variant="secondary" size="small" icon="upload" @click="addMod">Add a mod file</AppButton>
         </div>
+        <div v-if="browseNote(instance)" class="row text-xs text-(--muted)">{{ browseNote(instance) }}</div>
         <div class="row gap-2 text-xs">
           <Icon name="lock" :size="14" class="shrink-0" />
           <span>Pack mods are managed by the sync and can change with the next pack update. Your own mods are never changed or removed by a sync.</span>
@@ -302,7 +358,15 @@ onUnmounted(() => {
             <span class="mono min-w-0 flex-1 truncate" :title="m.name">{{ m.name }}</span>
             <span class="tabular w-16 shrink-0 text-right text-xs text-(--muted)">{{ megabytes(m.size) }}</span>
             <span class="w-[70px] shrink-0"><KindBadge :kind="m.managed ? 'pack' : 'own'">{{ m.managed ? "Pack" : "Own" }}</KindBadge></span>
-            <span class="flex w-24 shrink-0 justify-end">
+            <span class="flex w-[11.5rem] shrink-0 items-center justify-end gap-1.5">
+              <AppButton
+                v-if="updatable(m)"
+                variant="secondary"
+                size="small"
+                :disabled="busy"
+                :aria-label="`Update ${updatable(m)?.title ?? m.name}`"
+                @click="installMod(updatable(m)!.project!)"
+              >Update</AppButton>
               <span v-if="m.managed" class="inline-flex items-center gap-1 text-xs text-(--muted)"><Icon name="lock" :size="12" />Managed</span>
               <AppButton v-else variant="danger" size="small" :aria-label="`Remove ${m.name}`" @click="removing = m">Remove</AppButton>
             </span>

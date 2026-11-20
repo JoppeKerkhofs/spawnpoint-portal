@@ -1,0 +1,119 @@
+<script setup lang="ts">
+import { onMounted, onUnmounted, ref, watch } from "vue";
+import { modsSearch, type CommandError, type InstalledMod, type Loader, type ModHit } from "../api";
+import { errorText } from "../logic/format";
+import { downloadsText, noResultsText, resultControl } from "../logic/mods";
+import { busy, op } from "../logic/operation";
+import AppButton from "./AppButton.vue";
+import Icon from "./Icon.vue";
+import KindBadge from "./KindBadge.vue";
+import Note from "./Note.vue";
+import Picture from "./Picture.vue";
+import Skeleton from "./Skeleton.vue";
+
+const props = defineProps<{ id: string; minecraft: string; loader: Loader; installed: InstalledMod[] | null }>();
+const emit = defineEmits<{ install: [project: string]; back: [] }>();
+
+const query = ref("");
+const hits = ref<ModHit[]>([]);
+const more = ref(false);
+const loading = ref(false);
+const failure = ref<CommandError | null>(null);
+const field = ref<HTMLInputElement | null>(null);
+const row: Array<[string, string]> = [["32px", "32px"], ["flex", "14px"], ["70px", "26px"]];
+let latest = 0;
+let timer: ReturnType<typeof setTimeout> | undefined;
+
+async function load(offset = 0) {
+  clearTimeout(timer);
+  const mine = ++latest;
+  loading.value = true;
+  failure.value = null;
+  try {
+    const found = await modsSearch(props.id, query.value.trim(), offset);
+    if (mine !== latest) return;
+    hits.value = offset ? [...hits.value, ...found.hits] : found.hits;
+    more.value = found.more;
+  } catch (e) {
+    if (mine === latest) failure.value = e as CommandError;
+  } finally {
+    if (mine === latest) loading.value = false;
+  }
+}
+
+const working = (project: string) => op.value.phase !== "idle" && op.value.key === `mod:${project}`;
+
+watch(query, () => {
+  clearTimeout(timer);
+  timer = setTimeout(() => load(), 300);
+});
+onMounted(() => {
+  load();
+  field.value?.focus();
+});
+onUnmounted(() => clearTimeout(timer));
+</script>
+
+<template>
+  <section class="card" aria-labelledby="browse-heading">
+    <div class="card-head flex-wrap">
+      <h2 id="browse-heading" class="card-title mc-name">Browse mods</h2>
+      <span class="card-meta">Modrinth</span>
+      <span class="flex-1" />
+      <label for="browse-search" class="sr-only">Search Modrinth</label>
+      <input
+        id="browse-search"
+        ref="field"
+        v-model="query"
+        class="input"
+        style="width: 220px; height: 30px"
+        placeholder="Search Modrinth"
+        @keydown.enter="load()"
+      />
+      <AppButton variant="secondary" size="small" icon="chevron-left" @click="emit('back')">Back to installed mods</AppButton>
+    </div>
+    <div v-if="failure" class="px-4 pb-4 pt-3" role="alert">
+      <Note kind="err">
+        <strong>Couldn’t reach Modrinth.</strong>
+        <div>{{ errorText(failure) }}</div>
+        <AppButton variant="secondary" size="small" class="mt-2" @click="load()">Try again</AppButton>
+      </Note>
+    </div>
+    <div v-else-if="loading && !hits.length" class="px-4" aria-busy="true">
+      <Skeleton :rows="[row, row, row]" />
+    </div>
+    <div v-else-if="!hits.length" class="row justify-center text-(--muted)" role="status">{{ noResultsText(loader, minecraft) }}</div>
+    <template v-else>
+      <div v-for="h in hits" :key="h.project_id" class="row" style="padding-block: 8px">
+        <Picture :picture="h.icon" :size="32"><Icon name="box" :size="32" class="text-(--muted)" /></Picture>
+        <span class="min-w-0 flex-1">
+          <span class="flex items-baseline gap-2">
+            <span class="truncate font-bold">{{ h.title }}</span>
+            <span class="shrink-0 text-xs text-(--muted)">by {{ h.author }}</span>
+          </span>
+          <span class="block truncate text-xs text-(--muted)">{{ h.description }}</span>
+        </span>
+        <span class="tabular w-36 shrink-0 text-right text-xs text-(--muted)">{{ downloadsText(h.downloads) }}</span>
+        <span class="flex w-28 shrink-0 justify-end">
+          <template v-for="control in [resultControl(h.project_id, installed)]" :key="control">
+            <KindBadge v-if="control === 'pack'" kind="pack">From the pack</KindBadge>
+            <KindBadge v-else-if="control === 'installed'" kind="own">Installed</KindBadge>
+            <AppButton
+              v-else
+              variant="secondary"
+              size="small"
+              :disabled="busy"
+              :aria-label="`${control === 'update' ? 'Update' : 'Install'} ${h.title}`"
+              @click="emit('install', h.project_id)"
+            >
+              {{ working(h.project_id) ? (control === "update" ? "Updating…" : "Installing…") : control === "update" ? "Update" : "Install" }}
+            </AppButton>
+          </template>
+        </span>
+      </div>
+      <div v-if="more" class="row justify-center">
+        <AppButton variant="secondary" size="small" :disabled="loading" @click="load(hits.length)">{{ loading ? "Loading…" : "Load more" }}</AppButton>
+      </div>
+    </template>
+  </section>
+</template>

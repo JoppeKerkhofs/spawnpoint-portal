@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
-import type { Instance, ModFile, Source } from "../api";
+import type { Instance, InstalledMod, ModFile, Source } from "../api";
 import { memoryLabel } from "./format";
-import { deleteBody, filterMods, handHeading, instanceSummary, isHttps, memoryOptions, modCounts, modsText, noModsText, orderMods, skippedName } from "./mods";
+import { browseNote, deleteBody, downloadsText, filterMods, handHeading, instanceSummary, isHttps, installedSentence, memoryOptions, modCounts, modsText, noModsText, noResultsText, orderMods, resultControl, skippedName } from "./mods";
 
 const m = (name: string, managed: boolean): ModFile => ({ name, size: 1, managed });
 const inst = (extra: Partial<Instance> = {}): Instance => ({
@@ -41,4 +41,34 @@ test('links and memory', () => {
   expect(memoryLabel(4096)).toBe('4 GB'); expect(memoryLabel(10240)).toBe('10 GB'); expect(memoryLabel(1536)).toBe('1.5 GB')
   expect(memoryOptions([4096, 6144, 8192, 10240], 6144)).toEqual([4096, 6144, 8192, 10240])
   expect(memoryOptions([4096, 6144], 5120)).toEqual([4096, 5120, 6144])
+})
+
+const im = (extra: Partial<InstalledMod>): InstalledMod => ({ file: 'a.jar', managed: false, project: 'P1', title: 'Sodium', update: false, ...extra })
+test('which control a result gets', () => {
+  expect(resultControl('P1', null)).toBe('install')
+  expect(resultControl('P1', [])).toBe('install')
+  expect(resultControl('P1', [im({ project: 'P2' })])).toBe('install')
+  expect(resultControl('P1', [im({})])).toBe('installed')
+  expect(resultControl('P1', [im({ update: true })])).toBe('update')
+  expect(resultControl('P1', [im({ managed: true })])).toBe('pack')
+  expect(resultControl('P1', [im({ update: true }), im({ file: 'b.jar', managed: true })])).toBe('pack')
+})
+test('what installing says', () => {
+  expect(installedSentence({ installed: ['Sodium'], failed: [] })).toBe('Installed Sodium.')
+  expect(installedSentence({ installed: ['Sodium', 'Indium', 'Fabric API'], failed: [] })).toBe('Installed Sodium and 2 mods it needs.')
+  expect(installedSentence({ installed: ['Iris', 'Sodium'], failed: [] })).toBe('Installed Iris and 1 mod it needs.')
+  expect(installedSentence({ installed: ['Sodium'], failed: [{ name: 'Indium', reason: 'no build for fabric on Minecraft 1.21.1' }] })).toBe(
+    'Installed Sodium. Indium was not installed: no build for fabric on Minecraft 1.21.1.',
+  )
+  expect(installedSentence({ installed: [], failed: [{ name: 'Sodium', reason: 'it comes from the pack, and the sync manages it' }] })).toBe(
+    'Sodium was not installed: it comes from the pack, and the sync manages it.',
+  )
+})
+test('browser texts', () => {
+  expect(noResultsText({ kind: 'neoforge', version: '21.1.0' }, '1.21.1')).toBe('No mods found for NeoForge on Minecraft 1.21.1.')
+  expect(noResultsText({ kind: 'fabric', version: null }, '1.20.1')).toBe('No mods found for Fabric on Minecraft 1.20.1.')
+  expect(downloadsText(254364989)).toBe('254,364,989 downloads')
+  expect(downloadsText(1)).toBe('1 download')
+  expect(browseNote(inst())).toBe('Mods need a mod loader, and this instance has none.')
+  expect(browseNote(homestead())).toBeNull()
 })

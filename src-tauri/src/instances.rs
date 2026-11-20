@@ -3,7 +3,7 @@ use portal_core::download::numbered;
 use portal_core::instance::{self, Instance, Listing, ModFile};
 use portal_core::launch::{DEFAULT_MEMORY_MB, Profile};
 use portal_core::loader::{self, Loader};
-use portal_core::{Error, Paths, gamefiles, join as core_join, panel, play, settings};
+use portal_core::{Error, Paths, gamefiles, join as core_join, mods, panel, play, settings};
 use serde::Serialize;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -115,6 +115,26 @@ pub async fn instance_remove_mod(state: State<'_, AppState>, id: String, name: S
     refuse_if_running(&state.running, &id)?;
     let mut inst = instance::load(&state.paths, &id)?;
     Ok(instance::remove_mod(&state.paths, &mut inst, &name)?)
+}
+
+#[tauri::command]
+pub async fn mods_search(state: State<'_, AppState>, id: String, query: String, offset: usize) -> CmdResult<mods::Found> {
+    let inst = instance::load(&state.paths, &id)?;
+    Ok(mods::search(&state.client, mods::API, &inst, &query, offset).await?)
+}
+
+#[tauri::command]
+pub async fn mods_installed(state: State<'_, AppState>, id: String) -> CmdResult<Vec<mods::Installed>> {
+    let inst = instance::load(&state.paths, &id)?;
+    Ok(mods::installed(&state.client, mods::API, &state.paths, &inst).await?)
+}
+
+#[tauri::command]
+pub async fn mods_install(state: State<'_, AppState>, id: String, project: String) -> CmdResult<mods::Outcome> {
+    let _claim = claim(&state.busy, &id)?;
+    refuse_if_running(&state.running, &id)?;
+    let inst = instance::load(&state.paths, &id)?;
+    Ok(mods::install(&state.client, mods::API, &state.paths, &inst, &project).await?)
 }
 
 #[tauri::command]

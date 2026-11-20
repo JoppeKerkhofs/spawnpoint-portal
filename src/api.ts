@@ -64,6 +64,34 @@ export interface ModFile {
   managed: boolean;
 }
 
+export interface ModHit {
+  project_id: string;
+  slug: string;
+  title: string;
+  description: string;
+  icon: string | null;
+  downloads: number;
+  author: string;
+}
+
+export interface ModSearch {
+  hits: ModHit[];
+  more: boolean;
+}
+
+export interface InstalledMod {
+  file: string;
+  managed: boolean;
+  project: string | null;
+  title: string | null;
+  update: boolean;
+}
+
+export interface ModInstall {
+  installed: string[];
+  failed: { name: string; reason: string }[];
+}
+
 export interface Unreadable {
   folder: string;
 }
@@ -95,6 +123,9 @@ export const instanceDelete = (id: string) => invoke<void>("instance_delete", { 
 export const instanceAddMod = (id: string) => invoke<boolean>("instance_add_mod", { id });
 export const instanceRemoveMod = (id: string, name: string) => invoke<void>("instance_remove_mod", { id, name });
 export const instanceSetMemory = (id: string, mb: number) => invoke<Instance>("instance_set_memory", { id, mb });
+export const modsSearch = (id: string, query: string, offset: number) => invoke<ModSearch>("mods_search", { id, query, offset });
+export const modsInstalled = (id: string) => invoke<InstalledMod[]>("mods_installed", { id });
+export const modsInstall = (id: string, project: string) => invoke<ModInstall>("mods_install", { id, project });
 export const instanceSetPicture = (id: string, picture: string | null) => invoke<Instance>("instance_set_picture", { id, picture });
 export const instanceCheckManual = (id: string) => invoke<Instance>("instance_check_manual", { id });
 export const instanceLaunch = (id: string) => invoke<Instance>("instance_launch", { id });

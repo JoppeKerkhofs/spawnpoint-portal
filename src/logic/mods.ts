@@ -1,6 +1,7 @@
-import type { Instance, ModFile, Panel } from "../api";
-import { minecraftText } from "./format";
+import type { Instance, InstalledMod, Loader, ModFile, ModInstall, Panel } from "../api";
+import { count, minecraftText } from "./format";
 import { loaderText, packText } from "./instances";
+import { loaderName } from "./servers";
 
 export type ModFilter = "all" | "pack" | "own";
 
@@ -54,3 +55,28 @@ export function deleteBody(i: Instance, mods: ModFile[] | null): string {
 // The core's choices, plus a stored value outside them so the select never shows a wrong one.
 export const memoryOptions = (choices: number[], current: number): number[] =>
   [...new Set([...choices, current])].sort((a, b) => a - b);
+
+export type ResultControl = "install" | "pack" | "installed" | "update";
+
+export function resultControl(project: string, installed: InstalledMod[] | null): ResultControl {
+  const mine = (installed ?? []).filter((m) => m.project === project);
+  if (mine.some((m) => m.managed)) return "pack";
+  if (mine.length === 0) return "install";
+  return mine.some((m) => m.update) ? "update" : "installed";
+}
+
+export function installedSentence(o: ModInstall): string {
+  const needed = o.installed.length - 1;
+  return [
+    o.installed.length > 0 && `Installed ${o.installed[0]}${needed > 0 ? ` and ${modsText(needed)} it needs` : ""}.`,
+    ...o.failed.map((f) => `${f.name} was not installed: ${f.reason}.`),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export const noResultsText = (l: Loader, minecraft: string): string => `No mods found for ${loaderName(l.kind)} on Minecraft ${minecraft}.`;
+
+export const downloadsText = (n: number): string => `${count(n)} download${n === 1 ? "" : "s"}`;
+
+export const browseNote = (i: Instance): string | null => (i.loader ? null : "Mods need a mod loader, and this instance has none.");
