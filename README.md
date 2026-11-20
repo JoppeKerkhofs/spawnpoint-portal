@@ -6,6 +6,10 @@ It has three parts: `portal-core` (a Rust library with all the launcher logic), 
 
 Every Minecraft release from 1.0 on is supported as vanilla; alpha and beta versions are not. Fabric and NeoForge start at the versions they exist for; Forge works from 1.6.1 on, except that a Forge for 1.6.x or 1.7.x that needs a `.pack.xz` library is refused with a message naming it. Forge on Minecraft 1.7.2 does not start on Java 8 without the legacyjavafixer mod in the instance's mods folder.
 
+## Install
+
+Download the installer from https://spawnpoint.joppek.be/portal/download and run it. It installs for the current user, no administrator rights needed. Windows shows an "unknown publisher" warning, because the installer is not code-signed. The app checks for newer versions from the Account page and, once at start, tells you in the sidebar and status bar when one exists; it never installs by itself.
+
 ## Run in development
 
     npm install
@@ -20,6 +24,22 @@ This needs Node.js, a Rust toolchain and the Tauri prerequisites for Windows.
 This builds the installer `target\release\bundle\nsis\Spawnpoint Portal_<version>_x64-setup.exe`, which installs for the current user without administrator rights. The extra config turns off the update signature, which needs the release key; the installer is not code-signed either way. To build only the program, add `--no-bundle`.
 
 The version is the `version` line in `package.json`; `tauri.conf.json` follows it.
+
+## Releasing
+
+1. Change the `version` line in `package.json` (`tauri.conf.json` follows it) and commit.
+2. Tag it and push the tag: `git tag v1.2.3` then `git push origin v1.2.3`.
+
+The workflow in `.github/workflows/release.yml` checks that the tag matches the version, runs the tests, builds and signs the installer, keeps it as a workflow artifact for 30 days, and uploads it to the panel. The panel answers 409 when the version is not newer than the published one.
+
+It needs two repository secrets:
+
+- `TAURI_SIGNING_PRIVATE_KEY`: the content of the update signing key, `C:\Users\joppe\.tauri\spawnpoint-portal.key` on the owner's PC. It has no password. Never commit it; the matching public key is in `src-tauri/tauri.conf.json`.
+- `PANEL_RELEASE_TOKEN`: a panel API token with the ability `portal:release`.
+
+Addresses: the app checks `https://spawnpoint.joppek.be/portal/latest.json`, releases are uploaded with `PUT https://spawnpoint.joppek.be/api/v1/portal/releases/<version>`, and players download from `https://spawnpoint.joppek.be/portal/download`.
+
+Windows shows an "unknown publisher" warning on the installer because it is not code-signed. The update itself is checked against the signing key.
 
 ## Test
 
