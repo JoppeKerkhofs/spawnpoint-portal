@@ -1,9 +1,9 @@
-use crate::state::{AppState, CmdResult, CommandError, Running, claim, end_run, forward_progress, list_running, refuse_if_running};
+use crate::state::{AppState, CmdResult, CommandError, Running, claim, end_run, forward_progress, list_running, refuse_if_running, shown};
 use portal_core::download::numbered;
 use portal_core::instance::{self, Instance, Listing, ModFile};
 use portal_core::launch::{DEFAULT_MEMORY_MB, Profile};
 use portal_core::loader::{self, Loader};
-use portal_core::{Error, Paths, gamefiles, join as core_join, mods, panel, play, settings};
+use portal_core::{Error, Paths, discord, gamefiles, join as core_join, mods, panel, play, settings};
 use serde::Serialize;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -47,15 +47,29 @@ fn forwarder(app: &AppHandle) -> portal_core::download::ProgressTx {
     })
 }
 
+// Works out what to show on a blocking thread; the lock is taken first so the newest state is applied last.
+pub fn refresh_presence(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let mut presence = state.presence.lock().unwrap_or_else(|e| e.into_inner());
+        let shown = if settings::load(&state.paths).discord { shown(&state.running) } else { None };
+        let activity = shown.and_then(|(id, at)| instance::load(&state.paths, &id).ok().map(|i| discord::activity(&i, at)));
+        presence.set(activity);
+    });
+}
+
 fn watch(app: AppHandle, paths: Paths, id: String, mut child: std::process::Child) {
     let started_at = now_secs();
     app.state::<AppState>().running.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), started_at);
+    refresh_presence(&app);
     tauri::async_runtime::spawn(async move {
         let code = tokio::task::spawn_blocking(move || child.wait()).await.ok().and_then(|r| r.ok()).and_then(|s| s.code());
         let state = app.state::<AppState>();
         end_run(&state.running, &id, || {
             let _ = instance::record_played(&paths, &id, started_at, seconds_played(started_at, now_secs()));
         });
+        refresh_presence(&app);
         let _ = app.emit("game-exited", GameExited { instance: id, code });
     });
 }

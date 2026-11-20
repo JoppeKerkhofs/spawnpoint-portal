@@ -1,3 +1,4 @@
+use crate::instances::refresh_presence;
 use crate::state::{AppState, CmdResult, CommandError, Kept, PairingView, claim, forget_pairing, safe_url};
 use portal_core::join::all_servers;
 use portal_core::panel::{self, Panel, Server};
@@ -98,9 +99,10 @@ pub async fn settings_get(state: State<'_, AppState>) -> CmdResult<Settings> {
 }
 
 #[tauri::command]
-pub async fn settings_set(state: State<'_, AppState>, player_name: String) -> CmdResult<Settings> {
-    let new = Settings { player_name };
+pub async fn settings_set(app: AppHandle, state: State<'_, AppState>, player_name: String, discord: bool) -> CmdResult<Settings> {
+    let new = Settings { player_name, discord };
     settings::save(&state.paths, &new)?;
+    refresh_presence(&app);
     Ok(new)
 }
 

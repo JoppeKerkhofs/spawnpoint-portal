@@ -50,6 +50,7 @@ pub fn run() {
                 paths: portal_core::Paths::new()?,
                 busy: Mutex::new(HashSet::new()),
                 running: Mutex::new(HashMap::new()),
+                presence: Default::default(),
                 pairing: Mutex::new(None),
                 pairings: Default::default(),
             });

@@ -214,6 +214,7 @@ export interface Linked {
 
 export interface Settings {
   player_name: string;
+  discord: boolean;
 }
 
 export const servers = () => invoke<PanelServers[]>("servers");
@@ -225,5 +226,6 @@ export const panelPairPoll = (number: number) => invoke<Linked | null>("panel_pa
 export const panelPairCancel = (number: number) => invoke<void>("panel_pair_cancel", { number });
 export const panelRemove = (id: string) => invoke<void>("panel_remove", { id });
 export const settingsGet = () => invoke<Settings>("settings_get");
-export const settingsSet = (playerName: string) => invoke<Settings>("settings_set", { playerName });
+export const settingsSet = (playerName: string, discord: boolean) =>
+  invoke<Settings>("settings_set", { playerName, discord });
 export const openPage = (url: string) => invoke<void>("open_page", { url });

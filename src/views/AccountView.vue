@@ -11,6 +11,7 @@ import { playerName } from "../logic/operation";
 
 const name = ref(playerName.value);
 const saved = ref(playerName.value);
+const discord = ref(true);
 const justSaved = ref(false);
 const saving = ref(false);
 const error = ref<CommandError | null>(null);
@@ -22,6 +23,7 @@ onMounted(async () => {
     const s = await settingsGet();
     if (name.value === saved.value) name.value = s.player_name;
     saved.value = s.player_name;
+    discord.value = s.discord;
     playerName.value = s.player_name;
   } catch (e) {
     error.value = e as CommandError;
@@ -33,7 +35,7 @@ async function save() {
   saving.value = true;
   error.value = null;
   try {
-    const s = await settingsSet(name.value);
+    const s = await settingsSet(name.value, discord.value);
     saved.value = s.player_name;
     name.value = s.player_name;
     playerName.value = s.player_name;
@@ -42,6 +44,15 @@ async function save() {
     error.value = e as CommandError;
   } finally {
     saving.value = false;
+  }
+}
+
+async function setDiscord(on: boolean) {
+  error.value = null;
+  try {
+    discord.value = (await settingsSet(saved.value, on)).discord;
+  } catch (e) {
+    error.value = e as CommandError;
   }
 }
 
@@ -127,6 +138,17 @@ const appearance = computed({
           </div>
         </div>
         <div class="text-xs text-(--muted)">Stored on this PC only.</div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="discord-title">
+      <div class="card-head"><h2 id="discord-title" class="card-title mc-name">Discord</h2></div>
+      <div class="card-body flex flex-col gap-2.5">
+        <label class="flex items-center gap-2">
+          <input type="checkbox" class="check" :checked="discord" @change="setDiscord(($event.target as HTMLInputElement).checked)" />
+          Show what I'm playing on Discord
+        </label>
+        <div class="text-xs text-(--muted)">While a game runs, Discord shows the instance's name and Minecraft version. Never the server's address.</div>
       </div>
     </section>
     </div>

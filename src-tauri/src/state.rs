@@ -13,6 +13,7 @@ pub struct AppState {
     pub paths: Paths,
     pub busy: Mutex<HashSet<String>>,
     pub running: Mutex<HashMap<String, u64>>,
+    pub presence: Mutex<portal_core::discord::Presence>,
     pub pairing: Mutex<Option<Kept>>,
     pub pairings: AtomicU64,
 }
@@ -104,6 +105,12 @@ pub fn list_running(running: &Mutex<HashMap<String, u64>>) -> Vec<Running> {
         .collect();
     list.sort_by(|a, b| a.instance.cmp(&b.instance));
     list
+}
+
+// The most recently started running game; the later id wins a tie.
+pub fn shown(running: &Mutex<HashMap<String, u64>>) -> Option<(String, u64)> {
+    let running = running.lock().unwrap_or_else(|e| e.into_inner());
+    running.iter().map(|(id, at)| (id.clone(), *at)).max_by(|a, b| (a.1, &a.0).cmp(&(b.1, &b.0)))
 }
 
 pub fn safe_url(url: &str) -> CmdResult<&str> {
@@ -238,6 +245,16 @@ mod tests {
         let running = Mutex::new(HashMap::from([("b".to_string(), 200), ("a".to_string(), 100)]));
         assert_eq!(list_running(&running), [Running { instance: "a".into(), started_at: 100 }, Running { instance: "b".into(), started_at: 200 }]);
         assert_eq!(serde_json::to_value(&list_running(&running)[0]).unwrap(), serde_json::json!({ "instance": "a", "started_at": 100 }));
+    }
+
+    #[test]
+    fn the_latest_started_game_is_shown() {
+        let running = Mutex::new(HashMap::new());
+        assert_eq!(shown(&running), None);
+        running.lock().unwrap().extend([("a".to_string(), 100), ("b".to_string(), 300), ("c".to_string(), 200)]);
+        assert_eq!(shown(&running), Some(("b".to_string(), 300)));
+        running.lock().unwrap().insert("d".into(), 300);
+        assert_eq!(shown(&running), Some(("d".to_string(), 300)));
     }
 
     #[test]

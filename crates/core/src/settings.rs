@@ -5,11 +5,17 @@ use crate::{Error, Paths, Result};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     pub player_name: String,
+    #[serde(default = "on")]
+    pub discord: bool,
+}
+
+fn on() -> bool {
+    true
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { player_name: "Player".into() }
+        Settings { player_name: "Player".into(), discord: true }
     }
 }
 
@@ -48,13 +54,23 @@ mod tests {
     }
 
     #[test]
+    fn an_old_settings_file_has_discord_on() {
+        let dir = crate::download::testing::tmp_dir();
+        let p = Paths { root: dir.join("home") };
+        std::fs::create_dir_all(&p.root).unwrap();
+        std::fs::write(p.settings_file(), br#"{"player_name":"JoppeK"}"#).unwrap();
+        let s = load(&p);
+        assert_eq!((s.player_name.as_str(), s.discord), ("JoppeK", true));
+    }
+
+    #[test]
     fn settings_round_trip_and_default() {
         let dir = crate::download::testing::tmp_dir();
         let p = Paths { root: dir.join("home") };
         assert_eq!(load(&p).player_name, "Player");
-        save(&p, &Settings { player_name: "JoppeK".into() }).unwrap();
-        assert_eq!(load(&p).player_name, "JoppeK");
-        assert!(save(&p, &Settings { player_name: "x".into() }).is_err());
+        save(&p, &Settings { player_name: "JoppeK".into(), discord: false }).unwrap();
+        assert_eq!((load(&p).player_name.as_str(), load(&p).discord), ("JoppeK", false));
+        assert!(save(&p, &Settings { player_name: "x".into(), discord: true }).is_err());
         std::fs::write(p.settings_file(), b"garbage").unwrap();
         assert_eq!(load(&p).player_name, "Player");
     }
