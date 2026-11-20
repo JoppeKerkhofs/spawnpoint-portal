@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      release: ${{ steps.read.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Release only a version that has no tag yet
+        id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          version=$(jq -r .version package.json)
+          echo "$version" | grep -Eq '^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$' || { echo "package.json has no x.y.z version: $version" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh api "repos/$REPO/git/ref/tags/v$version" --silent 2>/dev/null; then
+            echo "v$version is already released: nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - run: npm ci
+      - run: npm run build
+      - run: cargo test --workspace
+      - run: npx vue-tsc --noEmit
+      - run: npm test
+
+      - name: Build the installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: npm run tauri build
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installer
+          path: target/release/bundle/nsis/*-setup.exe*
+          retention-days: 30
+
+      - name: Upload the release to the panel
+        env:
+          PANEL_RELEASE_TOKEN: ${{ secrets.PANEL_RELEASE_TOKEN }}
+        run: |
+          set -eu
+          files=(target/release/bundle/nsis/*-setup.exe)
+          [ "${#files[@]}" -eq 1 ] || { echo "Expected one installer, found ${#files[@]}." >&2; exit 1; }
+          installer="${files[0]}"
+          signature=$(tr -d '\r\n' < "$installer.sig")
+          sha256=$(sha256sum "$installer" | cut -d ' ' -f 1)
+          code=$(curl --silent --show-error --request PUT \
+            --header "Authorization: Bearer $PANEL_RELEASE_TOKEN" \
+            --header "Accept: application/json" \
+            --header "Content-Type: application/octet-stream" \
+            --header "X-Signature: $signature" \
+            --header "X-Sha256: $sha256" \
+            --data-binary "@$installer" \
+            --output response.txt --write-out '%{http_code}' \
+            "https://spawnpoint.joppek.be/api/v1/portal/releases/$VERSION")
+          # 409: the panel already has this version, from a run that failed before it could tag.
+          case "$code" in
+            201) ;;
+            409) echo "The panel already has $VERSION or newer; tagging it."; cat response.txt ;;
+            *) echo "The panel answered $code." >&2; cat response.txt; exit 1 ;;
+          esac
+
+      - name: Tag the released commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: gh api "repos/$REPO/git/refs" -f "ref=refs/tags/v$VERSION" -f "sha=$SHA" --silent

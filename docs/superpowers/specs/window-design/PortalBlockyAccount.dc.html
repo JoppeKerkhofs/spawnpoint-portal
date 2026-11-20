@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Account — Spawnpoint Portal</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<style>
+body{margin:0}
+a{color:#a6e07f}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@keyframes drift{from{transform:translateX(-220px)}to{transform:translateX(520px)}}
+@keyframes twinkle{0%,100%{opacity:.15}50%{opacity:1}}
+@keyframes spin{from{transform:rotateX(-24deg) rotateY(0deg)}to{transform:rotateX(-24deg) rotateY(360deg)}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes rise{0%{transform:translateY(0);opacity:0}15%{opacity:1}100%{transform:translateY(-54px);opacity:0}}
+@keyframes hop{0%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-3px)}40%,80%{transform:translateX(3px)}}
+@keyframes popin{0%{transform:translateY(14px) scale(.96);opacity:0}70%{transform:translateY(-2px);opacity:1}100%{transform:none;opacity:1}}
+@keyframes shimmer{from{background-position:-160px 0}to{background-position:420px 0}}
+@keyframes lamp{0%,100%{box-shadow:0 0 0 2px #111,0 0 10px 2px rgba(127,211,90,.8)}50%{box-shadow:0 0 0 2px #111,0 0 2px 0 rgba(127,211,90,.3)}}
+@keyframes pulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.35)}}
+@keyframes blink{50%{opacity:0}}
+@keyframes linein{from{transform:translateX(-10px);opacity:0}to{transform:none;opacity:1}}
+@keyframes burst{from{transform:translate(0,0);opacity:1}to{transform:translate(var(--dx),var(--dy));opacity:0}}
+@keyframes progress{from{width:0}to{width:100%}}
+@keyframes slidedown{from{transform:translateY(-24px);opacity:0}to{transform:none;opacity:1}}
+@keyframes led{0%,70%,100%{opacity:1}80%{opacity:.25}}
+.mc-btn{font-family:inherit;cursor:pointer;border:2px solid #111;box-shadow:inset -3px -4px 0 rgba(0,0,0,.35),inset 3px 3px 0 rgba(255,255,255,.35);transition:filter .1s,transform .06s;-webkit-tap-highlight-color:transparent}
+.mc-btn:hover{filter:brightness(1.12)}
+.mc-btn:active{transform:translateY(2px);box-shadow:inset 3px 3px 0 rgba(0,0,0,.4)}
+.mc-btn:disabled{cursor:default;filter:grayscale(1) brightness(.8);transform:none}
+.mc-btn:focus-visible,.mc-field:focus-visible,.pick:focus-visible{outline:3px solid #ffffff;outline-offset:2px}
+.panel{box-shadow:inset -4px -4px 0 rgba(0,0,0,.28),inset 4px 4px 0 rgba(255,255,255,.6)}
+.slot{box-shadow:inset 3px 3px 0 rgba(0,0,0,.4),inset -3px -3px 0 rgba(255,255,255,.45)}
+.pick{font-family:inherit;cursor:pointer;transition:transform .08s}
+.pick:active{transform:translateY(2px)}
+.scroll{overflow-y:auto;scrollbar-width:none}
+.scroll::-webkit-scrollbar{display:none}
+.cloud{position:absolute;animation:drift linear infinite}
+.star{position:absolute;width:3px;height:3px;background:#fff1e0;animation:twinkle 3s ease-in-out infinite}
+.cube-wrap{perspective:420px;width:var(--s);height:var(--s)}
+.cube{position:relative;width:100%;height:100%;transform-style:preserve-3d;transform:rotateX(-24deg) rotateY(35deg)}
+.cube.spin{animation:spin 8s linear infinite}
+.face{position:absolute;inset:0;outline:1px solid rgba(0,0,0,.35)}
+.f-top{transform:rotateX(90deg) translateZ(calc(var(--s) / 2))}
+.f-bottom{transform:rotateX(-90deg) translateZ(calc(var(--s) / 2))}
+.f-front{transform:translateZ(calc(var(--s) / 2))}
+.f-back{transform:rotateY(180deg) translateZ(calc(var(--s) / 2))}
+.f-right{transform:rotateY(90deg) translateZ(calc(var(--s) / 2))}
+.f-left{transform:rotateY(-90deg) translateZ(calc(var(--s) / 2))}
+.t-grass-top{background-color:#5c9e31;background-image:repeating-conic-gradient(rgba(0,0,0,.14) 0 25%,transparent 0 50%),repeating-conic-gradient(rgba(255,255,255,.12) 0 25%,transparent 0 50%);background-size:8px 8px,13px 13px}
+.t-grass-side{background-color:#866043;background-image:linear-gradient(#5c9e31 0 24%,#4a8a26 24% 31%,transparent 31%),repeating-conic-gradient(rgba(0,0,0,.16) 0 25%,transparent 0 50%);background-size:100% 100%,8px 8px}
+.t-dirt{background-color:#866043;background-image:repeating-conic-gradient(rgba(0,0,0,.16) 0 25%,transparent 0 50%);background-size:8px 8px}
+.t-wood-side{background-color:#6b4f2a;background-image:repeating-linear-gradient(90deg,rgba(0,0,0,.28) 0 3px,transparent 3px 9px)}
+.t-wood-top{background-color:#a7804b;background-image:repeating-radial-gradient(circle,#8d6a3b 0 3px,#b48a52 3px 7px)}
+.t-metal{background-color:#a3a8ad;background-image:repeating-conic-gradient(rgba(0,0,0,.1) 0 25%,transparent 0 50%);background-size:8px 8px;box-shadow:inset 0 0 0 4px #6d7276}
+.t-core{background-color:#a3a8ad;background-image:radial-gradient(#ff8a2a 0 20%,#3a3a3a 21% 34%,transparent 35%),repeating-conic-gradient(rgba(0,0,0,.1) 0 25%,transparent 0 50%);background-size:100% 100%,8px 8px;box-shadow:inset 0 0 0 4px #6d7276}
+.t-sand{background-color:#dccf91;background-image:repeating-conic-gradient(rgba(0,0,0,.07) 0 25%,transparent 0 50%),repeating-conic-gradient(rgba(255,255,255,.18) 0 25%,transparent 0 50%);background-size:6px 6px,11px 11px}
+.t-wool{background-color:#ecebe4;background-image:repeating-linear-gradient(0deg,rgba(0,0,0,.09) 0 2px,transparent 2px 7px)}
+.t-stone{background-color:#8b8b8b;background-image:repeating-conic-gradient(rgba(0,0,0,.14) 0 25%,transparent 0 50%),repeating-conic-gradient(rgba(255,255,255,.12) 0 25%,transparent 0 50%);background-size:8px 8px,13px 13px}
+.t-chest-top{background-color:#a0743f;background-image:repeating-linear-gradient(90deg,rgba(0,0,0,.22) 0 2px,transparent 2px 12px);box-shadow:inset 0 0 0 3px #5a3d1b}
+.t-chest-side{background-color:#a0743f;background-image:linear-gradient(#3a3a3a,#3a3a3a),linear-gradient(transparent 36%,#4a3114 36% 44%,transparent 44%),repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 2px,transparent 2px 10px);background-size:20% 26%,100% 100%,100% 100%;background-position:50% 36%,0 0,0 0;background-repeat:no-repeat,no-repeat,repeat;box-shadow:inset 0 0 0 3px #5a3d1b}
+.bob{animation:bob 2.6s ease-in-out infinite}
+.particle{position:absolute;bottom:14px;width:5px;height:5px;background:#9be36b;outline:1px solid #2c5a16;animation:rise 2.4s ease-out infinite}
+.hopper{display:inline-block;width:6px;height:6px;animation:hop .9s ease-in-out infinite}
+.shake{animation:shake .5s ease-in-out 3}
+.pop{animation:popin .5s ease-out both}
+.xp-fill{position:relative;height:100%;background-color:#7fd35a;background-image:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);background-size:100px 100%;background-repeat:no-repeat;animation:shimmer 2.6s linear infinite;transition:width .2s}
+.redstone{height:100%;background:#d8322c;animation:pulse 1.4s ease-in-out infinite}
+.lamp{animation:lamp 1.8s ease-in-out infinite}
+.cursor{display:inline-block;width:10px;height:18px;background:#9be36b;vertical-align:middle;animation:blink 1s steps(1) infinite}
+.line{animation:linein .25s ease-out both}
+.spark{position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-3px 0 0 -3px;background:#9be36b;outline:2px solid #2c5a16;animation:burst .8s ease-out both}
+.crafting-bar{height:100%;background:#7fd35a;animation:progress 2.4s linear both}
+.notif{animation:slidedown .5s ease-out both}
+.led{animation:led 2.2s steps(1) infinite}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none !important;transition:none !important}}
+
+@font-face{font-family:'Minecraft';src:url(/_blob/1feb8c69269c4fe9a39acdb47be5587a) format('truetype');font-display:swap}
+.mc-name,.h1,.h2,.brand{font-family:'Minecraft','Ubuntu',system-ui,sans-serif;font-synthesis:none;letter-spacing:.02em}
+@keyframes spinr{to{transform:rotate(360deg)}}
+@keyframes pulse2{50%{opacity:.45}}
+a{color:#2c5a16}
+.win{position:relative;width:1100px;height:720px;display:flex;flex-direction:column;overflow:hidden;background-color:#232325;background-image:repeating-conic-gradient(rgba(255,255,255,.025) 0 25%,transparent 0 50%);background-size:24px 24px;color:#f0f0f0;font-family:'Ubuntu',system-ui,sans-serif;font-size:14px;line-height:1.45}
+.tb{height:32px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding-left:12px;background:#111111;color:#f0f0f0;font-size:12px}
+.tb-title{flex:1 1 auto}
+.tb-btn{width:46px;height:32px;border:0;background:transparent;color:#f0f0f0;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.tb-btn:hover{background:rgba(255,255,255,.14)}
+.tb-close:hover{background:#c42b1c}
+.body{flex:1 1 auto;min-height:0;display:flex}
+.side{width:212px;flex:0 0 auto;background:#2b2b2b;border-right:4px solid #111;display:flex;flex-direction:column;padding:14px 10px;gap:6px}
+.brand{display:flex;align-items:center;gap:10px;padding:0 4px 12px;font-size:16px;color:#ffffff;text-shadow:2px 2px 0 #000}
+.nav{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;color:#f0f0f0;text-decoration:none;background:#4a4a4a;border:2px solid #111;box-shadow:inset -3px -4px 0 rgba(0,0,0,.35),inset 3px 3px 0 rgba(255,255,255,.3);text-shadow:1px 1px 0 #000}
+.nav:hover{filter:brightness(1.15)}
+.nav[aria-current="page"]{background:#3c8527;color:#ffffff;font-weight:700}
+.side-foot{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 4px 0;border-top:3px solid #111;text-decoration:none;color:#f0f0f0}
+.avatar{width:32px;height:32px;background:#c99a6b;border:2px solid #111;background-image:linear-gradient(#3b2614 0 35%,transparent 35%),linear-gradient(90deg,transparent 20%,#1b1b1b 20% 35%,transparent 35% 65%,#1b1b1b 65% 80%,transparent 80%);background-size:100% 100%,100% 22%;background-position:0 0,0 55%;background-repeat:no-repeat;flex:0 0 auto;font-size:0}
+.main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.head{flex:0 0 auto;padding:20px 24px 14px;display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.h1{margin:0;font-size:26px;line-height:1.2;font-weight:400;color:#ffffff;text-shadow:3px 3px 0 #000}
+.sub{margin:4px 0 0;color:#cfcfcf;font-size:13px}
+.content{flex:1 1 auto;min-height:0;overflow:auto;padding:0 24px 20px;display:flex;flex-direction:column;gap:14px}
+.card{background:#c6c6c6;border:3px solid #111;color:#2b2b2b;flex:0 0 auto;box-shadow:inset -4px -4px 0 rgba(0,0,0,.28),inset 4px 4px 0 rgba(255,255,255,.6)}
+.card-head{background:#8b8b8b;padding:9px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#ffffff;text-shadow:1px 1px 0 #333;border-bottom:3px solid #111}
+.row + .card-head{border-top:3px solid #111}
+.card-head .muted{color:#f0f0f0}
+.h2{margin:0;font-size:15px;font-weight:400;color:inherit}
+.card .h2,.dialog .h2{color:#1b1b1b}
+.card-head .h2{color:#ffffff}
+.row{display:flex;align-items:center;gap:14px;padding:10px 14px;border-top:3px solid #a8a8a8;min-height:40px}
+.card-head + .row{border-top:0}
+.pad{padding:14px}
+.btn{height:34px;padding:0 12px;border:2px solid #111;background:#dcdcdc;color:#2b2b2b;font:inherit;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;white-space:nowrap;flex:0 0 auto;box-shadow:inset -3px -4px 0 rgba(0,0,0,.35),inset 3px 3px 0 rgba(255,255,255,.35);transition:filter .1s,transform .06s}
+.btn:hover{filter:brightness(1.1)}
+.btn:active{transform:translateY(2px);box-shadow:inset 3px 3px 0 rgba(0,0,0,.4)}
+.btn-primary{background:#3c8527;color:#ffffff;text-shadow:1px 1px 0 #000}
+.btn-danger{background:#dcdcdc;color:#8a1f1b}
+.btn-danger-fill{background:#b3312c;color:#ffffff;text-shadow:1px 1px 0 #000}
+.btn-sm{height:30px;padding:0 10px}
+.btn:disabled{filter:grayscale(1) brightness(.8);cursor:default;transform:none}
+.btn:focus-visible,.nav:focus-visible,.input:focus-visible,.tb-btn:focus-visible,.seg button:focus-visible,.side-foot:focus-visible,a:focus-visible{outline:3px solid #ffffff;outline-offset:2px}
+.muted{color:#3d3d3d}
+.side .muted,.status .muted,.head .muted{color:#c4c4c4}
+.small{font-size:12px}
+.mono{font-family:'Ubuntu Mono',ui-monospace,Consolas,monospace;font-size:15px}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;border:2px solid #111;padding:0 7px;white-space:nowrap}
+.p-run{color:#ffffff;background:#3c8527}
+.p-busy{color:#231200;background:#e07b1a}
+.p-off{color:#ffffff;background:#5a5a5a}
+.p-err{color:#ffffff;background:#b3312c}
+.badge{font-size:11px;font-weight:700;border:2px solid #111;padding:0 6px;white-space:nowrap}
+.b-pack{background:#5a5a5a;color:#ffffff}
+.b-own{background:#3c8527;color:#ffffff}
+.b-hand{background:#a7804b;color:#1b1205}
+.label{display:block;font-size:13px;font-weight:700;margin-bottom:4px;color:#1b1b1b}
+.input{height:36px;padding:0 10px;border:2px solid #111;font:inherit;color:#ffffff;background:#3a3a3a;box-sizing:border-box;box-shadow:inset 3px 3px 0 rgba(0,0,0,.4)}
+.bar{position:relative;height:14px;background:#2a2a2a;border:2px solid #111;flex:1 1 auto}
+.bar::after{content:"";position:absolute;inset:0;background-image:repeating-linear-gradient(90deg,transparent 0 16px,rgba(0,0,0,.45) 16px 19px)}
+.bar-fill{height:100%;background-color:#7fd35a;background-image:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);background-size:100px 100%;background-repeat:no-repeat;animation:shimmer 2.6s linear infinite;transition:width .15s}
+.status{flex:0 0 auto;height:44px;display:flex;align-items:center;gap:12px;padding:0 16px;background:#2b2b2b;border-top:4px solid #111;font-size:13px;color:#f0f0f0}
+.status-err{background:#5a1c1a}
+.note{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:3px solid #111;flex:0 0 auto}
+.note-warn{background:#f3d98b;color:#2b1d00}
+.note-err{background:#f2b6b3;color:#3a0c0a}
+.note-info{background:#c6c6c6;color:#2b2b2b}
+.dot{width:10px;height:10px;flex:0 0 auto;border:2px solid #111}
+.spin{width:14px;height:14px;border:3px solid #5a5a5a;border-top-color:#7fd35a;animation:spinr .8s steps(8) infinite;flex:0 0 auto}
+.skel{background:#a8a8a8;animation:pulse2 1.4s ease-in-out infinite}
+.dialog-back{position:absolute;inset:32px 0 0 0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:10}
+.dialog{width:440px;background:#c6c6c6;border:3px solid #111;color:#2b2b2b;padding:20px;display:flex;flex-direction:column;gap:12px;box-shadow:inset -4px -4px 0 rgba(0,0,0,.28),inset 4px 4px 0 rgba(255,255,255,.6)}
+.code{font-family:'Ubuntu Mono',ui-monospace,Consolas,monospace;font-size:52px;line-height:1;letter-spacing:.14em;font-weight:700;color:#1b1b1b}
+.tile{flex:0 0 auto}
+.seg{display:inline-flex;gap:4px}
+.seg button{height:30px;padding:0 10px;border:2px solid #111;background:#dcdcdc;font:inherit;font-size:13px;font-weight:700;color:#2b2b2b;cursor:pointer;box-shadow:inset -2px -3px 0 rgba(0,0,0,.3),inset 2px 2px 0 rgba(255,255,255,.35)}
+.seg button[aria-pressed="true"]{background:#3c8527;color:#ffffff;text-shadow:1px 1px 0 #000}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;padding:40px 24px}
+.ok{color:#1d5a10}
+.card .muted{color:#3d3d3d}
+</style>
+</helmet>
+<div class="win">
+<div class="tb"><svg width="16" height="16" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="7" y="0" width="2" height="1" fill="#141618"/><rect x="5" y="1" width="2" height="1" fill="#141618"/><rect x="7" y="1" width="1" height="1" fill="#a8ea72"/><rect x="8" y="1" width="1" height="1" fill="#78cc45"/><rect x="9" y="1" width="2" height="1" fill="#141618"/><rect x="3" y="2" width="2" height="1" fill="#141618"/><rect x="5" y="2" width="4" height="1" fill="#78cc45"/><rect x="9" y="2" width="1" height="1" fill="#5aa831"/><rect x="10" y="2" width="1" height="1" fill="#78cc45"/><rect x="11" y="2" width="2" height="1" fill="#141618"/><rect x="1" y="3" width="2" height="1" fill="#141618"/><rect x="3" y="3" width="1" height="1" fill="#78cc45"/><rect x="4" y="3" width="1" height="1" fill="#a8ea72"/><rect x="5" y="3" width="1" height="1" fill="#78cc45"/><rect x="6" y="3" width="1" height="1" fill="#5aa831"/><rect x="7" y="3" width="5" height="1" fill="#78cc45"/><rect x="12" y="3" width="1" height="1" fill="#a8ea72"/><rect x="13" y="3" width="2" height="1" fill="#141618"/><rect x="0" y="4" width="1" height="1" fill="#141618"/><rect x="1" y="4" width="2" height="1" fill="#78cc45"/><rect x="3" y="4" width="1" height="1" fill="#5aa831"/><rect x="4" y="4" width="4" height="1" fill="#78cc45"/><rect x="8" y="4" width="1" height="1" fill="#5aa831"/><rect x="9" y="4" width="1" height="1" fill="#78cc45"/><rect x="10" y="4" width="1" height="1" fill="#a8ea72"/><rect x="11" y="4" width="4" height="1" fill="#78cc45"/><rect x="15" y="4" width="1" height="1" fill="#141618"/><rect x="0" y="5" width="1" height="1" fill="#141618"/><rect x="1" y="5" width="1" height="1" fill="#3d8a22"/><rect x="2" y="5" width="4" height="1" fill="#78cc45"/><rect x="6" y="5" width="1" height="1" fill="#a8ea72"/><rect x="7" y="5" width="4" height="1" fill="#78cc45"/><rect x="11" y="5" width="1" height="1" fill="#5aa831"/><rect x="12" y="5" width="2" height="1" fill="#78cc45"/><rect x="14" y="5" width="1" height="1" fill="#2e6f19"/><rect x="15" y="5" width="1" height="1" fill="#141618"/><rect x="0" y="6" width="1" height="1" fill="#141618"/><rect x="1" y="6" width="3" height="1" fill="#3d8a22"/><rect x="4" y="6" width="1" height="1" fill="#78cc45"/><rect x="5" y="6" width="1" height="1" fill="#5aa831"/><rect x="6" y="6" width="3" height="1" fill="#78cc45"/><rect x="9" y="6" width="1" height="1" fill="#a8ea72"/><rect x="10" y="6" width="2" height="1" fill="#78cc45"/><rect x="12" y="6" width="3" height="1" fill="#2e6f19"/><rect x="15" y="6" width="1" height="1" fill="#141618"/><rect x="0" y="7" width="1" height="1" fill="#141618"/><rect x="1" y="7" width="2" height="1" fill="#8a6342"/><rect x="3" y="7" width="3" height="1" fill="#3d8a22"/><rect x="6" y="7" width="4" height="1" fill="#78cc45"/><rect x="10" y="7" width="3" height="1" fill="#2e6f19"/><rect x="13" y="7" width="2" height="1" fill="#3d4146"/><rect x="15" y="7" width="1" height="1" fill="#141618"/><rect x="0" y="8" width="1" height="1" fill="#141618"/><rect x="1" y="8" width="4" height="1" fill="#8a6342"/><rect x="5" y="8" width="3" height="1" fill="#3d8a22"/><rect x="8" y="8" width="3" height="1" fill="#2e6f19"/><rect x="11" y="8" width="2" height="1" fill="#3d4146"/><rect x="13" y="8" width="1" height="1" fill="#86ff5c"/><rect x="14" y="8" width="1" height="1" fill="#3d4146"/><rect x="15" y="8" width="1" height="1" fill="#141618"/><rect x="0" y="9" width="1" height="1" fill="#141618"/><rect x="1" y="9" width="1" height="1" fill="#8a6342"/><rect x="2" y="9" width="1" height="1" fill="#674629"/><rect x="3" y="9" width="2" height="1" fill="#8a6342"/><rect x="5" y="9" width="1" height="1" fill="#674629"/><rect x="6" y="9" width="1" height="1" fill="#8a6342"/><rect x="7" y="9" width="1" height="1" fill="#3d8a22"/><rect x="8" y="9" width="1" height="1" fill="#2e6f19"/><rect x="9" y="9" width="2" height="1" fill="#3d4146"/><rect x="11" y="9" width="2" height="1" fill="#1f2225"/><rect x="13" y="9" width="2" height="1" fill="#3d4146"/><rect x="15" y="9" width="1" height="1" fill="#141618"/><rect x="0" y="10" width="1" height="1" fill="#141618"/><rect x="1" y="10" width="1" height="1" fill="#674629"/><rect x="2" y="10" width="6" height="1" fill="#8a6342"/><rect x="8" y="10" width="1" height="1" fill="#3d4146"/><rect x="9" y="10" width="2" height="1" fill="#1f2225"/><rect x="11" y="10" width="2" height="1" fill="#3d4146"/><rect x="13" y="10" width="1" height="1" fill="#86ff5c"/><rect x="14" y="10" width="1" height="1" fill="#3d4146"/><rect x="15" y="10" width="1" height="1" fill="#141618"/><rect x="0" y="11" width="1" height="1" fill="#141618"/><rect x="1" y="11" width="3" height="1" fill="#8a6342"/><rect x="4" y="11" width="1" height="1" fill="#674629"/><rect x="5" y="11" width="2" height="1" fill="#8a6342"/><rect x="7" y="11" width="1" height="1" fill="#674629"/><rect x="8" y="11" width="3" height="1" fill="#3d4146"/><rect x="11" y="11" width="2" height="1" fill="#1f2225"/><rect x="13" y="11" width="2" height="1" fill="#3d4146"/><rect x="15" y="11" width="1" height="1" fill="#141618"/><rect x="0" y="12" width="2" height="1" fill="#141618"/><rect x="2" y="12" width="1" height="1" fill="#8a6342"/><rect x="3" y="12" width="1" height="1" fill="#674629"/><rect x="4" y="12" width="2" height="1" fill="#8a6342"/><rect x="6" y="12" width="1" height="1" fill="#674629"/><rect x="7" y="12" width="1" height="1" fill="#8a6342"/><rect x="8" y="12" width="1" height="1" fill="#3d4146"/><rect x="9" y="12" width="2" height="1" fill="#1f2225"/><rect x="11" y="12" width="3" height="1" fill="#3d4146"/><rect x="14" y="12" width="2" height="1" fill="#141618"/><rect x="2" y="13" width="2" height="1" fill="#141618"/><rect x="4" y="13" width="4" height="1" fill="#8a6342"/><rect x="8" y="13" width="4" height="1" fill="#3d4146"/><rect x="12" y="13" width="2" height="1" fill="#141618"/><rect x="4" y="14" width="2" height="1" fill="#141618"/><rect x="6" y="14" width="2" height="1" fill="#8a6342"/><rect x="8" y="14" width="2" height="1" fill="#3d4146"/><rect x="10" y="14" width="2" height="1" fill="#141618"/><rect x="6" y="15" width="4" height="1" fill="#141618"/></svg><span class="tb-title">Spawnpoint Portal</span>
+<button type="button" class="tb-btn" aria-label="Minimize"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" stroke="currentColor"/></svg></button>
+<button type="button" class="tb-btn" aria-label="Maximize"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor"/></svg></button>
+<button type="button" class="tb-btn tb-close" aria-label="Close"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0 0 10" stroke="currentColor"/></svg></button>
+</div>
+<div class="body">
+<nav class="side" aria-label="Main">
+<div class="brand"><svg width="30" height="30" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="7" y="0" width="2" height="1" fill="#141618"/><rect x="5" y="1" width="2" height="1" fill="#141618"/><rect x="7" y="1" width="1" height="1" fill="#a8ea72"/><rect x="8" y="1" width="1" height="1" fill="#78cc45"/><rect x="9" y="1" width="2" height="1" fill="#141618"/><rect x="3" y="2" width="2" height="1" fill="#141618"/><rect x="5" y="2" width="4" height="1" fill="#78cc45"/><rect x="9" y="2" width="1" height="1" fill="#5aa831"/><rect x="10" y="2" width="1" height="1" fill="#78cc45"/><rect x="11" y="2" width="2" height="1" fill="#141618"/><rect x="1" y="3" width="2" height="1" fill="#141618"/><rect x="3" y="3" width="1" height="1" fill="#78cc45"/><rect x="4" y="3" width="1" height="1" fill="#a8ea72"/><rect x="5" y="3" width="1" height="1" fill="#78cc45"/><rect x="6" y="3" width="1" height="1" fill="#5aa831"/><rect x="7" y="3" width="5" height="1" fill="#78cc45"/><rect x="12" y="3" width="1" height="1" fill="#a8ea72"/><rect x="13" y="3" width="2" height="1" fill="#141618"/><rect x="0" y="4" width="1" height="1" fill="#141618"/><rect x="1" y="4" width="2" height="1" fill="#78cc45"/><rect x="3" y="4" width="1" height="1" fill="#5aa831"/><rect x="4" y="4" width="4" height="1" fill="#78cc45"/><rect x="8" y="4" width="1" height="1" fill="#5aa831"/><rect x="9" y="4" width="1" height="1" fill="#78cc45"/><rect x="10" y="4" width="1" height="1" fill="#a8ea72"/><rect x="11" y="4" width="4" height="1" fill="#78cc45"/><rect x="15" y="4" width="1" height="1" fill="#141618"/><rect x="0" y="5" width="1" height="1" fill="#141618"/><rect x="1" y="5" width="1" height="1" fill="#3d8a22"/><rect x="2" y="5" width="4" height="1" fill="#78cc45"/><rect x="6" y="5" width="1" height="1" fill="#a8ea72"/><rect x="7" y="5" width="4" height="1" fill="#78cc45"/><rect x="11" y="5" width="1" height="1" fill="#5aa831"/><rect x="12" y="5" width="2" height="1" fill="#78cc45"/><rect x="14" y="5" width="1" height="1" fill="#2e6f19"/><rect x="15" y="5" width="1" height="1" fill="#141618"/><rect x="0" y="6" width="1" height="1" fill="#141618"/><rect x="1" y="6" width="3" height="1" fill="#3d8a22"/><rect x="4" y="6" width="1" height="1" fill="#78cc45"/><rect x="5" y="6" width="1" height="1" fill="#5aa831"/><rect x="6" y="6" width="3" height="1" fill="#78cc45"/><rect x="9" y="6" width="1" height="1" fill="#a8ea72"/><rect x="10" y="6" width="2" height="1" fill="#78cc45"/><rect x="12" y="6" width="3" height="1" fill="#2e6f19"/><rect x="15" y="6" width="1" height="1" fill="#141618"/><rect x="0" y="7" width="1" height="1" fill="#141618"/><rect x="1" y="7" width="2" height="1" fill="#8a6342"/><rect x="3" y="7" width="3" height="1" fill="#3d8a22"/><rect x="6" y="7" width="4" height="1" fill="#78cc45"/><rect x="10" y="7" width="3" height="1" fill="#2e6f19"/><rect x="13" y="7" width="2" height="1" fill="#3d4146"/><rect x="15" y="7" width="1" height="1" fill="#141618"/><rect x="0" y="8" width="1" height="1" fill="#141618"/><rect x="1" y="8" width="4" height="1" fill="#8a6342"/><rect x="5" y="8" width="3" height="1" fill="#3d8a22"/><rect x="8" y="8" width="3" height="1" fill="#2e6f19"/><rect x="11" y="8" width="2" height="1" fill="#3d4146"/><rect x="13" y="8" width="1" height="1" fill="#86ff5c" class="led"/><rect x="14" y="8" width="1" height="1" fill="#3d4146"/><rect x="15" y="8" width="1" height="1" fill="#141618"/><rect x="0" y="9" width="1" height="1" fill="#141618"/><rect x="1" y="9" width="1" height="1" fill="#8a6342"/><rect x="2" y="9" width="1" height="1" fill="#674629"/><rect x="3" y="9" width="2" height="1" fill="#8a6342"/><rect x="5" y="9" width="1" height="1" fill="#674629"/><rect x="6" y="9" width="1" height="1" fill="#8a6342"/><rect x="7" y="9" width="1" height="1" fill="#3d8a22"/><rect x="8" y="9" width="1" height="1" fill="#2e6f19"/><rect x="9" y="9" width="2" height="1" fill="#3d4146"/><rect x="11" y="9" width="2" height="1" fill="#1f2225"/><rect x="13" y="9" width="2" height="1" fill="#3d4146"/><rect x="15" y="9" width="1" height="1" fill="#141618"/><rect x="0" y="10" width="1" height="1" fill="#141618"/><rect x="1" y="10" width="1" height="1" fill="#674629"/><rect x="2" y="10" width="6" height="1" fill="#8a6342"/><rect x="8" y="10" width="1" height="1" fill="#3d4146"/><rect x="9" y="10" width="2" height="1" fill="#1f2225"/><rect x="11" y="10" width="2" height="1" fill="#3d4146"/><rect x="13" y="10" width="1" height="1" fill="#86ff5c" class="led"/><rect x="14" y="10" width="1" height="1" fill="#3d4146"/><rect x="15" y="10" width="1" height="1" fill="#141618"/><rect x="0" y="11" width="1" height="1" fill="#141618"/><rect x="1" y="11" width="3" height="1" fill="#8a6342"/><rect x="4" y="11" width="1" height="1" fill="#674629"/><rect x="5" y="11" width="2" height="1" fill="#8a6342"/><rect x="7" y="11" width="1" height="1" fill="#674629"/><rect x="8" y="11" width="3" height="1" fill="#3d4146"/><rect x="11" y="11" width="2" height="1" fill="#1f2225"/><rect x="13" y="11" width="2" height="1" fill="#3d4146"/><rect x="15" y="11" width="1" height="1" fill="#141618"/><rect x="0" y="12" width="2" height="1" fill="#141618"/><rect x="2" y="12" width="1" height="1" fill="#8a6342"/><rect x="3" y="12" width="1" height="1" fill="#674629"/><rect x="4" y="12" width="2" height="1" fill="#8a6342"/><rect x="6" y="12" width="1" height="1" fill="#674629"/><rect x="7" y="12" width="1" height="1" fill="#8a6342"/><rect x="8" y="12" width="1" height="1" fill="#3d4146"/><rect x="9" y="12" width="2" height="1" fill="#1f2225"/><rect x="11" y="12" width="3" height="1" fill="#3d4146"/><rect x="14" y="12" width="2" height="1" fill="#141618"/><rect x="2" y="13" width="2" height="1" fill="#141618"/><rect x="4" y="13" width="4" height="1" fill="#8a6342"/><rect x="8" y="13" width="4" height="1" fill="#3d4146"/><rect x="12" y="13" width="2" height="1" fill="#141618"/><rect x="4" y="14" width="2" height="1" fill="#141618"/><rect x="6" y="14" width="2" height="1" fill="#8a6342"/><rect x="8" y="14" width="2" height="1" fill="#3d4146"/><rect x="10" y="14" width="2" height="1" fill="#141618"/><rect x="6" y="15" width="4" height="1" fill="#141618"/></svg><span>Spawnpoint Portal</span></div>
+<a href="PortalBlockyServers.dc.html" class="nav"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v5H4zM4 14h16v5H4z"/><path d="M8 7.5h.01M8 16.5h.01"/></svg><span>Servers</span></a><a href="PortalBlockyInstances.dc.html" class="nav"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg><span>Instances</span></a><a href="PortalBlockyPanels.dc.html" class="nav"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg><span>Panels</span></a><a href="PortalBlockyAccount.dc.html" class="nav" aria-current="page"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/></svg><span>Account</span></a>
+<a href="PortalBlockyAccount.dc.html" class="side-foot"><span class="avatar" aria-hidden="true">JK</span><span style="min-width: 0"><span style="display: block; font-weight: 700" class="mc-name">JoppeK</span><span class="muted small" style="display: block">Offline name</span></span></a>
+</nav>
+<div class="main">
+<div class="head">
+<div style="flex: 1 1 auto; min-width: 0">
+<h1 class="h1">Account</h1>
+<p class="sub">Who you are when you join a server.</p>
+</div>
+</div>
+<div class="content" style="max-width: 760px">
+
+<form class="card" onSubmit="{{ save }}" aria-labelledby="name-h">
+<div class="card-head"><h2 class="h2" id="name-h">Player name</h2><span class="badge b-pack">Offline</span></div>
+<div class="pad" style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap">
+<div style="flex: 1 1 260px"><label class="label" for="pname">Name other players see</label><input id="pname" class="input" style="width: 100%" value="{{ name }}" onInput="{{ onName }}" maxlength="16" aria-describedby="pname-help" aria-invalid="{{ invalid }}" autocomplete="off"/></div>
+<button type="submit" class="btn btn-primary" disabled="{{ saveDisabled }}">{{ saveLabel }}</button>
+</div>
+<div id="pname-help" class="small" style="color: {{ helpColor }}">{{ help }}</div>
+</div>
+</form>
+
+<div class="note note-warn" role="note"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17.5v.5"/></svg><div><strong>Servers in online mode will refuse this name.</strong> Without a Microsoft sign-in, you can only join servers that allow offline players. If a server turns you away with “Failed to verify username”, ask its owner to turn online mode off.</div></div>
+
+<section class="card" aria-labelledby="ms-h">
+<div class="card-head"><h2 class="h2" id="ms-h">Microsoft account</h2><span class="badge b-hand">Coming later</span></div>
+<div class="pad" style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap">
+<div style="flex: 1 1 380px; display: flex; flex-direction: column; gap: 6px">
+<p style="margin: 0">Sign in with the Microsoft account that owns Minecraft to join any server under your real name.</p>
+<p class="muted" style="margin: 0">It will work like linking a panel: Portal shows a code in large type, you enter it on Microsoft’s page, and Portal notices when you’re done. One account at a time.</p>
+</div>
+<button type="button" class="btn" disabled="">Sign in with Microsoft</button>
+</div>
+</section>
+
+</div>
+</div>
+</div>
+<div class="status" role="status" aria-live="polite"><span class="dot" style="background: #3fa36b"></span><span style="font-weight: 700">Playing Homestead</span><span class="muted">since 14:06 · as {{ savedName }}</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview": {"width": 1100, "height": 720}}'>
+class Component extends DCLogic {
+get(k, f) { return this.state && this.state[k] !== undefined ? this.state[k] : f; }
+renderVals() {
+const saved = this.get('saved', 'JoppeK');
+const name = this.get('name', saved);
+const ok = /^[A-Za-z0-9_]{3,16}$/.test(name);
+const changed = name !== saved;
+let help = 'Letters, numbers and _ only, 3 to 16 characters. Takes effect the next time you start a game.';
+if (!ok) help = name.length < 3 ? 'Use at least 3 characters.' : 'Only letters, numbers and _ are allowed.';
+if (ok && !changed && this.get('justSaved', false)) help = 'Saved. Your next game uses this name.';
+return {
+name, savedName: saved,
+invalid: ok ? 'false' : 'true',
+help, helpColor: ok ? 'inherit' : '#8a1f1b',
+saveDisabled: !ok || !changed,
+saveLabel: !changed && this.get('justSaved', false) ? 'Saved' : 'Save',
+onName: (e) => this.setState({ name: e.target.value, justSaved: false }),
+save: (e) => { e.preventDefault(); if (ok) this.setState({ saved: name, justSaved: true }); }
+};
+}
+}
+</script>
+</body>
+</html>
