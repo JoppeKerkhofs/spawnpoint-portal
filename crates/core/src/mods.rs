@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::download::{Download, Hash, blocking, fetch, file_matches, get_ok, sha512_file};
+use crate::download::{Download, Hash, Progress, ProgressTx, blocking, fetch, file_matches, get_ok, sha512_file};
 use crate::instance::{self, Instance};
 use crate::loader::Loader;
 use crate::sync::safe_path;
@@ -328,7 +328,7 @@ async fn version_project(client: &Client, api: &str, version: &str) -> Result<St
     Ok(get::<Version>(client, api, &format!("/version/{}", plain_id(version)?), &[]).await?.project_id)
 }
 
-pub async fn install(client: &Client, api: &str, paths: &Paths, instance: &Instance, project: &str) -> Result<Outcome> {
+pub async fn install(client: &Client, api: &str, paths: &Paths, instance: &Instance, project: &str, progress: &ProgressTx) -> Result<Outcome> {
     plain_id(project)?;
     let _lock = instance::lock(&instance.id)?;
     let instance = instance::load(paths, &instance.id)?;
@@ -338,11 +338,17 @@ pub async fn install(client: &Client, api: &str, paths: &Paths, instance: &Insta
     let mut queue = VecDeque::from([project.to_string()]);
     let mut seen: HashSet<String> = queue.iter().cloned().collect();
     let (mut done, mut failed) = (Vec::new(), Vec::new());
+    let mut handled = 0;
+    let report = |done: u64, total: u64| {
+        let _ = progress.send(Progress { step: 0, steps: 0, stage: "mods".into(), done, total });
+    };
     while let Some(next) = queue.pop_front() {
         let own: Vec<&Installed> = have.iter().filter(|j| j.project.as_deref() == Some(&next)).collect();
         if next != project && !own.is_empty() {
             continue;
         }
+        report(handled, handled + queue.len() as u64 + 1);
+        handled += 1;
         let put = match put(client, api, &mods, target, &own, &next).await {
             Err(e) if next == project => return Err(e),
             Err(e) => Err(e.to_string()),
@@ -374,6 +380,7 @@ pub async fn install(client: &Client, api: &str, paths: &Paths, instance: &Insta
             }
         }
     }
+    report(handled, handled);
     let ids = done.iter().chain(failed.iter().map(|f| &f.name)).cloned().collect();
     let names = projects(client, api, ids).await.unwrap_or_default();
     let title = |id: &String| names.get(id).map_or(id, |p| &p.title).clone();
@@ -502,6 +509,31 @@ mod tests {
         serve_routes(routes).await
     }
 
+    fn quiet() -> ProgressTx {
+        tokio::sync::mpsc::unbounded_channel().0
+    }
+
+    #[tokio::test]
+    async fn an_install_reports_its_files_ending_with_done_equal_to_total() {
+        let w = world(Some("fabric:0.1"));
+        let (iris_files, _) = serve(200, b"iris jar").await;
+        let (sodium_files, _) = serve(200, b"sodium jar").await;
+        let deps = json!([dep("AANobbMI", "required")]);
+        let sodium = version("AANobbMI", "sodium.jar", &sodium_files, b"sodium jar", json!([]));
+        let mut routes = base("{}", &json!([sodium]).to_string());
+        routes.push(json_route("GET /project/YL57xq9U/version", &iris(&iris_files, b"iris jar", Some(deps))));
+        let (url, _, _) = api(routes).await;
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        install(&http_client(), &url, &w.paths, &w.inst, "YL57xq9U", &tx).await.unwrap();
+        let mut events = Vec::new();
+        while let Ok(p) = rx.try_recv() {
+            events.push(p);
+        }
+        let last = events.last().unwrap();
+        assert!(events.iter().all(|p| p.stage == "mods"));
+        assert_eq!((last.done, last.total), (2, 2));
+    }
+
     #[tokio::test]
     async fn a_search_asks_for_this_loader_and_version_and_reads_the_answer() {
         let w = world(Some("fabric:0.1"));
@@ -545,7 +577,7 @@ mod tests {
         for err in [
             search(&c, &url, &w.inst, "", 0).await.err().unwrap(),
             installed(&c, &url, &w.paths, &w.inst).await.err().unwrap(),
-            install(&c, &url, &w.paths, &w.inst, "AANobbMI").await.err().unwrap(),
+            install(&c, &url, &w.paths, &w.inst, "AANobbMI", &quiet()).await.err().unwrap(),
         ] {
             assert!(matches!(&err, Error::Unsupported(m) if m == "This instance has no mod loader"));
         }
@@ -597,7 +629,7 @@ mod tests {
         let (files, file_hits) = serve(200, b"modrinth's jar").await;
         let v = version("AANobbMI", "sodium-new.jar", &files, b"modrinth's jar", json!([]));
         let (url, _, _) = api(base("{}", &json!([v]).to_string())).await;
-        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap();
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI", &quiet()).await.unwrap();
         assert!(out.installed.is_empty());
         assert_eq!(out.failed.len(), 1);
         assert!(out.failed[0].reason.contains("sodium-new.jar is already in this instance"), "{}", out.failed[0].reason);
@@ -615,7 +647,7 @@ mod tests {
         let (files, file_hits) = serve(200, b"modrinth's jar").await;
         let v = version("AANobbMI", "sodium-new.jar", &files, b"modrinth's jar", json!([]));
         let (url, _, _) = api(base(&known(&[(&hash, "AANobbMI", OLD)]), &json!([v]).to_string())).await;
-        let out = install(&http_client(), &url, &w.paths, &inst, "AANobbMI").await.unwrap();
+        let out = install(&http_client(), &url, &w.paths, &inst, "AANobbMI", &quiet()).await.unwrap();
         assert!(out.installed.is_empty());
         assert!(out.failed[0].reason.contains("pack"), "{}", out.failed[0].reason);
         assert_eq!(w.read("pack-sodium.jar").unwrap(), b"the pack's sodium");
@@ -632,7 +664,7 @@ mod tests {
         let (files, _) = serve(200, b"new build").await;
         let v = version("AANobbMI", "sodium-new.jar", &files, b"new build", json!([]));
         let (url, _, _) = api(base(&known(&[(&hash, "AANobbMI", OLD)]), &json!([v]).to_string())).await;
-        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap();
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI", &quiet()).await.unwrap();
         assert_eq!((out.installed, out.failed.len()), (vec!["Sodium".to_string()], 0));
         assert_eq!(w.read("sodium-new.jar").unwrap(), b"new build");
         assert_eq!(w.read("sodium-old.jar"), None);
@@ -648,7 +680,7 @@ mod tests {
         let (files, _) = serve(404, b"").await;
         let v = version("AANobbMI", "sodium-new.jar", &files, b"new build", json!([]));
         let (url, _, _) = api(base(&known(&[(&hash, "AANobbMI", OLD)]), &json!([v]).to_string())).await;
-        let err = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap_err();
+        let err = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI", &quiet()).await.unwrap_err();
         assert!(matches!(err, Error::Status { status: 404, .. }));
         assert_eq!(w.read("sodium-old.jar").unwrap(), b"old build");
         assert_eq!(w.read("sodium-new.jar"), None);
@@ -677,7 +709,7 @@ mod tests {
         let mut routes = base("{}", &json!([sodium]).to_string());
         routes.push(json_route("GET /project/YL57xq9U/version", &iris(&iris_files, b"iris jar", Some(deps))));
         let (url, _, heads) = api(routes).await;
-        let out = install(&http_client(), &url, &w.paths, &w.inst, "YL57xq9U").await.unwrap();
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "YL57xq9U", &quiet()).await.unwrap();
         assert_eq!((out.installed, out.failed.len()), (vec!["Iris Shaders".to_string(), "Sodium".to_string()], 0));
         assert_eq!(w.read("sodium.jar").unwrap(), b"sodium jar");
         assert_eq!(requests(&heads, "/project/AANobbMI/version"), 1);
@@ -693,7 +725,7 @@ mod tests {
         let mut routes = base(&known(&[(&hash, "AANobbMI", OLD)]), "[]");
         routes.push(json_route("GET /project/YL57xq9U/version", &iris(&iris_files, b"iris jar", None)));
         let (url, _, heads) = api(routes).await;
-        let out = install(&http_client(), &url, &w.paths, &w.inst, "YL57xq9U").await.unwrap();
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "YL57xq9U", &quiet()).await.unwrap();
         assert_eq!(out.installed, ["Iris Shaders"]);
         assert_eq!(requests(&heads, "/project/AANobbMI/version"), 0);
     }
@@ -709,7 +741,7 @@ mod tests {
         routes.push(json_route("GET /version/SMxNOGZ6", &sodium.to_string()));
         routes.push(json_route("GET /project/YL57xq9U/version", &iris(&iris_files, b"iris jar", Some(only_version))));
         let (url, _, _) = api(routes).await;
-        let out = install(&http_client(), &url, &w.paths, &w.inst, "YL57xq9U").await.unwrap();
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "YL57xq9U", &quiet()).await.unwrap();
         assert_eq!(out.installed, ["Iris Shaders", "Sodium"]);
     }
 
@@ -720,7 +752,7 @@ mod tests {
             let (files, file_hits) = serve(200, b"x").await;
             let v = version("AANobbMI", name, &files, b"x", json!([]));
             let (url, _, _) = api(base("{}", &json!([v]).to_string())).await;
-            let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap();
+            let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI", &quiet()).await.unwrap();
             assert!(out.installed.is_empty() && out.failed.len() == 1, "{name}");
             assert_eq!(file_hits.load(Ordering::SeqCst), 0, "{name}");
             assert!(!w.mods().exists() || std::fs::read_dir(w.mods()).unwrap().count() == 0, "{name}");
@@ -743,7 +775,7 @@ mod tests {
         let w = world(Some("fabric:0.1"));
         let v = version("AANobbMI", "sodium.jar", "https://evil.example/sodium.jar", b"x", json!([]));
         let (url, _, heads) = api(base("{}", &json!([v]).to_string())).await;
-        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap();
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI", &quiet()).await.unwrap();
         assert!(out.installed.is_empty() && out.failed.len() == 1);
         assert_eq!(requests(&heads, "evil.example"), 0);
         assert_eq!(w.read("sodium.jar"), None);
@@ -756,7 +788,7 @@ mod tests {
         let (files, file_hits) = serve(200, b"modrinth's jar").await;
         let v = version("AANobbMI", "sodium-new.jar", &files, b"modrinth's jar", json!([]));
         let (url, _, heads) = api(base(&known(&[(&hash, "AANobbMI", OLD)]), &json!([v]).to_string())).await;
-        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap();
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI", &quiet()).await.unwrap();
         assert!(out.installed.is_empty());
         assert_eq!(out.failed[0].reason, "Sodium is in this instance but disabled.");
         assert_eq!((w.read("sodium.jar.disabled").unwrap(), w.read("sodium-new.jar")), (b"switched off".to_vec(), None));
@@ -768,7 +800,7 @@ mod tests {
         let mut routes = base(&known(&[(&hash, "AANobbMI", OLD)]), "[]");
         routes.push(json_route("GET /project/YL57xq9U/version", &iris(&iris_files, b"iris jar", Some(json!([dep("AANobbMI", "required")])))));
         let (url, _, heads) = api(routes).await;
-        let out = install(&http_client(), &url, &w.paths, &w.inst, "YL57xq9U").await.unwrap();
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "YL57xq9U", &quiet()).await.unwrap();
         assert_eq!(out.installed, ["Iris Shaders"]);
         assert_eq!(requests(&heads, "/project/AANobbMI/version"), 0);
         assert_eq!(w.read("sodium.jar.disabled").unwrap(), b"switched off");
@@ -805,7 +837,7 @@ mod tests {
         let (files, _) = serve(200, b"new build").await;
         let v = version("AANobbMI", "sodium-new.jar", &files, b"new build", json!([]));
         let (url, _, _) = api(base(&known(&[(&hash, "AANobbMI", OLD)]), &json!([v]).to_string())).await;
-        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap();
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI", &quiet()).await.unwrap();
         assert_eq!(out.installed, ["Sodium"]);
         assert_eq!(out.failed.len(), 1);
         assert_eq!(out.failed[0].reason, "The old file sodium-old.jar could not be removed: remove it yourself.");
@@ -817,7 +849,7 @@ mod tests {
     async fn a_mod_with_no_build_for_this_loader_is_reported() {
         let w = world(Some("fabric:0.1"));
         let (url, _, _) = api(base("{}", "[]")).await;
-        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap();
+        let out = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI", &quiet()).await.unwrap();
         assert!(out.installed.is_empty());
         assert_eq!((out.failed[0].name.as_str(), out.failed[0].reason.as_str()), ("Sodium", "no build for fabric on Minecraft 1.21.1"));
     }
@@ -827,11 +859,11 @@ mod tests {
         let w = world(Some("fabric:0.1"));
         let (url, hits, _) = api(vec![]).await;
         for bad in ["", "../x", "a/b", "a.b", "a b", "a?x"] {
-            assert!(install(&http_client(), &url, &w.paths, &w.inst, bad).await.is_err(), "{bad:?}");
+            assert!(install(&http_client(), &url, &w.paths, &w.inst, bad, &quiet()).await.is_err(), "{bad:?}");
         }
         assert_eq!(hits.load(Ordering::SeqCst), 0);
         let _held = instance::lock(&w.inst.id).unwrap();
-        let err = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI").await.unwrap_err();
+        let err = install(&http_client(), &url, &w.paths, &w.inst, "AANobbMI", &quiet()).await.unwrap_err();
         assert!(matches!(err, Error::Busy(_)));
         assert_eq!(hits.load(Ordering::SeqCst), 0);
     }

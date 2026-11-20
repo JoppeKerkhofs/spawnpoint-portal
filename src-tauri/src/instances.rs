@@ -146,11 +146,11 @@ pub async fn mods_installed(state: State<'_, AppState>, id: String) -> CmdResult
 }
 
 #[tauri::command]
-pub async fn mods_install(state: State<'_, AppState>, id: String, project: String) -> CmdResult<mods::Outcome> {
+pub async fn mods_install(app: AppHandle, state: State<'_, AppState>, id: String, project: String) -> CmdResult<mods::Outcome> {
     let _claim = claim(&state.busy, &id)?;
     refuse_if_running(&state.running, &id)?;
     let inst = instance::load(&state.paths, &id)?;
-    Ok(mods::install(&state.client, mods::API, &state.paths, &inst, &project).await?)
+    Ok(mods::install(&state.client, mods::API, &state.paths, &inst, &project, &numbered(vec!["mods"], forwarder(&app))).await?)
 }
 
 #[tauri::command]
