@@ -231,11 +231,11 @@ static HASHES: Mutex<Option<HashMap<Stamp, String>>> = Mutex::new(None);
 fn sha512_cached(path: &Path) -> Result<String> {
     let meta = std::fs::metadata(path)?;
     let stamp = (path.to_path_buf(), meta.len(), meta.modified()?);
-    if let Some(hash) = HASHES.lock().unwrap().get_or_insert_default().get(&stamp) {
+    if let Some(hash) = HASHES.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_default().get(&stamp) {
         return Ok(hash.clone());
     }
     let hash = sha512_file(path)?;
-    HASHES.lock().unwrap().get_or_insert_default().insert(stamp, hash.clone());
+    HASHES.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_default().insert(stamp, hash.clone());
     Ok(hash)
 }
 

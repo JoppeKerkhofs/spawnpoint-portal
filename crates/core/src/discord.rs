@@ -75,24 +75,36 @@ impl Presence {
         if client_id.is_empty() {
             return;
         }
-        if self.pipe.is_none() {
-            self.pipe = connect(client_id);
+        if self.pipe.is_none() && activity.is_none() {
+            return;
         }
-        self.nonce += 1;
-        if let Some(pipe) = &mut self.pipe {
-            if send(pipe, std::process::id(), self.nonce, activity).is_err() {
-                self.pipe = None;
+        // A pipe left over from before Discord restarted fails on send: connect afresh once.
+        for _ in 0..2 {
+            if self.pipe.is_none() {
+                self.pipe = connect(client_id);
             }
+            let Some(pipe) = &mut self.pipe else { return };
+            self.nonce += 1;
+            if send(pipe, std::process::id(), self.nonce, activity.clone()).is_ok() {
+                return;
+            }
+            self.pipe = None;
         }
     }
 }
 
 fn connect(client_id: &str) -> Option<File> {
+    // ponytail: reads have no timeout; a Discord that accepts the pipe and never answers stalls
+    // status updates (never the game). Add a reader thread with a timeout if that is ever seen.
     (0..10).find_map(|n| {
-        let mut pipe = OpenOptions::new().read(true).write(true).open(format!(r"\.\pipe\discord-ipc-{n}")).ok()?;
+        let mut pipe = OpenOptions::new().read(true).write(true).open(pipe_path(n)).ok()?;
         handshake(&mut pipe, client_id).ok()?;
         Some(pipe)
     })
+}
+
+fn pipe_path(n: u32) -> String {
+    format!(r"\\.\pipe\discord-ipc-{n}")
 }
 
 fn handshake(pipe: &mut (impl Read + Write), client_id: &str) -> io::Result<()> {
@@ -223,5 +235,10 @@ mod tests {
         p.set_with("", Some(json!({})));
         p.set_with("", None);
         assert!(p.pipe.is_none() && p.nonce == 0);
+    }
+
+    #[test]
+    fn the_pipe_is_a_device_path() {
+        assert_eq!(pipe_path(3), "\\\\.\\pipe\\discord-ipc-3");
     }
 }
