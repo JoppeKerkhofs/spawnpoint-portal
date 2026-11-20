@@ -16,3 +16,5 @@ export async function pictureFromFile(file: File): Promise<string> {
   bitmap.close();
   return canvas.toDataURL("image/png");
 }
+
+export const headUrl = (name: string): string | null => (/^[A-Za-z0-9_]{1,16}$/.test(name) ? `https://mc-heads.net/avatar/${name}/48` : null);

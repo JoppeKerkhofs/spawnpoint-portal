@@ -1,11 +1,11 @@
 import { expect, test } from "vitest";
 import type { PanelServers, Players, Server } from "../api";
 import type { Playing } from "./operation";
-import { joinButton, joinNote, playersText, runsText, serversState, serversSummary } from "./servers";
+import { detailRows, findServer, instanceFor, joinButton, joinNote, playersLine, playersText, runsText, serverSummaryLine, serversState, serversSummary } from "./servers";
 import { minecraftText } from "./format";
 
 const srv = (extra: Partial<Server> = {}): Server => ({
-  slug: "s", name: "S", hostname: "s.example", state: "running", game_version: "26.3", modpack: null, loader: null, players: null, picture: null, ...extra,
+  slug: "s", name: "S", hostname: "s.example", state: "running", game_version: "26.3", modpack: null, loader: null, players: null, picture: null, detail: null, ...extra,
 });
 const panel = (id: string) => ({ id, address: `https://${id}.example`, name: id });
 const joppe = (): PanelServers => ({
@@ -44,7 +44,7 @@ test("what a server runs", () => {
   expect(runsText(srv({ loader: { name: "forge", version: null } }))).toBe("Forge (newest)");
   expect(runsText(srv({}))).toBe("No mod loader");
   const p = (x: Players | null) => playersText(x);
-  expect(p({ online: 3, max: 20 })).toBe("3 of 20 online"); expect(p({ online: 0, max: 20 })).toBe("Nobody online"); expect(p(null)).toBe("—");
+  expect(p({ online: 3, max: 20, names: [] })).toBe("3 of 20 online"); expect(p({ online: 0, max: 20, names: [] })).toBe("Nobody online"); expect(p(null)).toBe("—");
 });
 
 test("join button", () => {
@@ -64,4 +64,38 @@ test("join button", () => {
 test("a game that was not given the server says so after the join", () => {
   expect(joinNote(true)).toBeNull();
   expect(joinNote(false)).toBe("This Minecraft version can't join a server by itself. Add the server in the game's multiplayer list.");
+});
+
+test("which players text applies", () => {
+  const on = (online: number, names: string[], state = "running") => srv({ state, players: { online, max: 20, names } });
+  expect(playersLine(on(0, [], "offline"))).toBe("The server is not running.");
+  expect(playersLine(on(2, ["a", "b"], "installing"))).toBe("The server is not running.");
+  expect(playersLine(on(0, []))).toBe("Nobody is online.");
+  expect(playersLine(on(2, []))).toBe("This panel does not say who is online.");
+  expect(playersLine(srv({ players: null }))).toBe("This panel does not say who is online.");
+  expect(playersLine(on(2, ["a", "b"]))).toBeNull();
+});
+
+test("finding the open server and its instance", () => {
+  const l = [joppe(), lienBack()];
+  l[1].servers[0].slug = "x";
+  expect(findServer(l, "lien", "x")).toMatchObject({ panel: { id: "lien" }, server: { slug: "x" } });
+  expect(findServer(l, "lien", "gone")).toBeNull();
+  expect(findServer(null, "lien", "x")).toBeNull();
+  const inst = (id: string, panel: string, server: string) => ({ id, source: { kind: "server", panel, server, pack: null } }) as never;
+  const own = { id: "o", source: { kind: "own" } } as never;
+  expect(instanceFor([own, inst("a", "lien", "y"), inst("b", "lien", "x")], "lien", "x")).toBe("b");
+  expect(instanceFor([own], "lien", "x")).toBeNull();
+});
+
+test("summary line and details rows", () => {
+  const p = { id: "lien", address: "https://panel.lien.example:8443/base", name: "Lien" };
+  const s = srv({ hostname: "play.example", game_version: "1.21", loader: { name: "neoforge", version: "21.1" } });
+  expect(serverSummaryLine(s, p)).toBe("Minecraft 1.21 · NeoForge 21.1 · panel.lien.example:8443");
+  expect(detailRows(s, p)).toEqual([
+    ["Address", "play.example"], ["Minecraft version", "1.21"], ["Loader", "NeoForge 21.1"], ["Panel", "panel.lien.example:8443"],
+  ]);
+  const pack = srv({ modpack: { catalogue: "ftb", project: "x", version: null, version_name: "1.3" } });
+  expect(detailRows(pack, p).map((r) => r[0])).toEqual(["Address", "Minecraft version", "Modpack", "Panel"]);
+  expect(detailRows(pack, p)[2][1]).toBe("FTB 1.3");
 });

@@ -235,6 +235,7 @@ mod tests {
             loader: loader.map(|(n, v)| ServerLoader { name: n.into(), version: v.map(Into::into) }),
             players: None,
             picture: None,
+            detail: None,
         }
     }
 

@@ -12,7 +12,7 @@ const items: { id: View; label: string; icon: IconName }[] = [
   { id: "account", label: "Account", icon: "user" },
 ];
 
-const active = computed(() => (view.value === "instance" ? "instances" : view.value));
+const active = computed(() => (view.value === "instance" ? "instances" : view.value === "server" ? "servers" : view.value));
 </script>
 
 <template>

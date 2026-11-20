@@ -1,6 +1,66 @@
-import type { PanelServers, Players, Server } from "../api";
-import { upper } from "./format";
-import type { Op, Playing } from "./operation";
+import { ref } from "vue";
+import { join, servers, type CommandError, type Instance, type Panel, type PanelServers, type Players, type Server } from "../api";
+import { minecraftText, upper } from "./format";
+import { afterJoin, markPlaying, openInstance, withProgress, type Op, type Playing } from "./operation";
+
+// Shared, so leaving and re-entering a view shows the earlier answer at once and a refresh updates every view.
+export const list = ref<PanelServers[] | null>(null);
+export const loading = ref(false);
+export const loadError = ref<CommandError | null>(null);
+
+export async function loadServers(): Promise<void> {
+  if (loading.value) return;
+  loading.value = true;
+  try {
+    list.value = await servers();
+    loadError.value = null;
+  } catch (e) {
+    loadError.value = e as CommandError;
+  } finally {
+    loading.value = false;
+  }
+}
+
+export async function joinServer(panel: Panel, s: Server): Promise<boolean> {
+  const done = await withProgress(s.name, () => join(panel.id, s.slug), serverKey(panel.id, s.slug));
+  if (!done) return false;
+  const { instance, joined } = done;
+  markPlaying(instance, s.hostname);
+  const text = joinNote(joined);
+  afterJoin.value = text ? { instance: instance.id, text } : null;
+  if (instance.manual.length > 0 || text) openInstance(instance.id);
+  return true;
+}
+
+export const findServer = (l: PanelServers[] | null, panelId: string, slug: string): { panel: Panel; server: Server } | null => {
+  const entry = l?.find((p) => p.panel.id === panelId);
+  const server = entry?.servers.find((s) => s.slug === slug);
+  return entry && server ? { panel: entry.panel, server } : null;
+};
+
+export const instanceFor = (l: Instance[], panelId: string, slug: string): string | null =>
+  l.find((i) => i.source.kind === "server" && i.source.panel === panelId && i.source.server === slug)?.id ?? null;
+
+export function playersLine(s: Server): string | null {
+  if (s.state !== "running") return "The server is not running.";
+  if (s.players?.names.length) return null;
+  return s.players?.online === 0 ? "Nobody is online." : "This panel does not say who is online.";
+}
+
+const panelHost = (p: Panel) => p.address.split("://").pop()!.split("/")[0];
+
+export const serverSummaryLine = (s: Server, p: Panel) => `${minecraftText(s.game_version)} · ${runsText(s)} · ${panelHost(p)}`;
+
+export function detailRows(s: Server, p: Panel): Array<[string, string]> {
+  const rows: Array<[string, string | null]> = [
+    ["Address", s.hostname],
+    ["Minecraft version", s.game_version ?? "—"],
+    ["Loader", s.loader && `${loaderName(s.loader.name)} ${s.loader.version ?? "(newest)"}`],
+    ["Modpack", s.modpack && `${catalogueName(s.modpack.catalogue)}${s.modpack.version_name ? ` ${s.modpack.version_name}` : ""}`],
+    ["Panel", panelHost(p)],
+  ];
+  return rows.filter((r): r is [string, string] => r[1] !== null);
+}
 
 export type ServersState = "loading" | "none-linked" | "none-answered" | "filled";
 

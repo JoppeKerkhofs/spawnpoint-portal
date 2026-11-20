@@ -8,6 +8,7 @@ import InstanceView from "./views/InstanceView.vue";
 import InstancesView from "./views/InstancesView.vue";
 import AccountView from "./views/AccountView.vue";
 import PanelsView from "./views/PanelsView.vue";
+import ServerView from "./views/ServerView.vue";
 import ServersView from "./views/ServersView.vue";
 import { gameExited, loadPlaying, openInstanceId, playerName, view } from "./logic/operation";
 
@@ -39,6 +40,7 @@ onUnmounted(() => unlisten?.());
         <ServersView v-if="view === 'servers'" />
         <InstancesView v-else-if="view === 'instances'" />
         <InstanceView v-else-if="view === 'instance'" :key="openInstanceId ?? undefined" />
+        <ServerView v-else-if="view === 'server'" />
         <PanelsView v-else-if="view === 'panels'" />
         <AccountView v-else />
       </main>

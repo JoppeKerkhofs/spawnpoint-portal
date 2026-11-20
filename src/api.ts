@@ -178,6 +178,7 @@ export interface ServerLoader {
 export interface Players {
   online: number;
   max: number;
+  names: string[];
 }
 
 export interface Server {
@@ -190,6 +191,7 @@ export interface Server {
   loader: ServerLoader | null;
   players: Players | null;
   picture: string | null;
+  detail: string | null;
 }
 
 export interface PanelServers {

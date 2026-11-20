@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import type { Texture } from "../logic/visuals";
 
-const props = withDefaults(defineProps<{ name: string; texture: Texture; error?: boolean; size?: 32 | 44 }>(), {
+const props = withDefaults(defineProps<{ name: string; texture: Texture; error?: boolean; size?: 24 | 32 | 44 }>(), {
   error: false,
   size: 32,
 });

@@ -148,6 +148,23 @@ pub struct ServerLoader {
 pub struct Players {
     pub online: u32,
     pub max: u32,
+    #[serde(default, deserialize_with = "clean_names")]
+    pub names: Vec<String>,
+}
+
+fn cut(s: String, n: usize) -> String {
+    match s.char_indices().nth(n) {
+        Some((i, _)) => s[..i].to_string(),
+        None => s,
+    }
+}
+
+fn clean_names<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Vec<String>, D::Error> {
+    Ok(Vec::<String>::deserialize(d)?.into_iter().take(200).map(|n| cut(n, 64)).collect())
+}
+
+fn clean_detail<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Option<String>, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.map(|s| cut(s, 300)))
 }
 
 const LOGO_HOSTS: [&str; 3] = ["https://cdn.modrinth.com/", "https://media.forgecdn.net/", "https://cdn.feed-the-beast.com/"];
@@ -182,6 +199,8 @@ pub struct Server {
     pub players: Option<Players>,
     #[serde(default, deserialize_with = "clean_picture")]
     pub picture: Option<String>,
+    #[serde(default, deserialize_with = "clean_detail")]
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -419,6 +438,21 @@ mod tests {
         assert_eq!(get(r#","picture":null"#), None);
         assert_eq!(get(r#","picture":"javascript:alert(1)""#), None);
         assert_eq!(get(r#","picture":"https://cdn.modrinth.com/a.png""#).as_deref(), Some("https://cdn.modrinth.com/a.png"));
+    }
+
+    #[test]
+    fn who_is_online_and_why_load_cut_to_size() {
+        let json = |extra: &str| format!(r#"{{"slug":"s","name":"S","hostname":"h","state":"running","game_version":null,"modpack":null,"loader":null{extra}}}"#);
+        let old: Server = serde_json::from_str(&json(r#","players":{"online":1,"max":5}"#)).unwrap();
+        assert!(old.players.unwrap().names.is_empty() && old.detail.is_none());
+        let long = "é".repeat(100);
+        let many: Vec<String> = (0..250).map(|_| long.clone()).collect();
+        let body = json(&format!(r#","players":{{"online":250,"max":300,"names":{}}},"detail":"{}""#, serde_json::to_string(&many).unwrap(), "ü".repeat(400)));
+        let s: Server = serde_json::from_str(&body).unwrap();
+        let names = s.players.unwrap().names;
+        assert_eq!(names.len(), 200);
+        assert!(names.iter().all(|n| n.chars().count() == 64));
+        assert_eq!(s.detail.unwrap().chars().count(), 300);
     }
 
     #[test]

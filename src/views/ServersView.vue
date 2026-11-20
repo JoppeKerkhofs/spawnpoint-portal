@@ -1,16 +1,6 @@
-<script lang="ts">
-import { ref } from "vue";
-import type { CommandError, PanelServers } from "../api";
-
-// Outside the component, so leaving and re-entering the view shows the earlier answer at once.
-const list = ref<PanelServers[] | null>(null);
-const loading = ref(false);
-const loadError = ref<CommandError | null>(null);
-</script>
-
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
-import { join, servers, type Panel, type Server } from "../api";
+import type { Panel, Server } from "../api";
 import AppButton from "../components/AppButton.vue";
 import BlockCube from "../components/BlockCube.vue";
 import Card from "../components/Card.vue";
@@ -24,8 +14,8 @@ import Tile from "../components/Tile.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { andList, errorText, minecraftText } from "../logic/format";
 import { look } from "../logic/look";
-import { afterJoin, markPlaying, op, openInstance, playing, view, withProgress } from "../logic/operation";
-import { joinButton, joinNote, playersText, runsText, serverKey, serversState, serversSummary } from "../logic/servers";
+import { op, openServer, playing, view } from "../logic/operation";
+import { joinButton, joinServer, list, loadError, loadServers as load, loading, playersText, runsText, serverKey, serversState, serversSummary } from "../logic/servers";
 import { serverPill, serverTexture } from "../logic/visuals";
 
 const state = computed(() => serversState(list.value));
@@ -35,30 +25,7 @@ const blocky = computed(() => look.value.theme === "blocky");
 const panelNames = computed(() => andList((list.value ?? []).map((p) => p.panel.name)));
 const skeletonRow: Array<[string, string]> = [["32px", "32px"], ["flex", "14px"], ["90px", "14px"], ["70px", "30px"]];
 
-async function load() {
-  if (loading.value) return;
-  loading.value = true;
-  try {
-    list.value = await servers();
-    loadError.value = null;
-  } catch (e) {
-    loadError.value = e as CommandError;
-  } finally {
-    loading.value = false;
-  }
-}
-
 const button = (panel: Panel, s: Server) => joinButton(s, serverKey(panel.id, s.slug), op.value, opKey.value, playing.value);
-
-async function doJoin(panel: Panel, s: Server) {
-  const done = await withProgress(s.name, () => join(panel.id, s.slug), serverKey(panel.id, s.slug));
-  if (!done) return;
-  const { instance, joined } = done;
-  markPlaying(instance, s.hostname);
-  const text = joinNote(joined);
-  afterJoin.value = text ? { instance: instance.id, text } : null;
-  if (instance.manual.length > 0 || text) openInstance(instance.id);
-}
 
 onMounted(load);
 </script>
@@ -115,7 +82,7 @@ onMounted(load);
           <AppButton variant="secondary" size="small" :disabled="loading" @click="load">Try again</AppButton>
         </div>
         <template v-else>
-          <div v-for="s in entry.servers" :key="s.slug" class="row">
+          <div v-for="s in entry.servers" :key="s.slug" class="row row-link" @click="openServer(entry.panel.id, s.slug)">
             <Picture :picture="s.picture" :size="blocky ? 34 : 32">
               <span v-if="blocky" class="flex w-[34px] shrink-0 items-center justify-center">
                 <BlockCube :texture="serverTexture(s)" :size="26" :spin="s.state !== 'offline'" :bob="s.state === 'running'" :dim="s.state !== 'running'" />
@@ -123,7 +90,7 @@ onMounted(load);
               <Tile v-else :name="s.name" :texture="serverTexture(s)" :error="s.state === 'error'" />
             </Picture>
             <div class="min-w-0 flex-1">
-              <div class="mc-name truncate text-[15px] font-bold" :title="s.name">{{ s.name }}</div>
+              <button type="button" class="mc-name block max-w-full truncate text-left text-[15px] font-bold" :title="s.name" @click="openServer(entry.panel.id, s.slug)">{{ s.name }}</button>
               <div class="mono truncate text-xs text-(--muted)" :title="s.hostname">{{ s.hostname }}</div>
             </div>
             <div class="w-[150px] shrink-0">
@@ -134,13 +101,13 @@ onMounted(load);
               <div class="truncate font-semibold">{{ minecraftText(s.game_version) }}</div>
               <div class="truncate text-xs text-(--muted)" :title="runsText(s)">{{ runsText(s) }}</div>
             </div>
-            <div class="flex w-32 shrink-0 flex-col items-end gap-[3px]">
+            <div class="flex w-32 shrink-0 flex-col items-end gap-[3px]" @click.stop>
               <AppButton
                 variant="primary"
                 class="min-w-24"
                 :disabled="button(entry.panel, s).disabled"
                 :aria-label="button(entry.panel, s).aria"
-                @click="doJoin(entry.panel, s)"
+                @click="joinServer(entry.panel, s)"
                 >{{ button(entry.panel, s).label }}</AppButton
               >
               <span class="text-right text-xs text-(--muted)">{{ button(entry.panel, s).hint }}</span>

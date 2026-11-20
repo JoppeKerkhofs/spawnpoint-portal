@@ -4,7 +4,7 @@ import { defaults, instanceGet, onProgress as listenProgress, running, type Comm
 import { normalizeError } from "./errors";
 import { clock, errorText, memoryLabel, stageText } from "./format";
 
-export type View = "servers" | "instances" | "instance" | "panels" | "account";
+export type View = "servers" | "instances" | "instance" | "server" | "panels" | "account";
 export const view: Ref<View> = ref("servers");
 export const openInstanceId: Ref<string | null> = ref(null);
 export const playerName: Ref<string> = ref("");
@@ -13,6 +13,13 @@ export const lastPlayed: Ref<string | null> = ref(null);
 
 // What the One instance view says after a join; tied to the instance it was for.
 export const afterJoin: Ref<{ instance: string; text: string } | null> = ref(null);
+
+export const openServerKey: Ref<{ panel: string; slug: string } | null> = ref(null);
+
+export function openServer(panel: string, slug: string): void {
+  openServerKey.value = { panel, slug };
+  view.value = "server";
+}
 
 export function openInstance(id: string): void {
   openInstanceId.value = id;
