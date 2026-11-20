@@ -100,3 +100,67 @@ export const onProgress = (cb: (p: Progress) => void): Promise<UnlistenFn> =>
   listen<Progress>("progress", (e) => cb(e.payload));
 export const onGameExited = (cb: (e: GameExited) => void): Promise<UnlistenFn> =>
   listen<GameExited>("game-exited", (e) => cb(e.payload));
+
+export interface Panel {
+  id: string;
+  address: string;
+  name: string;
+}
+
+export interface Modpack {
+  catalogue: string;
+  project: string;
+  version: string | null;
+  version_name: string | null;
+}
+
+export interface ServerLoader {
+  name: string;
+  version: string | null;
+}
+
+export interface Players {
+  online: number;
+  max: number;
+}
+
+export interface Server {
+  slug: string;
+  name: string;
+  hostname: string;
+  state: string;
+  game_version: string | null;
+  modpack: Modpack | null;
+  loader: ServerLoader | null;
+  players: Players | null;
+}
+
+export interface PanelServers {
+  panel: Panel;
+  servers: Server[];
+  error: CommandError | null;
+}
+
+export interface PairingView {
+  code: string;
+  address: string;
+  approve_at: string;
+  expires_at: string;
+  interval: number;
+}
+
+export interface Settings {
+  player_name: string;
+}
+
+export const servers = () => invoke<PanelServers[]>("servers");
+export const panels = () => invoke<Panel[]>("panels");
+export const panelPairStart = (address: string, allowHttp: boolean) =>
+  invoke<PairingView>("panel_pair_start", { address, allowHttp });
+export const openPairingPage = () => invoke<void>("open_pairing_page");
+export const panelPairPoll = () => invoke<Panel | null>("panel_pair_poll");
+export const panelPairCancel = () => invoke<void>("panel_pair_cancel");
+export const panelRemove = (id: string) => invoke<void>("panel_remove", { id });
+export const settingsGet = () => invoke<Settings>("settings_get");
+export const settingsSet = (playerName: string) => invoke<Settings>("settings_set", { playerName });
+export const openPage = (url: string) => invoke<void>("open_page", { url });

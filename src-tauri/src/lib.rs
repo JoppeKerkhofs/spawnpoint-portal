@@ -1,4 +1,5 @@
 pub mod instances;
+pub mod panels;
 pub mod state;
 
 use state::AppState;
@@ -26,6 +27,16 @@ pub fn run() {
             instances::minecraft_versions,
             instances::open_mods_folder,
             instances::open_instance_folder,
+            panels::servers,
+            panels::panels,
+            panels::panel_pair_start,
+            panels::open_pairing_page,
+            panels::panel_pair_poll,
+            panels::panel_pair_cancel,
+            panels::panel_remove,
+            panels::settings_get,
+            panels::settings_set,
+            panels::open_page,
         ])
         .setup(|app| {
             app.manage(AppState {
