@@ -47,6 +47,7 @@ pub fn run() {
                 busy: Mutex::new(HashSet::new()),
                 running: Mutex::new(HashMap::new()),
                 pairing: Mutex::new(None),
+                pairings: Default::default(),
             });
             Ok(())
         })

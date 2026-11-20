@@ -158,6 +158,7 @@ export interface PanelServers {
 }
 
 export interface PairingView {
+  pairing: number;
   code: string;
   address: string;
   approve_at: string;
@@ -179,8 +180,8 @@ export const panels = () => invoke<Panel[]>("panels");
 export const panelPairStart = (address: string, allowHttp: boolean) =>
   invoke<PairingView>("panel_pair_start", { address, allowHttp });
 export const openPairingPage = () => invoke<void>("open_pairing_page");
-export const panelPairPoll = () => invoke<Linked | null>("panel_pair_poll");
-export const panelPairCancel = () => invoke<void>("panel_pair_cancel");
+export const panelPairPoll = (number: number) => invoke<Linked | null>("panel_pair_poll", { number });
+export const panelPairCancel = (number: number) => invoke<void>("panel_pair_cancel", { number });
 export const panelRemove = (id: string) => invoke<void>("panel_remove", { id });
 export const settingsGet = () => invoke<Settings>("settings_get");
 export const settingsSet = (playerName: string) => invoke<Settings>("settings_set", { playerName });

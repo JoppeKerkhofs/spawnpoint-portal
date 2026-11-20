@@ -68,23 +68,23 @@ function halt() {
 
 function end(next: Phase, error: CommandError | null = null) {
   halt();
-  panelPairCancel().catch(() => {});
+  if (pairing.value) panelPairCancel(pairing.value.pairing).catch(() => {});
   failure.value = error;
   phase.value = next;
 }
 
-function schedule(mine: number, expiresAt: number, interval: number) {
+function schedule(mine: number, number: number, expiresAt: number, interval: number) {
   poller = setTimeout(async () => {
     let result: { linked?: Linked | null; error?: unknown };
     try {
-      result = { linked: await panelPairPoll() };
+      result = { linked: await panelPairPoll(number) };
     } catch (e) {
       result = { error: e };
     }
     if (mine !== session) return;
     const verdict = pollVerdict(Date.now(), expiresAt, result, false);
     unreachable.value = verdict === "unreachable";
-    if (verdict === "continue" || verdict === "unreachable") schedule(mine, expiresAt, interval);
+    if (verdict === "continue" || verdict === "unreachable") schedule(mine, number, expiresAt, interval);
     else if (verdict === "linked") {
       halt();
       linked.value = result.linked!;
@@ -100,7 +100,7 @@ async function start() {
   startError.value = null;
   try {
     const p = await panelPairStart(address.value.trim(), httpAddress.value && consent.value);
-    if (gone) return void panelPairCancel().catch(() => {});
+    if (gone) return void panelPairCancel(p.pairing).catch(() => {});
     halt();
     const mine = session;
     pairing.value = p;
@@ -113,7 +113,7 @@ async function start() {
       now.value = Date.now();
       if (pollVerdict(now.value, expiresAt, null, false) === "expired") end("expired");
     }, 1000);
-    schedule(mine, expiresAt, p.interval);
+    schedule(mine, p.pairing, expiresAt, p.interval);
   } catch (e) {
     startError.value = e as CommandError;
   } finally {

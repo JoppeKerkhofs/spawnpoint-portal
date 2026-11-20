@@ -1,9 +1,10 @@
-use crate::state::{AppState, CmdResult, CommandError, Kept, PairingView, claim, safe_url};
+use crate::state::{AppState, CmdResult, CommandError, Kept, PairingView, claim, forget_pairing, safe_url};
 use portal_core::join::all_servers;
 use portal_core::panel::{self, Panel, Server};
 use portal_core::settings::{self, Settings};
 use portal_core::{Error, Result};
 use serde::Serialize;
+use std::sync::atomic::Ordering;
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
@@ -52,8 +53,9 @@ pub async fn panels(state: State<'_, AppState>) -> CmdResult<Vec<Panel>> {
 pub async fn panel_pair_start(state: State<'_, AppState>, address: String, allow_http: bool) -> CmdResult<PairingView> {
     let address = panel::normalize_address(&address, allow_http)?;
     let pairing = panel::pair_start(&address, &panel::device_name(std::env::var("COMPUTERNAME").ok())).await?;
-    let view = PairingView::new(&address, &pairing);
-    *state.pairing.lock().unwrap_or_else(|e| e.into_inner()) = Some(Kept { address, pairing, allow_http });
+    let number = state.pairings.fetch_add(1, Ordering::Relaxed) + 1;
+    let view = PairingView::new(&address, &pairing, number);
+    *state.pairing.lock().unwrap_or_else(|e| e.into_inner()) = Some(Kept { address, pairing, allow_http, number });
     Ok(view)
 }
 
@@ -67,21 +69,21 @@ pub async fn open_pairing_page(app: AppHandle, state: State<'_, AppState>) -> Cm
 }
 
 #[tauri::command]
-pub async fn panel_pair_poll(state: State<'_, AppState>) -> CmdResult<Option<Linked>> {
+pub async fn panel_pair_poll(state: State<'_, AppState>, number: u64) -> CmdResult<Option<Linked>> {
     let Ok(_polling) = claim(&state.busy, "pairing") else { return Ok(None) };
     let (address, pairing, allow_http) = match &*state.pairing.lock().unwrap_or_else(|e| e.into_inner()) {
-        Some(k) => (k.address.clone(), k.pairing.clone(), k.allow_http),
-        None => return Err(Error::Other("no pairing is running".into()).into()),
+        Some(k) if k.number == number => (k.address.clone(), k.pairing.clone(), k.allow_http),
+        _ => return Err(Error::Other("no pairing is running".into()).into()),
     };
     let Some(granted) = panel::pair_poll(&address, &pairing).await? else { return Ok(None) };
     let added = panel::add(&state.paths, &address, panel::host(&address), &granted.token, allow_http)?;
-    *state.pairing.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    forget_pairing(&state.pairing, number);
     Ok(Some(linked(added, &granted.abilities)))
 }
 
 #[tauri::command]
-pub async fn panel_pair_cancel(state: State<'_, AppState>) -> CmdResult<()> {
-    *state.pairing.lock().unwrap_or_else(|e| e.into_inner()) = None;
+pub async fn panel_pair_cancel(state: State<'_, AppState>, number: u64) -> CmdResult<()> {
+    forget_pairing(&state.pairing, number);
     Ok(())
 }
 

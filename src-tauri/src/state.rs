@@ -4,6 +4,7 @@ use portal_core::panel::Pairing;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -13,12 +14,25 @@ pub struct AppState {
     pub busy: Mutex<HashSet<String>>,
     pub running: Mutex<HashMap<String, u64>>,
     pub pairing: Mutex<Option<Kept>>,
+    pub pairings: AtomicU64,
 }
 
 pub struct Kept {
     pub address: String,
     pub pairing: Pairing,
     pub allow_http: bool,
+    pub number: u64,
+}
+
+pub fn is_kept(slot: &Option<Kept>, number: u64) -> bool {
+    slot.as_ref().is_some_and(|k| k.number == number)
+}
+
+pub fn forget_pairing(slot: &Mutex<Option<Kept>>, number: u64) {
+    let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if is_kept(&slot, number) {
+        *slot = None;
+    }
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -49,7 +63,7 @@ impl Drop for Claim<'_> {
 
 pub fn claim<'a>(busy: &'a Mutex<HashSet<String>>, key: &str) -> CmdResult<Claim<'a>> {
     if !busy.lock().unwrap_or_else(|e| e.into_inner()).insert(key.to_string()) {
-        return Err(CommandError { kind: "busy".into(), message: "already starting".into() });
+        return Err(CommandError { kind: "busy".into(), message: "This instance is busy.".into() });
     }
     Ok(Claim { busy, key: key.to_string() })
 }
@@ -109,6 +123,7 @@ pub fn safe_url(url: &str) -> CmdResult<&str> {
 
 #[derive(Serialize)]
 pub struct PairingView {
+    pub pairing: u64,
     pub code: String,
     pub address: String,
     pub approve_at: String,
@@ -117,8 +132,9 @@ pub struct PairingView {
 }
 
 impl PairingView {
-    pub fn new(address: &str, pairing: &Pairing) -> PairingView {
+    pub fn new(address: &str, pairing: &Pairing, number: u64) -> PairingView {
         PairingView {
+            pairing: number,
             code: pairing.code.clone(),
             address: address.into(),
             approve_at: format!("{address}/settings/api-tokens"),
@@ -196,7 +212,7 @@ mod tests {
     fn a_second_claim_is_refused_until_the_first_is_dropped() {
         let busy = Mutex::new(HashSet::new());
         let first = claim(&busy, "join:home/atm10").unwrap();
-        assert_eq!(claim(&busy, "join:home/atm10").unwrap_err(), CommandError { kind: "busy".into(), message: "already starting".into() });
+        assert_eq!(claim(&busy, "join:home/atm10").unwrap_err(), CommandError { kind: "busy".into(), message: "This instance is busy.".into() });
         assert!(claim(&busy, "atm10").is_ok());
         drop(first);
         assert!(claim(&busy, "join:home/atm10").is_ok());
@@ -238,9 +254,20 @@ mod tests {
     #[test]
     fn a_pairing_view_has_no_secret() {
         let p = Pairing { code: "7ABR547C".into(), secret: "s3cr3t".into(), expires_at: "2026-11-20T14:10:00Z".into(), interval: 3 };
-        let json = serde_json::to_string(&PairingView::new("https://panel.example.org", &p)).unwrap();
+        let json = serde_json::to_string(&PairingView::new("https://panel.example.org", &p, 1)).unwrap();
         assert!(!json.contains("s3cr3t"));
         assert!(json.contains("https://panel.example.org/settings/api-tokens"));
+    }
+
+    #[test]
+    fn only_the_kept_pairing_number_matches() {
+        let pairing = Pairing { code: "7ABR547C".into(), secret: "s3cr3t".into(), expires_at: "2026-11-20T14:10:00Z".into(), interval: 3 };
+        let slot = Mutex::new(Some(Kept { address: "https://panel.example.org".into(), pairing, allow_http: false, number: 2 }));
+        forget_pairing(&slot, 1);
+        assert!(slot.lock().unwrap().is_some());
+        assert!(is_kept(&slot.lock().unwrap(), 2) && !is_kept(&slot.lock().unwrap(), 1) && !is_kept(&None, 2));
+        forget_pairing(&slot, 2);
+        assert!(slot.lock().unwrap().is_none());
     }
 
     #[test]

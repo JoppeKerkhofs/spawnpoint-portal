@@ -16,7 +16,6 @@ watch([view, openInstanceId], () => nextTick(() => document.querySelector<HTMLEl
 
 let unlisten: (() => void) | undefined;
 onMounted(async () => {
-  loadPlaying();
   settingsGet().then(
     (s) => (playerName.value = s.player_name),
     () => {}, // The footer stays empty; the Account view reports a failing settings call itself.
@@ -26,6 +25,7 @@ onMounted(async () => {
   } catch {
     // A game that exits then stays "Playing" until the window reloads.
   }
+  loadPlaying();
 });
 onUnmounted(() => unlisten?.());
 </script>
