@@ -59,6 +59,10 @@ impl Paths {
     pub fn panels_file(&self) -> PathBuf {
         self.root.join("panels.json")
     }
+
+    pub fn settings_file(&self) -> PathBuf {
+        self.root.join("settings.json")
+    }
 }
 
 // For anything from the caller that ends up in a URL or one of our own file names.

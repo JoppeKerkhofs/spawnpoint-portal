@@ -211,6 +211,11 @@ fn panel_error(panel: &str, message: impl Into<String>) -> Error {
     Error::Panel { panel: panel.into(), message: message.into() }
 }
 
+pub fn device_name(computer: Option<String>) -> String {
+    let name = format!("Spawnpoint Portal on {}", computer.as_deref().unwrap_or("this PC"));
+    name.chars().take(60).collect()
+}
+
 // The token goes in the header only, and only through the no-redirect client.
 async fn send(
     name: &str,
@@ -227,7 +232,7 @@ async fn send(
     if let Some(body) = body {
         req = req.json(&body);
     }
-    let resp = req.send().await.map_err(|_| panel_error(name, "cannot be reached"))?;
+    let resp = req.send().await.map_err(|_| Error::Unreachable { panel: name.into() })?;
     let status = resp.status();
     match status.as_u16() {
         401 => Err(panel_error(name, "no longer accepts this launcher; link it again")),
@@ -650,5 +655,12 @@ mod tests {
             assert!(pair_start(&url, "n").await.is_err());
             assert_eq!(other_hits.load(Ordering::SeqCst), 0, "{status}");
         }
+    }
+
+    #[test]
+    fn device_names() {
+        assert_eq!(device_name(Some("DESKTOP-1".into())), "Spawnpoint Portal on DESKTOP-1");
+        assert_eq!(device_name(None), "Spawnpoint Portal on this PC");
+        assert_eq!(device_name(Some("x".repeat(100))).chars().count(), 60);
     }
 }

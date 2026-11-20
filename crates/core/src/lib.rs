@@ -7,6 +7,7 @@ pub mod launch;
 pub mod loader;
 pub mod pack;
 pub mod panel;
+pub mod settings;
 pub mod sync;
 pub mod error;
 pub mod paths;

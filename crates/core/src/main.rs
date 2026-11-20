@@ -109,11 +109,6 @@ fn allow_http(rest: &[String]) -> Result<bool> {
     }
 }
 
-fn device_name(computer: Option<String>) -> String {
-    let name = format!("Spawnpoint Portal on {}", computer.as_deref().unwrap_or("this PC"));
-    name.chars().take(60).collect()
-}
-
 fn join_profile(rest: &[String]) -> Result<Profile> {
     Ok(Profile::offline(&options(rest, &["--name"])?.remove("--name").unwrap_or_else(|| "Player".into())))
 }
@@ -121,7 +116,7 @@ fn join_profile(rest: &[String]) -> Result<Profile> {
 async fn panel_add(address: &str, allow_http: bool) -> Result<()> {
     let paths = Paths::new()?;
     let address = panel::normalize_address(address, allow_http)?;
-    let pairing = panel::pair_start(&address, &device_name(std::env::var("COMPUTERNAME").ok())).await?;
+    let pairing = panel::pair_start(&address, &panel::device_name(std::env::var("COMPUTERNAME").ok())).await?;
     println!("Approve the code {} at {address}/settings/api-tokens", show(&pairing.code));
     let started = std::time::Instant::now();
     let token = loop {
@@ -227,8 +222,8 @@ the instance {id} is incomplete; run \"portal pack update {id} {version}\" to fi
 async fn run(args: &[String]) -> Result<()> {
     match args {
         [cmd] if cmd == "versions" => {
-            for v in manifest(&http_client()).await?.versions.iter().filter(|v| v.kind == "release") {
-                println!("{}", v.id);
+            for v in portal_core::gamefiles::supported_releases(&manifest(&http_client()).await?) {
+                println!("{v}");
             }
         }
         [cmd, id] if cmd == "files" => {
@@ -358,9 +353,6 @@ mod tests {
         for bad in [&["--allow-https"][..], &["--allow-http", "x"], &["x"]] {
             assert!(allow_http(&args(bad)).is_err(), "{bad:?}");
         }
-        assert_eq!(device_name(Some("DESKTOP-1".into())), "Spawnpoint Portal on DESKTOP-1");
-        assert_eq!(device_name(None), "Spawnpoint Portal on this PC");
-        assert_eq!(device_name(Some("x".repeat(100))).chars().count(), 60);
         assert_eq!(show("a\u{1b}[31mb\n"), "a [31mb ");
     }
 

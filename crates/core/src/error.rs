@@ -13,6 +13,7 @@ pub enum Error {
     Secret(String),
     NotReady(String),
     Panel { panel: String, message: String },
+    Unreachable { panel: String },
     Other(String),
 }
 
@@ -33,7 +34,24 @@ impl fmt::Display for Error {
             ),
             Error::Secret(m) => write!(f, "credential store error: {m}"),
             Error::Panel { panel, message } => write!(f, "panel {panel}: {message}"),
+            Error::Unreachable { panel } => write!(f, "panel {panel}: cannot be reached"),
             Error::NotReady(m) | Error::Unsupported(m) | Error::Other(m) => f.write_str(m),
+        }
+    }
+}
+
+impl Error {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Error::Io(_) => "io",
+            Error::Http(_) | Error::Status { .. } => "network",
+            Error::Unreachable { .. } => "unreachable",
+            Error::Panel { .. } => "panel",
+            Error::Json(_) | Error::Zip(_) | Error::Hash { .. } => "data",
+            Error::Unsupported(_) => "unsupported",
+            Error::NotReady(_) => "not_ready",
+            Error::Secret(_) => "secret",
+            Error::Other(_) => "other",
         }
     }
 }
@@ -68,5 +86,18 @@ impl From<serde_json::Error> for Error {
 impl From<zip::result::ZipError> for Error {
     fn from(e: zip::result::ZipError) -> Self {
         Error::Zip(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_kinds() {
+        assert_eq!(Error::Unreachable { panel: "Home".into() }.kind(), "unreachable");
+        assert_eq!(Error::Unreachable { panel: "Home".into() }.to_string(), "panel Home: cannot be reached");
+        assert_eq!(Error::NotReady("x".into()).kind(), "not_ready");
+        assert_eq!(Error::Other("x".into()).kind(), "other");
     }
 }

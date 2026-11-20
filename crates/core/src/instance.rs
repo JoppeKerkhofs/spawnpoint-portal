@@ -173,20 +173,54 @@ pub fn save_synced(paths: &Paths, instance: &Instance) -> Result<()> {
     save(paths, &merged)
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Listing {
+    pub instances: Vec<Instance>,
+    pub unreadable: Vec<Unreadable>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Unreadable {
+    pub folder: String,
+}
+
 pub fn list(paths: &Paths) -> Result<Vec<Instance>> {
+    list_all(paths).map(|l| l.instances)
+}
+
+pub fn list_all(paths: &Paths) -> Result<Listing> {
     let entries = match std::fs::read_dir(paths.instances()) {
         Ok(e) => e,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Listing { instances: Vec::new(), unreadable: Vec::new() }),
         Err(e) => return Err(e.into()),
     };
-    let mut all = Vec::new();
+    let (mut instances, mut unreadable) = (Vec::new(), Vec::new());
     for entry in entries {
-        if let Some(id) = entry?.file_name().to_str() {
-            all.extend(load(paths, id).ok().filter(|i| i.id == id));
+        let entry = entry?;
+        let Some(id) = entry.file_name().to_str().map(String::from) else { continue };
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        match load(paths, &id).ok().filter(|i| i.id == id) {
+            Some(i) => instances.push(i),
+            None => unreadable.push(Unreadable { folder: id }),
         }
     }
-    all.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(all)
+    instances.sort_by(|a, b| a.name.cmp(&b.name));
+    unreadable.sort_by(|a, b| a.folder.cmp(&b.folder));
+    Ok(Listing { instances, unreadable })
+}
+
+pub fn folder(paths: &Paths, id: &str) -> Result<PathBuf> {
+    check_relative(id)?;
+    if id.contains('/') {
+        return Err(Error::Other(format!("{id:?} is not a plain folder name")));
+    }
+    let path = dir(paths, id);
+    if !path.is_dir() {
+        return Err(Error::Other(format!("no instance folder {id}")));
+    }
+    Ok(path)
 }
 
 pub fn delete(paths: &Paths, id: &str) -> Result<()> {
@@ -410,5 +444,29 @@ mod tests {
         let i = load(&p, "old").unwrap();
         assert_eq!((i.memory_mb, i.last_played), (None, None));
         assert!(matches!(i.source, Source::Server { pack: Some(PackRef { version_name: None, .. }), .. }));
+    }
+
+    #[test]
+    fn unreadable_folders_are_listed_beside_the_instances() {
+        let (_t, p) = tmp();
+        create(&p, "Good", "1.21.1", None, Source::Manual).unwrap();
+        std::fs::create_dir_all(p.instances().join("old-test")).unwrap();
+        std::fs::write(p.instances().join("old-test/instance.json"), b"{not json").unwrap();
+        std::fs::create_dir_all(p.instances().join("empty")).unwrap();
+        std::fs::write(p.instances().join("stray.txt"), b"x").unwrap();
+        let l = list_all(&p).unwrap();
+        assert_eq!(l.instances.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["good"]);
+        assert_eq!(l.unreadable, vec![Unreadable { folder: "empty".into() }, Unreadable { folder: "old-test".into() }]);
+    }
+
+    #[test]
+    fn folders_are_plain_names_that_exist() {
+        let (_t, p) = tmp();
+        std::fs::create_dir_all(p.instances().join("old-test")).unwrap();
+        std::fs::create_dir_all(p.instances().join("a/b")).unwrap();
+        assert!(folder(&p, "old-test").unwrap().ends_with("old-test"));
+        for bad in ["", "..", r"..\x", "a/b", "missing"] {
+            assert!(folder(&p, bad).is_err(), "{bad}");
+        }
     }
 }

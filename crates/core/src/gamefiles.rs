@@ -47,6 +47,17 @@ pub async fn manifest(client: &Client) -> Result<Manifest> {
     Ok(serde_json::from_slice(&get_ok(client, MANIFEST_URL).await?.bytes().await?)?)
 }
 
+pub fn supported_releases(manifest: &Manifest) -> Vec<String> {
+    let mut out = Vec::new();
+    for v in manifest.versions.iter().filter(|v| v.kind == "release") {
+        out.push(v.id.clone());
+        if v.id == "1.13" {
+            break;
+        }
+    }
+    out
+}
+
 pub fn find<'a>(manifest: &'a Manifest, id: &str) -> Result<&'a ManifestVersion> {
     manifest
         .versions
@@ -201,5 +212,20 @@ mod tests {
             let index = format!(r#"{{"objects":{{"a":{{"hash":"{hash}","size":1}}}}}}"#);
             assert!(asset_downloads(&index, Path::new("A")).is_err(), "{hash}");
         }
+    }
+
+    #[test]
+    fn supported_releases_stop_at_1_13() {
+        let mut m: Manifest = serde_json::from_str(include_str!("../tests/fixtures/version_manifest_v2.json")).unwrap();
+        // the fixture has no 1.13: add one before 1.12.2
+        let at = m.versions.iter().position(|v| v.id == "1.12.2").unwrap();
+        let mut v13 = m.versions[at].clone();
+        v13.id = "1.13".into();
+        m.versions.insert(at, v13);
+        let r = supported_releases(&m);
+        assert_eq!(r.last().unwrap(), "1.13");
+        assert!(!r.iter().any(|v| v == "1.12.2"));
+        // the fixture's latest release (26.3) is not listed; the first release is
+        assert_eq!(r, ["1.21.1", "1.20.1", "1.16.5", "1.13"]);
     }
 }
