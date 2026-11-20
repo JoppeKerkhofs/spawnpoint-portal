@@ -1,0 +1,54 @@
+import type { Instance, ModFile, Panel } from "../api";
+import { loaderText, packText } from "./instances";
+
+export type ModFilter = "all" | "pack" | "own";
+
+// Own mods first, then pack mods, each in the core's order (the sort is stable).
+export const orderMods = (mods: ModFile[]): ModFile[] => [...mods].sort((a, b) => Number(a.managed) - Number(b.managed));
+
+export function filterMods(mods: ModFile[], f: ModFilter, q: string): ModFile[] {
+  const needle = q.trim().toLowerCase();
+  return mods.filter((m) => (f === "all" || (f === "pack") === m.managed) && m.name.toLowerCase().includes(needle));
+}
+
+export function modCounts(mods: ModFile[]): { all: number; pack: number; own: number } {
+  const pack = mods.filter((m) => m.managed).length;
+  return { all: mods.length, pack, own: mods.length - pack };
+}
+
+export const modsText = (n: number): string => `${n} mod${n === 1 ? "" : "s"}`;
+
+export const noModsText = (q: string): string => (q.trim() ? `No mod matches “${q}”.` : "No mods here.");
+
+export function instanceSummary(i: Instance, panels: Panel[]): string {
+  const s = i.source;
+  const pack = s.kind === "pack" ? s.pack : s.kind === "server" ? s.pack : null;
+  return [
+    `Minecraft ${i.minecraft}`,
+    i.loader && loaderText(i.loader),
+    pack && packText(pack),
+    s.kind === "server" && `from ${i.name} on ${panels.find((p) => p.id === s.panel)?.name ?? s.panel}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export const handHeading = (n: number): string => `${n} file${n === 1 ? "" : "s"} to download by hand`;
+
+export const skippedName = (path: string): string => path.replace(/^mods\//, "");
+
+// Only an https address is shown as a link; the backend refuses anything else as well.
+export const isHttps = (url: string): boolean => /^https:\/\//i.test(url);
+
+export function deleteBody(i: Instance, mods: ModFile[]): string {
+  const { all, own } = modCounts(mods);
+  const including = own > 0 ? ` (including your ${own} own)` : "";
+  const again = i.source.kind === "server" ? ` You can always join the ${i.name} server again to get a fresh copy.` : "";
+  return `This removes the whole instance folder: ${modsText(all)}${including}, its configs, and its saved worlds. It can’t be undone.${again}`;
+}
+
+export const memoryLabel = (mb: number): string => `${Number((mb / 1024).toFixed(1))} GB`;
+
+// The core's choices, plus a stored value outside them so the select never shows a wrong one.
+export const memoryOptions = (choices: number[], current: number): number[] =>
+  [...new Set([...choices, current])].sort((a, b) => a - b);
