@@ -160,7 +160,9 @@ fn cut(s: String, n: usize) -> String {
 }
 
 fn clean_names<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Vec<String>, D::Error> {
-    Ok(Vec::<String>::deserialize(d)?.into_iter().take(200).map(|n| cut(n, 64)).collect())
+    // A null list or an entry that is not text must not cost the panel its whole server list.
+    let names = Option::<Vec<serde_json::Value>>::deserialize(d)?.unwrap_or_default();
+    Ok(names.into_iter().filter_map(|n| n.as_str().map(|s| cut(s.to_string(), 64))).take(200).collect())
 }
 
 fn clean_detail<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Option<String>, D::Error> {
@@ -445,6 +447,10 @@ mod tests {
         let json = |extra: &str| format!(r#"{{"slug":"s","name":"S","hostname":"h","state":"running","game_version":null,"modpack":null,"loader":null{extra}}}"#);
         let old: Server = serde_json::from_str(&json(r#","players":{"online":1,"max":5}"#)).unwrap();
         assert!(old.players.unwrap().names.is_empty() && old.detail.is_none());
+        let none: Server = serde_json::from_str(&json(r#","players":{"online":1,"max":5,"names":null}"#)).unwrap();
+        assert!(none.players.unwrap().names.is_empty());
+        let odd: Server = serde_json::from_str(&json(r#","players":{"online":2,"max":5,"names":["Alex",7]}"#)).unwrap();
+        assert_eq!(odd.players.unwrap().names, ["Alex"]);
         let long = "é".repeat(100);
         let many: Vec<String> = (0..250).map(|_| long.clone()).collect();
         let body = json(&format!(r#","players":{{"online":250,"max":300,"names":{}}},"detail":"{}""#, serde_json::to_string(&many).unwrap(), "ü".repeat(400)));

@@ -108,7 +108,7 @@ onMounted(() => {
           </div>
           <p v-if="playersLine(found.server)" class="card-body m-0">{{ playersLine(found.server) }}</p>
           <template v-else>
-            <ul class="m-0 list-none p-0 [&_.picture]:[image-rendering:pixelated]">
+            <ul class="m-0 list-none p-0">
               <li v-for="(name, n) in found.server.players!.names" :key="n" class="row">
                 <Picture :picture="headUrl(name)" :size="24"><Tile :name="name" :texture="serverTexture(found.server)" :size="24" /></Picture>
                 <span class="mono min-w-0 break-all">{{ name }}</span>
