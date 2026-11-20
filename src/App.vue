@@ -7,6 +7,7 @@ import TitleBar from "./components/TitleBar.vue";
 import ViewHead from "./components/ViewHead.vue";
 import InstanceView from "./views/InstanceView.vue";
 import InstancesView from "./views/InstancesView.vue";
+import PanelsView from "./views/PanelsView.vue";
 import ServersView from "./views/ServersView.vue";
 import { gameExited, loadPlaying, openInstanceId, playerName, view } from "./logic/operation";
 
@@ -39,9 +40,9 @@ onUnmounted(() => unlisten?.());
         <ServersView v-if="view === 'servers'" />
         <InstancesView v-else-if="view === 'instances'" />
         <InstanceView v-else-if="view === 'instance'" :key="openInstanceId ?? undefined" />
-        <ViewHead v-else-if="view === 'panels'" title="Panels" summary="" />
+        <PanelsView v-else-if="view === 'panels'" />
         <ViewHead v-else title="Account" summary="" />
-        <div v-if="view !== 'servers' && view !== 'instances' && view !== 'instance'" class="content"></div>
+        <div v-if="view !== 'servers' && view !== 'instances' && view !== 'instance' && view !== 'panels'" class="content"></div>
       </main>
     </div>
     <StatusBar />
