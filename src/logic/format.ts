@@ -46,12 +46,6 @@ export function errorText(e: CommandError): string {
   return sentence(e.message);
 }
 
-// The capital letters of the name, at most two; without capitals its first character.
-export function initials(name: string): string {
-  const caps = name.match(/\p{Lu}/gu);
-  return caps ? caps.slice(0, 2).join("") : upper(name.charAt(0));
-}
-
 export function lastPlayedText(name: string, lp: LastPlayed | null, now: Date): string | null {
   if (!lp) return null;
   const at = new Date(lp.started_at * 1000);

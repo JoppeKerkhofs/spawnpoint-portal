@@ -36,6 +36,7 @@ onMounted(sync);
     :aria-labelledby="titleId"
     :aria-describedby="bodyId"
     @cancel.prevent="emit('cancel')"
+    @close="props.open && emit('cancel')"
   >
     <h2 :id="titleId" class="dialog-title mc-name">{{ title }}</h2>
     <div :id="bodyId" class="dialog-body"><slot /></div>

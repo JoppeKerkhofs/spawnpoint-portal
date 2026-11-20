@@ -1,6 +1,6 @@
 import { computed, ref, type ComputedRef, type Ref } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { defaults, instanceGet, onProgress as listenProgress, running, type CommandError, type Progress } from "../api";
+import { defaults, instanceGet, onProgress as listenProgress, running, type CommandError, type Instance, type Progress } from "../api";
 import { normalizeError } from "./errors";
 import { clock, errorText, stageText } from "./format";
 
@@ -18,9 +18,9 @@ export function openInstance(id: string): void {
 
 export type Op =
   | { phase: "idle" }
-  | { phase: "preparing"; name: string; step: number; steps: number; stage: string; done: number; total: number }
-  | { phase: "starting"; name: string }
-  | { phase: "failed"; name: string; error: CommandError };
+  | { phase: "preparing"; name: string; key?: string; step: number; steps: number; stage: string; done: number; total: number }
+  | { phase: "starting"; name: string; key?: string }
+  | { phase: "failed"; name: string; key?: string; error: CommandError };
 
 export interface Playing {
   instance: string;
@@ -37,13 +37,13 @@ export const busy: ComputedRef<boolean> = computed(() => op.value.phase === "pre
 
 export function onProgress(current: Op, p: Progress): Op {
   if (current.phase !== "preparing" && current.phase !== "starting") return current;
-  if (p.stage === "starting") return { phase: "starting", name: current.name };
-  return { phase: "preparing", name: current.name, step: p.step, steps: p.steps, stage: p.stage, done: p.done, total: p.total };
+  if (p.stage === "starting") return { phase: "starting", name: current.name, key: current.key };
+  return { phase: "preparing", name: current.name, key: current.key, step: p.step, steps: p.steps, stage: p.stage, done: p.done, total: p.total };
 }
 
-export async function withProgress<T>(name: string, run: () => Promise<T>): Promise<T | undefined> {
+export async function withProgress<T>(name: string, run: () => Promise<T>, key?: string): Promise<T | undefined> {
   if (busy.value) return undefined;
-  op.value = { phase: "preparing", name, step: 0, steps: 0, stage: "", done: 0, total: 0 };
+  op.value = { phase: "preparing", name, key, step: 0, steps: 0, stage: "", done: 0, total: 0 };
   let live = true;
   let unlisten: UnlistenFn | undefined;
   try {
@@ -54,7 +54,7 @@ export async function withProgress<T>(name: string, run: () => Promise<T>): Prom
     op.value = { phase: "idle" };
     return result;
   } catch (e) {
-    op.value = { phase: "failed", name, error: normalizeError(e) };
+    op.value = { phase: "failed", name, key, error: normalizeError(e) };
     return undefined;
   } finally {
     live = false;
@@ -70,19 +70,30 @@ export function gameExited(instance: string): void {
   playing.value = playing.value.filter((p) => p.instance !== instance);
 }
 
+const toPlaying = (i: Instance, memoryMb: number, since: Date, host: string | null): Playing => ({
+  instance: i.id,
+  name: i.name,
+  since,
+  host,
+  memoryMb: i.memory_mb ?? memoryMb,
+  serverKey: i.source.kind === "server" ? `${i.source.panel}/${i.source.server}` : null,
+});
+
+// Same as the core's default memory until loadPlaying has read it.
+let defaultMemoryMb = 4096;
+
+export function markPlaying(instance: Instance, host: string | null = null): void {
+  if (playing.value.some((p) => p.instance === instance.id)) return;
+  playing.value = [...playing.value, toPlaying(instance, defaultMemoryMb, new Date(), host)];
+}
+
 // Rebuilds "Playing" after a reload; the host is not known then, so only "since" shows.
 export async function loadPlaying(): Promise<void> {
   try {
     const [list, d] = await Promise.all([running(), defaults()]);
+    defaultMemoryMb = d.default_memory_mb;
     const found = await Promise.all(list.map((r) => instanceGet(r.instance)));
-    playing.value = found.map((i, n) => ({
-      instance: i.id,
-      name: i.name,
-      since: new Date(list[n].started_at * 1000),
-      host: null,
-      memoryMb: i.memory_mb ?? d.default_memory_mb,
-      serverKey: i.source.kind === "server" ? `${i.source.panel}/${i.source.server}` : null,
-    }));
+    playing.value = found.map((i, n) => toPlaying(i, d.default_memory_mb, new Date(list[n].started_at * 1000), null));
   } catch {
     // The status bar then just reads "Ready".
   }

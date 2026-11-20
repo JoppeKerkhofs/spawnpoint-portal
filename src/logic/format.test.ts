@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { andList, clock, count, countdown, errorText, initials, lastPlayedText, megabytes, stageText } from "./format";
+import { andList, clock, count, countdown, errorText, lastPlayedText, megabytes, stageText } from "./format";
 
 test("stage names and numbers", () => {
   expect(stageText("assets")).toBe("Game assets");
@@ -30,11 +30,4 @@ test("errors in words", () => {
   expect(errorText({ kind: "unreachable", message: "panel X: cannot be reached" })).toBe("The panel cannot be reached.");
   expect(errorText({ kind: "not_ready", message: "the server is still installing its pack" })).toBe("The server is still installing its pack.");
   expect(errorText({ kind: "network", message: "request failed." })).toBe("Request failed. Check your internet connection, then try again.");
-});
-
-test("initials", () => {
-  expect(initials("JoppeK")).toBe("JK");
-  expect(initials("AbC De")).toBe("AC");
-  expect(initials("steve")).toBe("S");
-  expect(initials("")).toBe("");
 });

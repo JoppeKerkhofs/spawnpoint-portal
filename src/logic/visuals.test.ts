@@ -29,6 +29,7 @@ describe("visuals", () => {
     expect(initials("JoppeK")).toBe("JK");
     expect(initials("steve")).toBe("S");
     expect(initials("ABC")).toBe("AB");
+    expect(initials("AbC De")).toBe("AC");
     expect(initials("")).toBe("");
   });
   test("pills", () => {

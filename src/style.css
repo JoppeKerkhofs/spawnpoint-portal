@@ -22,6 +22,7 @@ html[data-theme="default"] {
   --secondary-border: #1f2328;
   --secondary-fg: #1f2328;
   --secondary-hover: #f6f6f6;
+  --nav-hover: #f6f6f6;
   --destructive: #a12a2f;
   --destructive-fill: #a12a2f;
   --destructive-fill-fg: #ffffff;
@@ -109,6 +110,7 @@ html[data-theme="default"].dark {
   --secondary-border: #6b737b;
   --secondary-fg: #e8eaed;
   --secondary-hover: rgba(53, 58, 64, 0.5);
+  --nav-hover: rgba(30, 34, 38, 0.5);
   --destructive: #ff9a9a;
   --destructive-fill: #ff9a9a;
   --destructive-fill-fg: #111316;
@@ -221,6 +223,7 @@ html[data-theme="blocky"] {
   --shadow-dialog: inset -4px -4px 0 rgba(0, 0, 0, 0.28), inset 4px 4px 0 rgba(255, 255, 255, 0.6);
   --shadow-input: inset 3px 3px 0 rgba(0, 0, 0, 0.4), inset -3px -3px 0 rgba(255, 255, 255, 0.12);
   --text-shadow-on: 1px 1px 0 #000;
+  --title-shadow: #000000;
 }
 
 /* Inside a grey card or dialog the blocky text turns dark and the focus ring too. */
@@ -508,6 +511,7 @@ html[data-theme="blocky"] .progress progress::-webkit-progress-value {
   display: flex; align-items: center; justify-content: center; width: 46px; height: 32px; border: 0; cursor: pointer;
   background: transparent; color: inherit;
 }
+.titlebar-btn:focus-visible { outline-offset: -2px; }
 .titlebar-btn:hover { background: color-mix(in srgb, var(--titlebar-fg) 12%, transparent); }
 .titlebar-btn.is-close:hover { background: var(--titlebar-close); }
 html[data-theme="blocky"] .titlebar-btn:not(.is-close):hover { background: color-mix(in srgb, var(--titlebar-fg) 14%, transparent); }
@@ -518,13 +522,13 @@ html[data-theme="blocky"] .titlebar-btn:not(.is-close):hover { background: color
 }
 html[data-theme="blocky"] .side { gap: 6px; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 14px; font-size: 15px; font-weight: 700; color: var(--heading); }
-html[data-theme="blocky"] .brand { padding: 0 4px 12px; font-size: 16px; font-weight: 400; text-shadow: 2px 2px 0 var(--border); }
+html[data-theme="blocky"] .brand { padding: 0 4px 12px; font-size: 16px; font-weight: 400; text-shadow: 2px 2px 0 var(--title-shadow); }
 html[data-theme="blocky"] .brand img { width: 30px; height: 30px; }
 .nav {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 0 12px; cursor: pointer;
   font: inherit; text-align: left; border: 0; border-radius: var(--radius); background: var(--nav-bg); color: var(--fg);
 }
-.nav:hover { background: var(--secondary-hover); }
+.nav:hover { background: var(--nav-hover); }
 .nav[aria-current="page"] { background: var(--primary); color: var(--primary-fg); font-weight: 600; }
 html[data-theme="blocky"] .nav { border: var(--bw-ctl) solid var(--border); box-shadow: var(--shadow-btn); text-shadow: var(--text-shadow-on); }
 html[data-theme="blocky"] .nav:hover { background: var(--nav-bg); filter: brightness(1.15); }
@@ -560,7 +564,7 @@ html[data-theme="blocky"] .side-name { font-family: var(--font-heading); font-we
 .head { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 20px 24px 14px; }
 .head-text { flex: 1 1 0; min-width: 0; }
 .head h1 { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.3; }
-html[data-theme="blocky"] .head h1 { text-shadow: 3px 3px 0 var(--border); }
+html[data-theme="blocky"] .head h1 { text-shadow: 3px 3px 0 var(--title-shadow); }
 .head-summary { margin: 4px 0 0; font-size: 15px; color: var(--muted); }
 .head.is-centred { align-items: center; }
 .head-back { flex: 0 0 100%; }

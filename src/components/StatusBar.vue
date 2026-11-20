@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { count } from "../logic/format";
+import { count, stageText } from "../logic/format";
 import { closeFailure, lastPlayed, liveText, op, playerName, playing, trailing, view } from "../logic/operation";
 import AppButton from "./AppButton.vue";
 import Icon from "./Icon.vue";
@@ -24,7 +24,7 @@ const working = computed(() => op.value.phase === "preparing" || op.value.phase 
       <span v-if="text.muted" class="status-muted" :class="{ truncate: op.phase !== 'failed' }">{{ text.muted }}</span>
     </span>
     <template v-if="op.phase === 'preparing' && op.step > 0">
-      <ProgressBar :value="op.done" :max="Math.max(op.total, 1)" :label="`Step ${op.step} of ${op.steps}`" />
+      <ProgressBar :value="op.done" :max="Math.max(op.total, 1)" :label="stageText(op.stage)" />
       <span class="tabular">{{ count(op.done) }} of {{ count(op.total) }} files</span>
     </template>
     <AppButton v-if="op.phase === 'failed'" variant="secondary" size="small" @click="closeFailure">Close</AppButton>

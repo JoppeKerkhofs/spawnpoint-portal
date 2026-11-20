@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { initials } from "../logic/format";
+import { initials } from "../logic/visuals";
 import { playerName, view, type View } from "../logic/operation";
 import Icon, { type IconName } from "./Icon.vue";
 import Logo from "./Logo.vue";

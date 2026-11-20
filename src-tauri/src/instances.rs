@@ -96,7 +96,8 @@ pub async fn instance_delete(state: State<'_, AppState>, id: String) -> CmdResul
 
 #[tauri::command]
 pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<bool> {
-        let paths = state.paths.clone();
+    refuse_if_running(&state.running, &id)?;
+    let paths = state.paths.clone();
     let added = tokio::task::spawn_blocking(move || -> portal_core::Result<bool> {
         let inst = instance::load(&paths, &id)?;
         let Some(file) = app.dialog().file().add_filter("Mod", &["jar"]).blocking_pick_file() else { return Ok(false) };

@@ -13,7 +13,7 @@ vi.mock("../api", () => ({
 }));
 
 import { defaults, instanceGet, running, type Instance } from "../api";
-import { busy, closeFailure, gameExited, liveText, loadPlaying, onProgress, op, playing, trailing, withProgress } from "./operation";
+import { busy, closeFailure, gameExited, liveText, loadPlaying, markPlaying, onProgress, op, playing, trailing, withProgress } from "./operation";
 
 const inst = (id: string, extra: Partial<Instance> = {}): Instance => ({
   id, name: id.toUpperCase(), minecraft: "1.20.1", loader: null, source: { kind: "server", panel: "p", server: id, pack: null },
@@ -87,11 +87,63 @@ test("a finished game leaves the list", () => {
   expect(playing.value).toEqual([]);
 });
 
+test("progress events update op while an operation runs, with the key kept", async () => {
+  let seen: unknown;
+  await withProgress("Homestead", async () => {
+    emit({ step: 2, steps: 6, stage: "mods", done: 3, total: 9 });
+    seen = op.value;
+    emit({ step: 6, steps: 6, stage: "starting", done: 0, total: 0 });
+  }, "p/homestead");
+  expect(seen).toEqual({ phase: "preparing", key: "p/homestead", name: "Homestead", step: 2, steps: 6, stage: "mods", done: 3, total: 9 });
+});
+
+test("op.key names the row being prepared", async () => {
+  let release!: () => void;
+  const first = withProgress("A", () => new Promise<void>((r) => (release = r)), "p/a");
+  await Promise.resolve();
+  expect(op.value).toMatchObject({ phase: "preparing", key: "p/a" });
+  release();
+  await first;
+  await withProgress("B", async () => 1);
+  expect(op.value).toEqual({ phase: "idle" });
+});
+
+test("a failure while a game is playing returns to playing after Close", async () => {
+  const ctx = { playerName: "JoppeK", lastPlayed: null };
+  playing.value = [...p];
+  await withProgress("Skyblock test", () => Promise.reject({ kind: "other", message: "no build" }), "p/sky");
+  expect(trailing("servers", op.value, playing.value, ctx).lead).toBe("Couldn\u2019t prepare Skyblock test.");
+  expect(liveText(op.value, playing.value)).toBe("");
+  closeFailure();
+  expect(trailing("servers", op.value, playing.value, ctx).lead).toBe("Playing Homestead");
+  playing.value = [];
+});
+
+test("the first new operation clears a failure", async () => {
+  await withProgress("A", () => Promise.reject({ kind: "other", message: "x" }));
+  let during: unknown;
+  await withProgress("B", async () => {
+    during = op.value.phase;
+  });
+  expect(during).toBe("preparing");
+  expect(op.value).toEqual({ phase: "idle" });
+});
+
 test("loadPlaying takes the start time from the running list", async () => {
   vi.mocked(running).mockResolvedValue([{ instance: "homestead", started_at: 1_700_000_000 }]);
   vi.mocked(defaults).mockResolvedValue({ memory_choices_mb: [4096], default_memory_mb: 4096 });
   vi.mocked(instanceGet).mockResolvedValue(inst("homestead", { memory_mb: 6144 }));
   await loadPlaying();
   expect(playing.value).toEqual([{ instance: "homestead", name: "HOMESTEAD", since: new Date(1_700_000_000_000), host: null, memoryMb: 6144, serverKey: "p/homestead" }]);
+  playing.value = [];
+});
+
+test("markPlaying adds an instance once", () => {
+  playing.value = [];
+  markPlaying(inst("atm10"), "atm10.example.org");
+  markPlaying(inst("atm10"), "atm10.example.org");
+  expect(playing.value).toHaveLength(1);
+  expect(playing.value[0]).toMatchObject({ instance: "atm10", host: "atm10.example.org", memoryMb: 4096, serverKey: "p/atm10" });
+  expect(playing.value[0].since).toBeInstanceOf(Date);
   playing.value = [];
 });

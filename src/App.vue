@@ -12,12 +12,15 @@ watch([view, openInstanceId], () => nextTick(() => document.querySelector<HTMLEl
 
 let unlisten: (() => void) | undefined;
 onMounted(async () => {
-  unlisten = await onGameExited((e) => gameExited(e.instance));
   loadPlaying();
+  settingsGet().then(
+    (s) => (playerName.value = s.player_name),
+    () => {}, // The footer stays empty; the Account view reports a failing settings call itself.
+  );
   try {
-    playerName.value = (await settingsGet()).player_name;
+    unlisten = await onGameExited((e) => gameExited(e.instance));
   } catch {
-    // The footer stays empty; the Account view reports a failing settings call itself.
+    // A game that exits then stays "Playing" until the window reloads.
   }
 });
 onUnmounted(() => unlisten?.());
