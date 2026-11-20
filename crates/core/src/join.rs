@@ -1,7 +1,7 @@
 use reqwest::Client;
 use tokio::task::JoinSet;
 
-use crate::download::{Hash, ProgressTx};
+use crate::download::{Hash, ProgressTx, numbered};
 use crate::instance::{self, Instance, PackRef, Source};
 use crate::launch::Profile;
 use crate::loader::{self, Loader, LoaderKind};
@@ -83,8 +83,26 @@ pub async fn sync(
     slug: &str,
     progress: &ProgressTx,
 ) -> Result<(Instance, Server, Vec<Manual>)> {
+    let (instance, server, manual, _) = sync_numbered(client, paths, panel, slug, false, progress).await?;
+    Ok((instance, server, manual))
+}
+
+// Numbers the events once the loader is known; returns the numbered sender for the steps after the sync.
+async fn sync_numbered(
+    client: &Client,
+    paths: &Paths,
+    panel: &Panel,
+    slug: &str,
+    launching: bool,
+    progress: &ProgressTx,
+) -> Result<(Instance, Server, Vec<Manual>, ProgressTx)> {
     let server = panel::server(panel, slug).await?;
     let (wanted, pack_ref) = prepare(client, paths, panel, &server).await?;
+    let mut stages = play::SYNC_STAGES.to_vec();
+    if launching {
+        stages.extend(play::launch_stages(wanted.loader.as_ref().map(|l| l.kind)));
+    }
+    let progress = &numbered(stages, progress.clone());
     let existing = find_instance(paths, &panel.id, &server.slug)?;
     let created = existing.is_none();
     let mut instance = match existing {
@@ -93,7 +111,7 @@ pub async fn sync(
     };
     instance.source = Source::Server { panel: panel.id.clone(), server: server.slug.clone(), pack: pack_ref };
     match pack::install(client, paths, &mut instance, wanted, progress).await {
-        Ok(manual) => Ok((instance, server, manual)),
+        Ok(manual) => Ok((instance, server, manual, progress.clone())),
         Err(e) => {
             // An empty version means install failed before writing anything.
             if created && instance.minecraft.is_empty() {
@@ -112,10 +130,10 @@ pub async fn join(
     profile: Profile,
     progress: &ProgressTx,
 ) -> Result<(std::process::Child, Instance, Vec<Manual>)> {
-    let (instance, server, manual) = sync(client, paths, panel, slug, progress).await?;
+    let (instance, server, manual, progress) = sync_numbered(client, paths, panel, slug, true, progress).await?;
     check_host(&server.hostname)?;
     skip_onboarding(&instance::game_dir(paths, &instance.id))?;
-    let child = play::start_instance(client, paths, &instance, profile, Some(server.hostname), instance.memory_mb(), progress).await?;
+    let child = play::start_instance(client, paths, &instance, profile, Some(server.hostname), instance.memory_mb(), &progress).await?;
     Ok((child, instance, manual))
 }
 

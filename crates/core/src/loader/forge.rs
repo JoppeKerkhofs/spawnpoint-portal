@@ -373,6 +373,10 @@ pub async fn install(
         .map(|coordinate| library(&ctx, coordinate))
         .collect::<Result<Vec<_>>>()?;
     if installed(&marker, &produced) || steps.iter().all(is_done) {
+        let n = steps.len() as u64;
+        let send = |stage: &str, done, total| progress.send(Progress { step: 0, steps: 0, stage: stage.into(), done, total });
+        let _ = send("loader libraries", 0, 0);
+        let _ = send("loader", n, n);
         return Ok(loader_json);
     }
     fetch_all(client, "loader libraries", downloads, progress).await?;
@@ -391,7 +395,7 @@ pub async fn install(
         if !is_done(step) {
             run_step(java, step, &meta, kind.as_str(), i + 1).await?;
         }
-        let _ = progress.send(Progress { stage: "loader".into(), done: i as u64 + 1, total });
+        let _ = progress.send(Progress { step: 0, steps: 0, stage: "loader".into(), done: i as u64 + 1, total });
     }
     std::fs::create_dir_all(&extracted)?;
     std::fs::write(&marker, "")?;

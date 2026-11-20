@@ -42,14 +42,34 @@ impl std::fmt::Debug for Download {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Progress {
+    pub step: u32,
+    pub steps: u32,
     pub stage: String,
     pub done: u64,
     pub total: u64,
 }
 
 pub type ProgressTx = tokio::sync::mpsc::UnboundedSender<Progress>;
+
+// Numbers events by stage order; a stage not found ahead keeps the current step.
+pub fn numbered(stages: Vec<&'static str>, out: ProgressTx) -> ProgressTx {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Progress>();
+    tokio::spawn(async move {
+        let mut step = 0;
+        while let Some(mut p) = rx.recv().await {
+            let from = step.max(1) as usize - 1;
+            if let Some(i) = stages[from..].iter().position(|s| *s == p.stage) {
+                step = (from + i + 1) as u32;
+            }
+            p.step = step;
+            p.steps = stages.len() as u32;
+            let _ = out.send(p);
+        }
+    });
+    tx
+}
 
 fn hex(bytes: impl AsRef<[u8]>) -> String {
     bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
@@ -179,6 +199,7 @@ pub async fn fetch_all(
     progress: &ProgressTx,
 ) -> Result<()> {
     let total = items.len() as u64;
+    let _ = progress.send(Progress { step: 0, steps: 0, stage: stage.to_string(), done: 0, total });
     let limit = Arc::new(Semaphore::new(CONCURRENT_DOWNLOADS));
     let mut tasks = JoinSet::new();
     for item in items {
@@ -194,7 +215,7 @@ pub async fn fetch_all(
         match joined.map_err(|e| Error::Other(e.to_string())).and_then(|r| r) {
             Ok(()) => {
                 done += 1;
-                let _ = progress.send(Progress { stage: stage.to_string(), done, total });
+                let _ = progress.send(Progress { step: 0, steps: 0, stage: stage.to_string(), done, total });
             }
             Err(e) => {
                 first_error.get_or_insert(e);
@@ -407,6 +428,33 @@ mod tests {
         }
         let last = last.unwrap();
         assert_eq!((last.stage.as_str(), last.done, last.total), ("files", 5, 5));
+    }
+
+    #[tokio::test]
+    async fn numbering_moves_forward_only() {
+        let (out, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let tx = numbered(vec!["check", "mods", "java", "libraries", "assets"], out);
+        for s in ["check", "mods", "java", "libraries", "assets", "libraries", "starting"] {
+            tx.send(Progress { step: 0, steps: 0, stage: s.into(), done: 0, total: 0 }).unwrap();
+        }
+        drop(tx);
+        let mut got = vec![];
+        while let Some(p) = rx.recv().await {
+            got.push((p.step, p.steps));
+        }
+        assert_eq!(got, [(1, 5), (2, 5), (3, 5), (4, 5), (5, 5), (5, 5), (5, 5)]);
+    }
+
+    #[tokio::test]
+    async fn fetch_all_announces_a_stage_before_its_files() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        fetch_all(&http_client(), "mods", vec![], &tx).await.unwrap();
+        drop(tx);
+        let mut got = vec![];
+        while let Some(p) = rx.recv().await {
+            got.push((p.stage, p.done, p.total));
+        }
+        assert_eq!(got, [("mods".to_string(), 0, 0)]);
     }
 
     #[tokio::test]

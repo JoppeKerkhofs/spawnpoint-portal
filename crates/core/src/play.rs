@@ -1,8 +1,8 @@
-use crate::download::ProgressTx;
+use crate::download::{Progress, ProgressTx};
 use crate::gamefiles::{install, version_json};
 use crate::instance::{self, Instance};
 use crate::launch::{arguments, command, extract_natives, LaunchOptions, Profile};
-use crate::loader::{profile, resolve, Loader};
+use crate::loader::{profile, resolve, Loader, LoaderKind};
 use crate::version::merge;
 use crate::{java, Paths, Result};
 use reqwest::Client;
@@ -17,6 +17,16 @@ pub struct StartRequest {
     pub server: Option<String>,
     pub memory_mb: u32,
     pub loader: Option<Loader>,
+}
+
+pub const SYNC_STAGES: [&str; 2] = ["check", "mods"];
+
+pub fn launch_stages(loader: Option<LoaderKind>) -> Vec<&'static str> {
+    let mut stages = vec!["java", "libraries", "assets"];
+    if matches!(loader, Some(LoaderKind::NeoForge | LoaderKind::Forge)) {
+        stages.extend(["loader libraries", "loader"]);
+    }
+    stages
 }
 
 pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progress: &ProgressTx) -> Result<std::process::Child> {
@@ -48,6 +58,7 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
         None => version,
     };
     let args = arguments(paths, &version, &opts)?;
+    let _ = progress.send(Progress { step: 0, steps: 0, stage: "starting".into(), done: 0, total: 0 });
     extract_natives(paths, &version)?;
     std::fs::create_dir_all(&game_dir)?;
     Ok(command(&javaw, &args, &game_dir).spawn()?)
@@ -71,4 +82,17 @@ pub async fn start_instance(
         loader: instance.loader.clone(),
     };
     start(client, paths, &request, progress).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::loader::LoaderKind;
+
+    #[test]
+    fn launch_stages_per_loader() {
+        assert_eq!(launch_stages(None), ["java", "libraries", "assets"]);
+        assert_eq!(launch_stages(Some(LoaderKind::Fabric)), ["java", "libraries", "assets"]);
+        assert_eq!(launch_stages(Some(LoaderKind::Forge)), ["java", "libraries", "assets", "loader libraries", "loader"]);
+    }
 }

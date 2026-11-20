@@ -5,7 +5,7 @@ use std::path::Path;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::download::{Download, Hash, ProgressTx, fetch_all, file_matches, part_path, sha1_bytes, sha1_file};
+use crate::download::{Download, Hash, Progress, ProgressTx, fetch_all, file_matches, part_path, sha1_bytes, sha1_file};
 use crate::instance::{self, Instance, ManagedFile};
 use crate::paths::check_relative;
 use crate::{Error, Paths, Result};
@@ -78,6 +78,11 @@ pub fn safe_path(path: &str) -> Result<String> {
 }
 
 pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Result<SyncPlan> {
+    let (tx, _) = tokio::sync::mpsc::unbounded_channel();
+    plan_with(game_dir, managed, wanted, &tx)
+}
+
+pub fn plan_with(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>, progress: &ProgressTx) -> Result<SyncPlan> {
     let mut slots: Vec<Option<Wanted>> = Vec::new();
     let mut slot_of: HashMap<String, usize> = HashMap::new();
     for mut w in wanted {
@@ -105,7 +110,9 @@ pub fn plan(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>) -> Re
         skipped: vec![],
     };
 
-    for w in list {
+    let total = list.len() as u64;
+    for (i, w) in list.into_iter().enumerate() {
+        let _ = progress.send(Progress { step: 0, steps: 0, stage: "check".into(), done: i as u64 + 1, total });
         let full = game_dir.join(&w.path);
         if !full.exists() {
             match w.from {
@@ -306,6 +313,19 @@ mod tests {
 
     fn expect(p: &SyncPlan, write: &[&str], delete: &[&str], managed: &[&str], manual: &[&str]) {
         assert_eq!(parts(p), [write, delete, managed, manual].map(|s| s.to_vec()));
+    }
+
+    #[test]
+    fn checking_reports_each_wanted_file() {
+        let d = disk(&[("a", b"1"), ("b", b"2")]);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        plan_with(&d, &[], vec![w("a", b"1"), w("b", b"2"), w("c", b"3")], &tx).unwrap();
+        drop(tx);
+        let mut got = vec![];
+        while let Ok(p) = rx.try_recv() {
+            got.push((p.stage, p.done, p.total));
+        }
+        assert_eq!(got, (1..=3).map(|i| ("check".to_string(), i, 3)).collect::<Vec<_>>());
     }
 
     #[test]

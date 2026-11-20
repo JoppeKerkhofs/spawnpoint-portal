@@ -44,7 +44,7 @@ pub async fn install(
 ) -> Result<Vec<Manual>> {
     let _lock = instance::lock(&instance.id)?;
     let game = instance::game_dir(paths, &instance.id);
-    let plan = sync::plan(&game, &instance.managed, pack.files)?;
+    let plan = sync::plan_with(&game, &instance.managed, pack.files, progress)?;
     instance.minecraft = pack.minecraft;
     instance.loader = pack.loader;
     instance::save_synced(paths, instance)?;

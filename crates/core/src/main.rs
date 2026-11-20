@@ -1,4 +1,4 @@
-use portal_core::download::{Progress, ProgressTx};
+use portal_core::download::{numbered, Progress, ProgressTx};
 use portal_core::gamefiles::{install, manifest, version_json};
 use portal_core::instance::{self, Instance, PackRef, Source};
 use portal_core::java;
@@ -7,7 +7,7 @@ use portal_core::launch::Profile;
 use portal_core::panel;
 use portal_core::loader::{self, Loader};
 use portal_core::pack::{self, PackInstall};
-use portal_core::play::start_instance;
+use portal_core::play::{launch_stages, start_instance};
 use portal_core::sync::Manual;
 use portal_core::{http_client, Error, Paths, Result};
 use reqwest::Client;
@@ -306,7 +306,10 @@ async fn run(args: &[String]) -> Result<()> {
             let instance = instance::load(&paths, id)?;
             let memory = memory.unwrap_or(instance.memory_mb());
             let p = paths.clone();
-            let mut child = with_progress(|tx| async move { start_instance(&client, &p, &instance, profile, server, memory, &tx).await }).await?;
+            let mut child = with_progress(|tx| async move {
+                let tx = numbered(launch_stages(instance.loader.as_ref().map(|l| l.kind)), tx);
+                start_instance(&client, &p, &instance, profile, server, memory, &tx).await
+            }).await?;
             println!("started, pid {}", child.id());
             let code = wait_and_record(&paths, id, &mut child)?;
             std::process::exit(code);
