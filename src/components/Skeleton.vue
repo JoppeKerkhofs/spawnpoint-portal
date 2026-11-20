@@ -10,7 +10,7 @@ defineProps<{ rows: Array<Array<[width: string, height: string]>> }>();
         v-for="([width, height], b) in row"
         :key="b"
         class="block shrink-0 animate-pulse rounded-xs bg-(--skeleton) motion-reduce:animate-none"
-        :style="{ width, height }"
+        :style="width === 'flex' ? { flex: '1 1 auto', height } : { width, height }"
       />
     </div>
   </div>

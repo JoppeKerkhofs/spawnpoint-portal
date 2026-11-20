@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar.vue";
 import StatusBar from "./components/StatusBar.vue";
 import TitleBar from "./components/TitleBar.vue";
 import ViewHead from "./components/ViewHead.vue";
+import ServersView from "./views/ServersView.vue";
 import { gameExited, loadPlaying, openInstanceId, playerName, view } from "./logic/operation";
 
 // Moves focus to the new view's h1 so a screen reader hears where it is.
@@ -32,13 +33,13 @@ onUnmounted(() => unlisten?.());
     <div class="shell-body">
       <Sidebar />
       <main class="main">
-        <!-- Placeholders: Tasks 14 to 18 replace each branch with its view. -->
-        <ViewHead v-if="view === 'servers'" title="Servers" summary="" />
+        <!-- Placeholders: Tasks 15 to 18 replace each branch with its view. -->
+        <ServersView v-if="view === 'servers'" />
         <ViewHead v-else-if="view === 'instances'" title="Instances" summary="" />
         <ViewHead v-else-if="view === 'instance'" title="Instance" summary="" />
         <ViewHead v-else-if="view === 'panels'" title="Panels" summary="" />
         <ViewHead v-else title="Account" summary="" />
-        <div class="content"></div>
+        <div v-if="view !== 'servers'" class="content"></div>
       </main>
     </div>
     <StatusBar />
