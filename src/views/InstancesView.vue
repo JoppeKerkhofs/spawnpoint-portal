@@ -11,7 +11,7 @@ const loadError = ref<CommandError | null>(null);
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, watch } from "vue";
-import { instanceCreate, instanceLaunch, instances, loaderVersions, minecraftVersions, openInstanceFolder, panels, type Instance, type MinecraftVersion } from "../api";
+import { bedrockInstalled, bedrockStart, instanceCreate, instanceLaunch, instances, loaderVersions, minecraftVersions, openInstanceFolder, panels, type Instance, type MinecraftVersion } from "../api";
 import AppButton from "../components/AppButton.vue";
 import BlockCube from "../components/BlockCube.vue";
 import Card from "../components/Card.vue";
@@ -145,7 +145,20 @@ async function showFolder(folder: string) {
 }
 
 const back = takeReturn();
+const bedrock = ref<string | null>(null);
+
+async function playBedrock() {
+  actionError.value = null;
+  try {
+    await bedrockStart();
+  } catch (e) {
+    actionError.value = e as CommandError;
+  }
+}
+
 onMounted(async () => {
+  // Not finding Bedrock is not an error: the card just stays away.
+  bedrockInstalled().then((version) => (bedrock.value = version), () => {});
   focusRow(back);
   await load();
   focusRow(back);
@@ -286,6 +299,22 @@ onMounted(async () => {
           <div class="text-xs text-(--muted)">Portal can’t read this instance’s settings, so it can’t play it. The files are still there.</div>
         </div>
         <AppButton variant="secondary" size="small" icon="folder" @click="showFolder(u.folder)">Show folder</AppButton>
+      </div>
+    </Card>
+
+    <Card v-if="bedrock">
+      <div class="row">
+        <span v-if="blocky" class="flex w-[34px] shrink-0 items-center justify-center"><BlockCube texture="stone" :size="26" /></span>
+        <Tile v-else name="Minecraft Bedrock" texture="stone" />
+        <div class="min-w-0 flex-1">
+          <div class="mc-name truncate text-[15px] font-bold">Minecraft Bedrock</div>
+          <div class="text-xs text-(--muted)">From the Microsoft Store. Portal only starts it.</div>
+        </div>
+        <div class="w-[190px] min-w-0 shrink-0 truncate font-semibold">Bedrock {{ bedrock }}</div>
+        <span class="w-[160px] shrink-0 min-[1000px]:w-[230px]" />
+        <div class="flex w-[150px] shrink-0 justify-end">
+          <AppButton variant="primary" size="small" icon="play" aria-label="Play Minecraft Bedrock" @click="playBedrock">Play</AppButton>
+        </div>
       </div>
     </Card>
   </div>

@@ -1,3 +1,4 @@
+pub mod bedrock;
 pub mod discord;
 pub mod download;
 pub mod gamefiles;

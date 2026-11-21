@@ -33,6 +33,8 @@ pub fn run() {
             instances::running,
             instances::defaults,
             instances::minecraft_versions,
+            instances::bedrock_installed,
+            instances::bedrock_start,
             instances::loader_versions,
             instances::open_mods_folder,
             instances::open_instance_folder,
