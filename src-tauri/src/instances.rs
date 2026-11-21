@@ -226,8 +226,13 @@ pub async fn running(state: State<'_, AppState>) -> CmdResult<Vec<Running>> {
 }
 
 #[tauri::command]
-pub async fn minecraft_versions(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
-    Ok(gamefiles::supported_releases(&gamefiles::manifest(&state.client).await?))
+pub async fn minecraft_versions(state: State<'_, AppState>) -> CmdResult<Vec<gamefiles::Choice>> {
+    Ok(gamefiles::supported_versions(&gamefiles::manifest(&state.client).await?))
+}
+
+#[tauri::command]
+pub async fn loader_versions(state: State<'_, AppState>, minecraft: String, loader: String) -> CmdResult<Vec<String>> {
+    Ok(loader::versions(&state.client, &minecraft, loader::LoaderKind::parse(&loader)?).await?)
 }
 
 pub fn open_folder(app: &AppHandle, path: &Path) -> CmdResult<()> {

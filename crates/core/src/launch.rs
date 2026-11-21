@@ -138,7 +138,7 @@ pub fn arguments_joined(paths: &Paths, version: &VersionJson, opts: &LaunchOptio
         ("clientid", String::new()),
         ("auth_xuid", String::new()),
         ("user_type", opts.profile.user_type.clone()),
-        ("version_type", "release".into()),
+        ("version_type", version.kind.clone().unwrap_or_else(|| "release".into())),
         ("natives_directory", paths.natives(&version.id).to_string_lossy().into_owned()),
         ("launcher_name", "spawnpoint-portal".into()),
         ("launcher_version", env!("CARGO_PKG_VERSION").into()),

@@ -76,6 +76,16 @@ pub async fn check_new(client: &Client, minecraft: &str, loader: &Loader) -> Res
     }
 }
 
+// What the create form offers, newest first; an error when the loader has nothing for this Minecraft.
+pub async fn versions(client: &Client, minecraft: &str, kind: LoaderKind) -> Result<Vec<String>> {
+    check_id(minecraft)?;
+    check_new(client, minecraft, &Loader { kind, version: None }).await?;
+    match kind {
+        LoaderKind::Fabric => fabric::versions(client, minecraft).await,
+        _ => forge::versions(client, kind, minecraft).await,
+    }
+}
+
 pub async fn resolve_new(client: &Client, minecraft: &str, loader: &Loader) -> Result<Loader> {
     check_new(client, minecraft, loader).await?;
     resolve(client, minecraft, loader).await

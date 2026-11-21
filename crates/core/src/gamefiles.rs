@@ -52,8 +52,17 @@ pub async fn manifest(client: &Client) -> Result<Manifest> {
     Ok(serde_json::from_slice(&get_ok(client, MANIFEST_URL).await?.bytes().await?)?)
 }
 
-pub fn supported_releases(manifest: &Manifest) -> Vec<String> {
-    manifest.versions.iter().filter(|v| v.kind == "release").map(|v| v.id.clone()).collect()
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Choice {
+    pub id: String,
+    pub snapshot: bool,
+}
+
+// Releases and snapshots, newest first; alpha and beta versions are not offered.
+// A few old snapshots have a space in their id ("1.14 Pre-Release 1"): an instance cannot hold those.
+pub fn supported_versions(manifest: &Manifest) -> Vec<Choice> {
+    let offered = manifest.versions.iter().filter(|v| matches!(v.kind.as_str(), "release" | "snapshot") && crate::paths::check_id(&v.id).is_ok());
+    offered.map(|v| Choice { id: v.id.clone(), snapshot: v.kind == "snapshot" }).collect()
 }
 
 pub fn find<'a>(manifest: &'a Manifest, id: &str) -> Result<&'a ManifestVersion> {
@@ -267,16 +276,19 @@ mod tests {
     }
 
     #[test]
-    fn supported_releases_go_back_to_1_0() {
+    fn supported_versions_go_back_to_1_0_and_mark_snapshots() {
         let mut m: Manifest = serde_json::from_str(include_str!("../tests/fixtures/version_manifest_v2.json")).unwrap();
         let at = m.versions.iter().position(|v| v.id == "1.12.2").unwrap();
-        for (id, kind) in [("1.0", "release"), ("b1.7.3", "old_beta"), ("1.5.2", "release")] {
+        for (id, kind) in [("1.0", "release"), ("b1.7.3", "old_beta"), ("1.14 Pre-Release 1", "snapshot"), ("1.5.2", "release")] {
             let mut v = m.versions[at].clone();
             (v.id, v.kind) = (id.into(), kind.into());
             m.versions.insert(at + 1, v);
         }
-        // the fixture's 26.3 is no release; betas are not listed
-        assert_eq!(supported_releases(&m), ["1.21.1", "1.20.1", "1.16.5", "1.12.2", "1.5.2", "1.0"]);
+        let all = supported_versions(&m);
+        assert!(all.iter().all(|v| v.id != "b1.7.3" && !v.id.contains(' ')), "no betas, no ids an instance cannot hold");
+        assert!(all.iter().any(|v| v.snapshot), "the fixture holds a snapshot");
+        let releases: Vec<_> = all.iter().filter(|v| !v.snapshot).map(|v| v.id.as_str()).collect();
+        assert_eq!(releases, ["1.21.1", "1.20.1", "1.16.5", "1.12.2", "1.5.2", "1.0"]);
     }
 
     #[test]

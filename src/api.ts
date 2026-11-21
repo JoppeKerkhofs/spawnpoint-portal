@@ -149,7 +149,9 @@ export interface Running {
 }
 
 export const running = () => invoke<Running[]>("running");
-export const minecraftVersions = () => invoke<string[]>("minecraft_versions");
+export type MinecraftVersion = { id: string; snapshot: boolean };
+export const loaderVersions = (minecraft: string, loader: string) => invoke<string[]>("loader_versions", { minecraft, loader });
+export const minecraftVersions = () => invoke<MinecraftVersion[]>("minecraft_versions");
 export const openModsFolder = (id: string) => invoke<void>("open_mods_folder", { id });
 export const openInstanceFolder = (id: string) => invoke<void>("open_instance_folder", { id });
 
