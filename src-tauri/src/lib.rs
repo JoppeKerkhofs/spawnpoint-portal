@@ -33,6 +33,7 @@ pub fn run() {
             instances::running,
             instances::defaults,
             instances::minecraft_versions,
+            instances::loader_versions,
             instances::open_mods_folder,
             instances::open_instance_folder,
             panels::servers,

@@ -232,8 +232,10 @@ the instance {id} is incomplete; run \"portal pack update {id} {version}\" to fi
 async fn run(args: &[String]) -> Result<()> {
     match args {
         [cmd] if cmd == "versions" => {
-            for v in portal_core::gamefiles::supported_releases(&manifest(&http_client()).await?) {
-                println!("{v}");
+            for v in portal_core::gamefiles::supported_versions(&manifest(&http_client()).await?) {
+                if !v.snapshot {
+                    println!("{}", v.id);
+                }
             }
         }
         [cmd, id] if cmd == "files" => {

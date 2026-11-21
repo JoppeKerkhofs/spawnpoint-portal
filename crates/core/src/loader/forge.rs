@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::download::{blocking, fetch, fetch_all, file_matches, get_ok, sha1_file, Download, Hash, Progress, ProgressTx};
 use crate::loader::LoaderKind;
-use crate::paths::check_relative;
+use crate::paths::{check_id, check_relative};
 use crate::version::{library_files, maven_path, Library, LibraryFile, VersionJson};
 use crate::{Error, Paths, Result};
 
@@ -25,6 +25,12 @@ struct Promotions {
 }
 
 pub fn newest_neoforge(versions_json: &str, minecraft: &str) -> Result<String> {
+    let all = neoforge_builds(versions_json, minecraft)?;
+    Ok(all.iter().find(|v| !v.contains("-beta")).unwrap_or(&all[0]).clone())
+}
+
+// Newest first; never empty.
+pub fn neoforge_builds(versions_json: &str, minecraft: &str) -> Result<Vec<String>> {
     let mut parts: Vec<&str> = minecraft.split('.').collect();
     // 1.x versions drop the leading 1; year-based ones (26.1) keep it and gain a 0 patch.
     if parts[0] == "1" {
@@ -38,14 +44,43 @@ pub fn newest_neoforge(versions_json: &str, minecraft: &str) -> Result<String> {
     let all: Vec<String> = serde_json::from_str::<Versions>(versions_json)?
         .versions
         .into_iter()
-        .filter(|v| v.starts_with(&prefix))
-        .collect();
-    all.iter()
         .rev()
-        .find(|v| !v.contains("-beta"))
-        .or(all.last())
-        .cloned()
-        .ok_or_else(|| Error::Other(format!("NeoForge has no build for Minecraft {minecraft}")))
+        .filter(|v| v.starts_with(&prefix) && check_id(v).is_ok())
+        .collect();
+    match all.is_empty() {
+        true => Err(Error::Other(format!("NeoForge has no build for Minecraft {minecraft}"))),
+        false => Ok(all),
+    }
+}
+
+// From the Maven metadata, newest first; never empty. 1.7.10-10.13.4.1614-1.7.10 is listed as 10.13.4.1614.
+pub fn forge_builds(metadata_xml: &str, minecraft: &str) -> Result<Vec<String>> {
+    let prefix = format!("{minecraft}-");
+    let number = |v: &String| v.split('.').map(|p| p.parse().unwrap_or(0)).collect::<Vec<u32>>();
+    let mut builds: Vec<String> = metadata_xml
+        .split("<version>")
+        .skip(1)
+        .filter_map(|rest| rest.split("</version>").next()?.strip_prefix(&prefix)?.split('-').next())
+        .filter(|v| check_id(v).is_ok())
+        .map(String::from)
+        .collect();
+    builds.sort_by_key(|v| std::cmp::Reverse(number(v)));
+    builds.dedup();
+    match builds.is_empty() {
+        true => Err(Error::Other(format!("Forge has no build for Minecraft {minecraft}"))),
+        false => Ok(builds),
+    }
+}
+
+pub async fn versions(client: &Client, kind: LoaderKind, minecraft: &str) -> Result<Vec<String>> {
+    match kind {
+        LoaderKind::Forge => {
+            let xml = get_ok(client, &format!("{FORGE_MAVEN}net/minecraftforge/forge/maven-metadata.xml")).await?.text().await?;
+            forge_builds(&xml, minecraft)
+        }
+        LoaderKind::NeoForge => neoforge_builds(&get_ok(client, NEOFORGE_VERSIONS).await?.text().await?, minecraft),
+        LoaderKind::Fabric => Err(Error::Other("Fabric has no installer".into())),
+    }
 }
 
 pub fn newest_forge(promotions_json: &str, minecraft: &str) -> Result<String> {
@@ -604,6 +639,20 @@ mod tests {
         assert_eq!(newest_forge(j, "1.20.1").unwrap(), "47.4.28");
         assert_eq!(newest_forge(j, "1.16.5").unwrap(), "36.2.34");
         assert!(newest_forge(j, "0.0.1").is_err());
+    }
+
+    #[test]
+    fn builds_are_listed_newest_first() {
+        let xml = "<versions><version>1.7.10-10.13.4.1558-1.7.10</version><version>1.7.10-10.13.4.1614-1.7.10</version>\
+            <version>1.7.10-10.13.4.1614-new</version><version>1.7.10_pre4-10.12.2.1149-prerelease</version>\
+            <version>1.7.10-10.13.4.999</version><version>1.7.10-a/b</version><version>1.20.1-47.4.28</version></versions>";
+        assert_eq!(forge_builds(xml, "1.7.10").unwrap(), ["10.13.4.1614", "10.13.4.1558", "10.13.4.999"]);
+        assert_eq!(forge_builds(xml, "1.20.1").unwrap(), ["47.4.28"]);
+        assert!(forge_builds(xml, "1.7").is_err());
+        let j = include_str!("../../tests/fixtures/neoforge-versions.json");
+        let listed = neoforge_builds(j, "1.21.1").unwrap();
+        assert_eq!(listed[0], "21.1.267");
+        assert!(listed.len() > 1 && listed.iter().all(|v| v.starts_with("21.1.")));
     }
 
     #[test]

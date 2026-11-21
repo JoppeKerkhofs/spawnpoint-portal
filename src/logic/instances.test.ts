@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Instance, Source } from "../api";
 import type { Playing } from "./operation";
-import { canCreate, dropInstance, instanceList, instancesState, instancesSummary, kindOf, kindTone, loaderText, packText, playButton, sourceText } from "./instances";
+import { canCreate, loaderChoice, versionChoices, dropInstance, instanceList, instancesState, instancesSummary, kindOf, kindTone, loaderText, packText, playButton, sourceText } from "./instances";
 
 const inst = (extra: Partial<Instance> = {}): Instance => ({
   id: "i", name: "N", minecraft: "1.20.1", loader: null, source: { kind: "manual" } as Source, managed: [], memory_mb: null,
@@ -35,6 +35,13 @@ test('where an instance comes from', () => {
 })
 test('create needs a name and versions', () => {
   expect(canCreate('  ', ['26.3'])).toBe(false); expect(canCreate('My new world', null)).toBe(false); expect(canCreate('My new world', ['26.3'])).toBe(true)
+})
+test('snapshots are listed only when asked for', () => {
+  const all = [{ id: '26.4-snapshot-10', snapshot: true }, { id: '26.3', snapshot: false }]
+  expect(versionChoices(all, false)).toEqual(['26.3']); expect(versionChoices(all, true)).toEqual(['26.4-snapshot-10', '26.3']); expect(versionChoices(null, true)).toBe(null)
+})
+test('the loader choice names a version only when one is picked', () => {
+  expect(loaderChoice('none', '1')).toBe(null); expect(loaderChoice('fabric', '')).toBe('fabric'); expect(loaderChoice('forge', '47.4.28')).toBe('forge:47.4.28')
 })
 test('play button', () => {
   const i = inst({ name: 'Homestead' })

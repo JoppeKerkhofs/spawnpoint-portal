@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import type { Instance, Listing, Loader, PackRef, Panel } from "../api";
+import type { Instance, Listing, Loader, MinecraftVersion, PackRef, Panel } from "../api";
 import type { Op, Playing } from "./operation";
 import { catalogueName, loaderName } from "./servers";
 
@@ -44,6 +44,13 @@ export function sourceText(i: Instance, panels: Panel[]): string {
   const on = `${i.name} on ${panels.find((p) => p.id === s.panel)?.name ?? s.panel}`;
   return s.pack ? `${on} · ${packText(s.pack)}` : on;
 }
+
+export const versionChoices = (versions: MinecraftVersion[] | null, snapshots: boolean): string[] | null =>
+  versions && versions.filter((v) => snapshots || !v.snapshot).map((v) => v.id);
+
+// What instance_create takes: nothing, "fabric" for the newest, or "fabric:0.16.9".
+export const loaderChoice = (loader: string, version: string): string | null =>
+  loader === "none" ? null : version ? `${loader}:${version}` : loader;
 
 export const canCreate = (name: string, versions: string[] | null): boolean => name.trim() !== "" && versions !== null && versions.length > 0;
 

@@ -10,8 +10,8 @@ const loadError = ref<CommandError | null>(null);
 </script>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted } from "vue";
-import { instanceCreate, instanceLaunch, instances, minecraftVersions, openInstanceFolder, panels, type Instance } from "../api";
+import { computed, nextTick, onMounted, watch } from "vue";
+import { instanceCreate, instanceLaunch, instances, loaderVersions, minecraftVersions, openInstanceFolder, panels, type Instance, type MinecraftVersion } from "../api";
 import AppButton from "../components/AppButton.vue";
 import BlockCube from "../components/BlockCube.vue";
 import Card from "../components/Card.vue";
@@ -25,7 +25,7 @@ import Picture from "../components/Picture.vue";
 import Tile from "../components/Tile.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { errorText, minecraftText } from "../logic/format";
-import { canCreate, instancesState, instancesSummary, kindOf, kindTone, loaderText, playButton, sourceText } from "../logic/instances";
+import { canCreate, loaderChoice, versionChoices, instancesState, instancesSummary, kindOf, kindTone, loaderText, playButton, sourceText } from "../logic/instances";
 import { look } from "../logic/look";
 import { focusRow, instanceRowKey, takeReturn } from "../logic/focus";
 import { markPlaying, op, openInstance, playing, view, withProgress } from "../logic/operation";
@@ -58,7 +58,30 @@ const formOpen = ref(false);
 const name = ref("");
 const version = ref("");
 const loader = ref("none");
-const versions = ref<string[] | null>(null);
+const allVersions = ref<MinecraftVersion[] | null>(null);
+const snapshots = ref(false);
+const versions = computed(() => versionChoices(allVersions.value, snapshots.value));
+watch(versions, (list) => {
+  if (list && !list.includes(version.value)) version.value = list[0] ?? "";
+});
+const loaderVersion = ref("");
+const loaderList = ref<string[] | null>(null);
+const loaderError = ref<CommandError | null>(null);
+// A slow answer for an earlier choice must not fill the list of the current one.
+let loaderAsk = 0;
+watch([version, loader], async ([minecraft, kind]) => {
+  const ask = ++loaderAsk;
+  loaderVersion.value = "";
+  loaderList.value = null;
+  loaderError.value = null;
+  if (kind === "none" || !minecraft) return;
+  try {
+    const list = await loaderVersions(minecraft, kind);
+    if (ask === loaderAsk) loaderList.value = list;
+  } catch (e) {
+    if (ask === loaderAsk) loaderError.value = e as CommandError;
+  }
+});
 const versionError = ref<CommandError | null>(null);
 const creating = ref(false);
 const createError = ref<CommandError | null>(null);
@@ -68,8 +91,7 @@ const newButton = ref<{ $el: HTMLElement }>();
 async function loadVersions() {
   versionError.value = null;
   try {
-    versions.value = await minecraftVersions();
-    if (!versions.value.includes(version.value)) version.value = versions.value[0] ?? "";
+    allVersions.value = await minecraftVersions();
   } catch (e) {
     versionError.value = e as CommandError;
   }
@@ -94,7 +116,7 @@ async function create() {
   creating.value = true;
   createError.value = null;
   try {
-    await instanceCreate(name.value.trim(), version.value, loader.value === "none" ? null : loader.value);
+    await instanceCreate(name.value.trim(), version.value, loaderChoice(loader.value, loaderVersion.value));
     closeForm();
     await load();
   } catch (e) {
@@ -147,8 +169,14 @@ onMounted(async () => {
           <label class="label" for="instance-name">Name</label>
           <input id="instance-name" ref="nameInput" v-model="name" class="input w-full" placeholder="My new world" />
         </div>
-        <div class="min-w-0 flex-[1_1_140px]">
-          <label class="label" for="instance-version">Minecraft version</label>
+        <div class="min-w-0 flex-[1_1_200px]">
+          <div class="mb-1 flex items-center justify-between gap-3">
+            <label class="label mb-0!" for="instance-version">Minecraft version</label>
+            <label class="flex items-center gap-1.5 text-xs whitespace-nowrap">
+              <input v-model="snapshots" type="checkbox" class="check" />
+              Snapshots
+            </label>
+          </div>
           <select id="instance-version" v-model="version" class="select w-full" :disabled="!versions">
             <option v-if="!versions" value="" disabled>{{ versionError ? "Unavailable" : "Loading…" }}</option>
             <option v-for="v in versions ?? []" :key="v" :value="v">{{ v }}</option>
@@ -165,8 +193,9 @@ onMounted(async () => {
         </div>
         <div class="min-w-0 flex-[1_1_160px]">
           <label class="label" for="instance-loader-version">Loader version</label>
-          <select id="instance-loader-version" class="select w-full" :disabled="loader === 'none'">
-            <option>Newest for this version</option>
+          <select id="instance-loader-version" v-model="loaderVersion" class="select w-full" :disabled="!loaderList">
+            <option value="">{{ loader !== "none" && !loaderList && !loaderError ? "Loading…" : "Newest for this version" }}</option>
+            <option v-for="v in loaderList ?? []" :key="v" :value="v">{{ v }}</option>
           </select>
         </div>
         <div class="flex gap-2">
@@ -179,6 +208,12 @@ onMounted(async () => {
           <strong>Couldn’t load the Minecraft versions.</strong>
           <div>{{ errorText(versionError) }}</div>
           <AppButton variant="secondary" size="small" class="mt-2" @click="loadVersions">Try again</AppButton>
+        </Note>
+      </div>
+      <div v-if="loaderError" class="px-3.5 pb-3">
+        <Note kind="err" role="alert">
+          <strong>Couldn’t load the loader versions.</strong>
+          <div>{{ errorText(loaderError) }}</div>
         </Note>
       </div>
       <div v-if="createError" class="px-3.5 pb-3">
