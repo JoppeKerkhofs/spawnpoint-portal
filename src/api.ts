@@ -150,6 +150,9 @@ export interface Running {
 
 export const running = () => invoke<Running[]>("running");
 export type MinecraftVersion = { id: string; snapshot: boolean };
+// The installed Bedrock version, or null when the Microsoft Store has not installed it.
+export const bedrockInstalled = () => invoke<string | null>("bedrock_installed");
+export const bedrockStart = () => invoke<void>("bedrock_start");
 export const loaderVersions = (minecraft: string, loader: string) => invoke<string[]>("loader_versions", { minecraft, loader });
 export const minecraftVersions = () => invoke<MinecraftVersion[]>("minecraft_versions");
 export const openModsFolder = (id: string) => invoke<void>("open_mods_folder", { id });

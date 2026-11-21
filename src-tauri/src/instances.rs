@@ -235,6 +235,16 @@ pub async fn loader_versions(state: State<'_, AppState>, minecraft: String, load
     Ok(loader::versions(&state.client, &minecraft, loader::LoaderKind::parse(&loader)?).await?)
 }
 
+#[tauri::command]
+pub async fn bedrock_installed() -> CmdResult<Option<String>> {
+    Ok(tokio::task::spawn_blocking(portal_core::bedrock::installed).await.map_err(|e| Error::Other(e.to_string()))?)
+}
+
+#[tauri::command]
+pub async fn bedrock_start() -> CmdResult<()> {
+    Ok(portal_core::bedrock::start()?)
+}
+
 pub fn open_folder(app: &AppHandle, path: &Path) -> CmdResult<()> {
     app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| CommandError { kind: "other".into(), message: e.to_string() })
 }
