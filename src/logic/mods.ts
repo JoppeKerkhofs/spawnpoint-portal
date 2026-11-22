@@ -68,6 +68,14 @@ export function resultControl(project: string, installed: InstalledMod[] | null)
 
 export const modIcon = (m: ModFile, known: InstalledMod[] | null): string | null => known?.find((x) => x.file === m.name)?.icon ?? null;
 
+// Modrinth sends this address on to the project's own page, whatever its kind.
+export const modrinthPage = (project: string) => `https://modrinth.com/project/${project}`;
+
+export function modPage(m: ModFile, known: InstalledMod[] | null): string | null {
+  const project = known?.find((x) => x.file === m.name)?.project;
+  return project ? modrinthPage(project) : null;
+}
+
 export function updatableMod(m: ModFile, known: InstalledMod[] | null): InstalledMod | undefined {
   const k = m.managed ? undefined : known?.find((x) => x.file === m.name);
   return k?.update && k.project ? k : undefined;

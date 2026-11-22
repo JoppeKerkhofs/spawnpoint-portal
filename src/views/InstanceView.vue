@@ -54,6 +54,7 @@ import {
   orderMods,
   skippedName,
   modIcon,
+  modPage,
   updatableMod,
   type ModFilter,
 } from "../logic/mods";
@@ -326,6 +327,7 @@ onUnmounted(() => {
         :loader="instance.loader"
         :installed="known"
         @install="installMod"
+        @page="(url) => run(() => openPage(url))"
         @back="closeBrowser"
       />
       <section v-else class="card" aria-labelledby="mods-heading">
@@ -362,7 +364,16 @@ onUnmounted(() => {
             <span class="mono min-w-0 flex-1 truncate" :title="m.name">{{ m.name }}</span>
             <span class="tabular w-16 shrink-0 text-right text-xs text-(--muted)">{{ megabytes(m.size) }}</span>
             <span class="w-[70px] shrink-0"><KindBadge :kind="m.managed ? 'pack' : 'own'">{{ m.managed ? "Pack" : "Own" }}</KindBadge></span>
-            <span class="flex w-[11.5rem] shrink-0 items-center justify-end gap-1.5">
+            <span class="flex w-[14rem] shrink-0 items-center justify-end gap-1.5">
+              <AppButton
+                v-if="modPage(m, known)"
+                variant="secondary"
+                size="small"
+                icon="external"
+                :aria-label="`Open the page of ${m.name} on Modrinth`"
+                title="Open its page on Modrinth"
+                @click="run(() => openPage(modPage(m, known)!))"
+              />
               <AppButton
                 v-if="updatable(m)"
                 variant="secondary"

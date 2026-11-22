@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref, watch } from "vue";
 import { modsSearch, type CommandError, type InstalledMod, type Loader, type ModHit } from "../api";
 import { errorText } from "../logic/format";
-import { downloadsText, noResultsText, resultControl } from "../logic/mods";
+import { downloadsText, modrinthPage, noResultsText, resultControl } from "../logic/mods";
 import { busy, op } from "../logic/operation";
 import AppButton from "./AppButton.vue";
 import Icon from "./Icon.vue";
@@ -12,7 +12,7 @@ import Picture from "./Picture.vue";
 import Skeleton from "./Skeleton.vue";
 
 const props = defineProps<{ id: string; minecraft: string; loader: Loader; installed: InstalledMod[] | null }>();
-const emit = defineEmits<{ install: [project: string]; back: [] }>();
+const emit = defineEmits<{ install: [project: string]; page: [url: string]; back: [] }>();
 
 const query = ref("");
 const hits = ref<ModHit[]>([]);
@@ -88,6 +88,14 @@ onUnmounted(() => clearTimeout(timer));
           <span class="block truncate text-xs text-(--muted)">{{ h.description }}</span>
         </span>
         <span class="tabular w-36 shrink-0 text-right text-xs text-(--muted)">{{ downloadsText(h.downloads) }}</span>
+        <AppButton
+          variant="secondary"
+          size="small"
+          icon="external"
+          :aria-label="`Open the page of ${h.title} on Modrinth`"
+          title="Open its page on Modrinth"
+          @click="emit('page', modrinthPage(h.project_id))"
+        />
         <span class="flex w-28 shrink-0 justify-end">
           <template v-for="control in [resultControl(h.project_id, installed)]" :key="control">
             <KindBadge v-if="control === 'pack'" kind="pack">From the pack</KindBadge>

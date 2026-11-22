@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { PanelServers, Players, Server } from "../api";
 import type { Playing } from "./operation";
-import { detailRows, findServer, instanceFor, joinButton, joinNote, playersLine, playersText, runsText, serverSummaryLine, serversState, serversSummary } from "./servers";
+import { detailRows, findServer, instanceFor, joinButton, joinNote, mayPoll, playersLine, playersText, runsText, serverSummaryLine, serversState, serversSummary } from "./servers";
 import { minecraftText } from "./format";
 
 const srv = (extra: Partial<Server> = {}): Server => ({
@@ -98,4 +98,14 @@ test("summary line and details rows", () => {
   const pack = srv({ modpack: { catalogue: "ftb", project: "x", version: null, version_name: "1.3" } });
   expect(detailRows(pack, p).map((r) => r[0])).toEqual(["Address", "Minecraft version", "Modpack", "Panel"]);
   expect(detailRows(pack, p)[2][1]).toBe("FTB 1.3");
+});
+
+test("a refresh nobody asked for waits for a game, a join, a hidden window and the floor", () => {
+  expect(mayPoll(0, false, false, false, 0, 0)).toBe(true);
+  expect(mayPoll(1, false, false, false, 0, 0)).toBe(false);
+  expect(mayPoll(0, true, false, false, 0, 0)).toBe(false);
+  expect(mayPoll(0, false, true, false, 0, 0)).toBe(false);
+  expect(mayPoll(0, false, false, true, 0, 0)).toBe(false);
+  expect(mayPoll(0, false, false, false, 29_000, 30_000)).toBe(false);
+  expect(mayPoll(0, false, false, false, 30_000, 30_000)).toBe(true);
 });
