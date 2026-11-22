@@ -143,7 +143,9 @@ pub async fn join(
     let (instance, server, manual, progress) = sync_numbered(client, paths, panel, slug, true, progress).await?;
     let _lock = instance::lock(&instance.id)?;
     check_host(&server.hostname)?;
-    skip_onboarding(&instance::game_dir(paths, &instance.id))?;
+    let game = instance::game_dir(paths, &instance.id);
+    skip_onboarding(&game)?;
+    list_server(&game, &server.name, &server.hostname)?;
     let (child, joined) = play::start_instance(client, paths, &instance, profile, Some(server.hostname), instance.memory_mb(), &progress).await?;
     Ok((child, instance, manual, joined))
 }
@@ -156,6 +158,44 @@ fn skip_onboarding(game: &std::path::Path) -> Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
         Err(e) => Err(e.into()),
     }
+}
+
+// An NBT string: a length and Java's modified UTF-8, which differs from UTF-8 for NUL and beyond U+FFFF.
+fn nbt_string(text: &str) -> Vec<u8> {
+    let mut bytes = vec![];
+    for unit in text.encode_utf16() {
+        match unit {
+            0x01..=0x7f => bytes.push(unit as u8),
+            0..=0x7ff => bytes.extend([0xc0 | (unit >> 6) as u8, 0x80 | (unit & 0x3f) as u8]),
+            _ => bytes.extend([0xe0 | (unit >> 12) as u8, 0x80 | (unit >> 6 & 0x3f) as u8, 0x80 | (unit & 0x3f) as u8]),
+        }
+    }
+    [&(bytes.len() as u16).to_be_bytes()[..], &bytes].concat()
+}
+
+// The start of servers.dat as Minecraft writes it: a nameless compound whose first tag is the list "servers".
+const SERVER_LIST: &[u8] = b"\x0a\0\0\x09\0\x07servers";
+
+// Puts the server first in the game's multiplayer list. A file in a form Minecraft does not write is left alone.
+fn list_server(game: &std::path::Path, name: &str, host: &str) -> Result<()> {
+    let path = game.join("servers.dat");
+    let old = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => [SERVER_LIST, &[0u8; 6]].concat(),
+        Err(e) => return Err(e.into()),
+    };
+    let ip = [b"\x08\0\x02ip", &nbt_string(host)[..]].concat();
+    let body = SERVER_LIST.len() + 5;
+    let Some(count) = old.get(SERVER_LIST.len() + 1..body).map(|c| i32::from_be_bytes(c.try_into().unwrap())) else { return Ok(()) };
+    // An empty list has no element type.
+    let compounds = old[SERVER_LIST.len()] == 0x0a || (old[SERVER_LIST.len()] == 0 && count == 0);
+    if !old.starts_with(SERVER_LIST) || !compounds || old.windows(ip.len()).any(|w| w == ip) {
+        return Ok(());
+    }
+    let name: String = name.chars().take(100).collect();
+    let entry = [&ip[..], b"\x08\0\x04name", &nbt_string(&name), &[0]].concat();
+    let new = [SERVER_LIST, &[0x0a], &(count + 1).to_be_bytes(), &entry, &old[body..]].concat();
+    Ok(std::fs::write(path, new)?)
 }
 
 pub async fn all_servers(paths: &Paths) -> Result<Vec<(Panel, Result<Vec<Server>>)>> {
@@ -468,6 +508,35 @@ mod tests {
         std::fs::write(game.join("options.txt"), "mine:1\n").unwrap();
         skip_onboarding(&game).unwrap();
         assert_eq!(std::fs::read_to_string(game.join("options.txt")).unwrap(), "mine:1\n");
+    }
+
+    #[test]
+    fn a_joined_server_is_listed_once_and_first() {
+        let dir = tmp_dir();
+        let file = dir.join("servers.dat");
+        let at = SERVER_LIST.len();
+        list_server(&dir, "Caf\u{e9} \u{1f600}", "a.example.org").unwrap();
+        let one = std::fs::read(&file).unwrap();
+        let entry = b"\x08\0\x02ip\0\x0da.example.org\x08\0\x04name\0\x0cCaf\xc3\xa9 \xed\xa0\xbd\xed\xb8\x80\0";
+        assert_eq!(one, [SERVER_LIST, &[0x0a, 0, 0, 0, 1], entry, &[0]].concat());
+
+        list_server(&dir, "Other", "a.example.org").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), one);
+
+        list_server(&dir, "B", "b.example.org").unwrap();
+        let two = std::fs::read(&file).unwrap();
+        assert_eq!(two[at..at + 5], [0x0a, 0, 0, 0, 2]);
+        assert!(two[at + 5..].starts_with(b"\x08\0\x02ip\0\x0db.example.org") && two.ends_with(&one[at + 5..]));
+
+        // What Minecraft writes for an empty list, then files it never wrote.
+        std::fs::write(&file, [SERVER_LIST, &[0u8; 6]].concat()).unwrap();
+        list_server(&dir, "B", "b.example.org").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap()[at..at + 5], [0x0a, 0, 0, 0, 1]);
+        for odd in [&b"\x1f\x8b gzip, long enough to hold a count"[..], b"", b"\x0a\0\0\x09\0\x07servers\x0a\0"] {
+            std::fs::write(&file, odd).unwrap();
+            list_server(&dir, "B", "b.example.org").unwrap();
+            assert_eq!(std::fs::read(&file).unwrap(), odd);
+        }
     }
 
     #[test]
