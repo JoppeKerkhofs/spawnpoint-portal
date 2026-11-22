@@ -1,7 +1,7 @@
 import { ref } from "vue";
 import { join, servers, type CommandError, type Instance, type Panel, type PanelServers, type Players, type Server } from "../api";
 import { minecraftText, upper } from "./format";
-import { afterJoin, markPlaying, openInstance, withProgress, type Op, type Playing } from "./operation";
+import { afterJoin, markPlaying, op, openInstance, playing, withProgress, type Op, type Playing } from "./operation";
 
 // Shared, so leaving and re-entering a view shows the earlier answer at once and a refresh updates every view.
 export const list = ref<PanelServers[] | null>(null);
@@ -19,6 +19,31 @@ export async function loadServers(): Promise<void> {
   } finally {
     loading.value = false;
   }
+}
+
+export const POLL_MS = 120_000;
+const FOCUS_FLOOR_MS = 30_000;
+
+// A refresh nobody asked for waits while a game is open, something is being prepared, or the window cannot be seen.
+export const mayPoll = (games: number, working: boolean, hidden: boolean, minimized: boolean, sinceLastMs: number, floorMs: number) =>
+  games === 0 && !working && !hidden && !minimized && sinceLastMs >= floorMs;
+
+// Refreshes the shared list every two minutes and when the window gets the focus back; returns how to stop.
+export function pollServers(minimized: () => Promise<boolean>): () => void {
+  let last = Date.now();
+  const tick = async (floorMs: number) => {
+    const small = await minimized().catch(() => false);
+    if (!mayPoll(playing.value.length, op.value.phase !== "idle", document.hidden, small, Date.now() - last, floorMs)) return;
+    last = Date.now();
+    await loadServers();
+  };
+  const onFocus = () => void tick(FOCUS_FLOOR_MS);
+  const timer = setInterval(() => void tick(0), POLL_MS);
+  window.addEventListener("focus", onFocus);
+  return () => {
+    clearInterval(timer);
+    window.removeEventListener("focus", onFocus);
+  };
 }
 
 export async function joinServer(panel: Panel, s: Server): Promise<boolean> {

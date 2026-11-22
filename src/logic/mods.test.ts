@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Instance, InstalledMod, ModFile, Source } from "../api";
 import { memoryLabel } from "./format";
-import { browseNote, deleteBody, downloadsText, filterMods, handHeading, instanceSummary, isHttps, installedSentence, memoryOptions, modCounts, modsText, noModsText, noResultsText, orderMods, resultControl, skippedName, updatableMod, modIcon } from "./mods";
+import { browseNote, deleteBody, downloadsText, filterMods, handHeading, instanceSummary, isHttps, installedSentence, memoryOptions, modCounts, modsText, noModsText, noResultsText, orderMods, resultControl, skippedName, updatableMod, modIcon, modPage } from "./mods";
 
 const m = (name: string, managed: boolean): ModFile => ({ name, size: 1, managed });
 const inst = (extra: Partial<Instance> = {}): Instance => ({
@@ -72,6 +72,13 @@ test('which picture a row gets', () => {
   expect(modIcon(m('b.jar', false), known)).toBeNull()
   expect(modIcon(m('c.jar', false), known)).toBeNull()
   expect(modIcon(m('a.jar', false), null)).toBeNull()
+})
+test('which page a row opens', () => {
+  const known = [im({ file: 'a.jar', project: 'AANobbMI' }), im({ file: 'b.jar', project: null })]
+  expect(modPage(m('a.jar', false), known)).toBe('https://modrinth.com/project/AANobbMI')
+  expect(modPage(m('b.jar', false), known)).toBeNull()
+  expect(modPage(m('c.jar', false), known)).toBeNull()
+  expect(modPage(m('a.jar', false), null)).toBeNull()
 })
 test('what installing says', () => {
   expect(installedSentence({ installed: ['Sodium'], failed: [] })).toBe('Installed Sodium.')

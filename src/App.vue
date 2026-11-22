@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, watch } from "vue";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { onGameExited, settingsGet } from "./api";
 import Sidebar from "./components/Sidebar.vue";
 import StatusBar from "./components/StatusBar.vue";
@@ -10,6 +11,7 @@ import AccountView from "./views/AccountView.vue";
 import PanelsView from "./views/PanelsView.vue";
 import ServerView from "./views/ServerView.vue";
 import ServersView from "./views/ServersView.vue";
+import { pollServers } from "./logic/servers";
 import { checkForUpdate } from "./logic/update";
 import { gameExited, loadPlaying, openInstanceId, playerName, view } from "./logic/operation";
 
@@ -17,6 +19,7 @@ import { gameExited, loadPlaying, openInstanceId, playerName, view } from "./log
 watch([view, openInstanceId], () => nextTick(() => document.querySelector<HTMLElement>(".main h1")?.focus()));
 
 let unlisten: (() => void) | undefined;
+const stopPolling = pollServers(() => getCurrentWindow().isMinimized());
 onMounted(async () => {
   settingsGet().then(
     (s) => (playerName.value = s.player_name),
@@ -30,7 +33,10 @@ onMounted(async () => {
   loadPlaying();
   checkForUpdate(false);
 });
-onUnmounted(() => unlisten?.());
+onUnmounted(() => {
+  unlisten?.();
+  stopPolling();
+});
 </script>
 
 <template>
