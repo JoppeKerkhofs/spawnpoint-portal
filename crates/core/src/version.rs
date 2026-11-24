@@ -382,14 +382,14 @@ mod tests {
     #[test]
     fn rules_are_evaluated() {
         let none = Features::new();
-        assert!(allowed(&[], &none));
-        assert!(allowed(&rules(r#"[{"action":"allow","os":{"name":"windows"}}]"#), &none));
-        assert!(!allowed(&rules(r#"[{"action":"allow","os":{"name":"osx"}}]"#), &none));
-        assert!(!allowed(&rules(r#"[{"action":"allow"},{"action":"disallow","os":{"name":"windows"}}]"#), &none));
-        assert!(!allowed(&rules(r#"[{"action":"allow","os":{"arch":"x86"}}]"#), &none));
+        assert!(allowed_on(&WINDOWS, &[], &none));
+        assert!(allowed_on(&WINDOWS, &rules(r#"[{"action":"allow","os":{"name":"windows"}}]"#), &none));
+        assert!(!allowed_on(&WINDOWS, &rules(r#"[{"action":"allow","os":{"name":"osx"}}]"#), &none));
+        assert!(!allowed_on(&WINDOWS, &rules(r#"[{"action":"allow"},{"action":"disallow","os":{"name":"windows"}}]"#), &none));
+        assert!(!allowed_on(&WINDOWS, &rules(r#"[{"action":"allow","os":{"arch":"x86"}}]"#), &none));
         let demo = rules(r#"[{"action":"allow","features":{"is_demo_user":true}}]"#);
-        assert!(!allowed(&demo, &none));
-        assert!(allowed(&demo, &Features::from(["is_demo_user".to_string()])));
+        assert!(!allowed_on(&WINDOWS, &demo, &none));
+        assert!(allowed_on(&WINDOWS, &demo, &Features::from(["is_demo_user".to_string()])));
     }
 
     #[test]
@@ -493,7 +493,7 @@ mod tests {
     fn native_fallback_path_uses_the_arch() {
         let lib = r#"[{"name":"a.b:c:1","natives":{"windows":"natives-windows-${arch}"},
             "downloads":{"classifiers":{"natives-windows-64":{"url":"u"}}}}]"#;
-        let files = library_files(&with_libraries(lib)).unwrap();
+        let files = library_files_on(&WINDOWS, &with_libraries(lib)).unwrap();
         assert_eq!(files[0].path, "a/b/c/1/c-1-natives-windows-64.jar");
         assert!(files[0].native);
     }
