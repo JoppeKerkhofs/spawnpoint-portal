@@ -14,7 +14,7 @@ Updated 24 November 2026. Change this table in the pull request that changes a p
 | 2. Game files | Merged | #12 | |
 | 3. Java | Merged | #13 | |
 | 4. Starting the game | Open | #14 | Starting the game on Linux; the Forge and NeoForge installer steps on Linux |
-| 5. The rest of the core | Open | | Signing in and linking a panel on Linux, and both still there after a restart; presence in a Discord on Linux |
+| 5. The rest of the core | Open | #16 | Signing in and linking a panel on Linux, and both still there after a restart; presence in a Discord on Linux |
 | 6. The window | Not started | | |
 | 7. The panel serves more than one installer | Not started | | |
 | 8. Releasing | Not started | | |
