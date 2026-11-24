@@ -67,6 +67,14 @@ pub fn run() {
                 sign_in: Mutex::new(None),
             });
             instances::refresh_presence(app.handle());
+            // The page shows the window once it is drawn. Should the page never get that far, show it anyway.
+            let window = app.get_webview_window("main");
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                if let Some(window) = window {
+                    let _ = window.show();
+                }
+            });
             Ok(())
         })
         .build(tauri::generate_context!())
