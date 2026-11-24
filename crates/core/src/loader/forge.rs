@@ -423,6 +423,7 @@ fn console_java(javaw: &Path) -> PathBuf {
     javaw.with_file_name(crate::platform::current().console_java)
 }
 
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 async fn run_step(java: &Path, step: &Step, cwd: &Path, loader: &str, number: usize) -> Result<()> {

@@ -152,6 +152,10 @@ fn session_json(profile: &Profile) -> String {
 }
 
 pub async fn launch(client: &Client, paths: &Paths, game_dir: &Path, profile: &Profile, server: Option<&str>, progress: &ProgressTx) -> Result<(std::process::Child, bool)> {
+    // Only the Windows build of Horizon is fetched (ARCHIVE).
+    if !cfg!(windows) {
+        return Err(Error::Unsupported("Horizon runs on Windows only for now".into()));
+    }
     let build = build(client, paths, progress).await?;
     let resources = prepare(client, paths, &build, progress).await?;
     let _ = progress.send(Progress { step: 0, steps: 0, stage: "starting".into(), done: 0, total: 0 });

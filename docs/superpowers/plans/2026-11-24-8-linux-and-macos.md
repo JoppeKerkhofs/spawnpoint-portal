@@ -14,13 +14,13 @@ Updated 24 November 2026. Change this table in the pull request that changes a p
 | 2. Game files | Merged | #12 | |
 | 3. Java | Merged | #13 | |
 | 4. Starting the game | Merged | #14 | `portal join` through a linked panel on Linux |
-| 5. The rest of the core | Open | #16 | Linking a panel on Linux and finding it after a restart; presence in a Discord on Linux |
-| 6. The window | Not started | | |
+| 5. The rest of the core | Merged | #16 | Linking a panel on Linux and finding it after a restart; presence in a Discord on Linux |
+| 6. The window | Open | #17 | By hand: moving the window by its title bar, resizing from the edges, double-click to maximise; the run-through in the blocky and dark looks; a real Linux desktop |
 | 7. The panel serves more than one installer | Not started | | |
 | 8. Releasing | Not started | | |
 | macOS | Not started | | Everything; see "macOS, later" |
 
-Tried on real Linux so far (WSL, Ubuntu 24.04): the core's tests, downloading and running Java 21 and Java 8, downloading the game files of 1.21.1, the default data folder, keeping a secret in GNOME Keyring (unlocked, locked and absent), and signing in with Microsoft. Started there until the log said the sound engine was up: vanilla, Fabric and NeoForge 1.21.1, Forge 1.20.1, 1.12.2 and 1.7.10. `portal launch --server` on 26.3 joined a real online-mode server, which listed the player. Nothing has been tried on a Linux desktop or a Mac.
+Tried on real Linux so far (WSL, Ubuntu 24.04): the core's tests, downloading and running Java 21 and Java 8, downloading the game files of 1.21.1, the default data folder, keeping a secret in GNOME Keyring (unlocked, locked and absent), and signing in with Microsoft. Started there until the log said the sound engine was up: vanilla, Fabric and NeoForge 1.21.1, Forge 1.20.1, 1.12.2 and 1.7.10. `portal launch --server` on 26.3 joined a real online-mode server, which listed the player. The window, built as an AppImage, opened there and showed the Servers, Instances, Panels and Account pages; its minimise, maximise and close buttons worked. Nothing has been tried on a Linux desktop or a Mac.
 
 **Scope**
 

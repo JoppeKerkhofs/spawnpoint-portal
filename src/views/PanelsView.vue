@@ -16,6 +16,7 @@ import { countdown, errorText } from "../logic/format";
 import { canGetCode, linkedStatus, missingText, needsConsent } from "../logic/pairing";
 import { pairingFlow } from "../logic/pairingFlow";
 import { busy, view } from "../logic/operation";
+import { secretStore, thisComputer } from "../logic/os";
 
 type Phase = "form" | "code" | "linked" | "expired";
 
@@ -140,7 +141,7 @@ onUnmounted(() => flow.leave());
 </script>
 
 <template>
-  <ViewHead title="Panels" summary="The Spawnpoint panels whose servers you can join. Portal keeps each panel’s key in Windows Credential Manager and never shows it." />
+  <ViewHead title="Panels" :summary="`The Spawnpoint panels whose servers you can join. Portal keeps each panel’s key in ${secretStore} and never shows it.`" />
   <div class="content">
     <Note v-if="loadError" kind="err" role="alert">
       <strong>Couldn’t read your linked panels.</strong>
@@ -221,7 +222,7 @@ onUnmounted(() => flow.leave());
             <ol v-if="pairing.sign_in" class="m-0 list-decimal pl-5">
               <li>Sign in to your panel in the browser, if it asks.</li>
               <li>Check that the page shows the same code.</li>
-              <li>Name this PC if you like, then click Allow. This window updates on its own.</li>
+              <li>Name {{ thisComputer }} if you like, then click Allow. This window updates on its own.</li>
             </ol>
             <ol v-else class="m-0 list-decimal pl-5">
               <li>Open the approval page and sign in to your panel.</li>
