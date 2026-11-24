@@ -17,6 +17,8 @@ pub enum LoaderKind {
     Fabric,
     NeoForge,
     Forge,
+    // Not a loader but a game of its own: Minecraft rewritten in Rust (horizon.rs).
+    Horizon,
 }
 
 impl LoaderKind {
@@ -25,6 +27,7 @@ impl LoaderKind {
             "fabric" => Ok(LoaderKind::Fabric),
             "neoforge" => Ok(LoaderKind::NeoForge),
             "forge" => Ok(LoaderKind::Forge),
+            "horizon" => Ok(LoaderKind::Horizon),
             "quilt" => Err(Error::Unsupported("the Quilt loader is not supported".into())),
             _ => Err(Error::Other(format!("unknown loader {name}"))),
         }
@@ -35,6 +38,7 @@ impl LoaderKind {
             LoaderKind::Fabric => "fabric",
             LoaderKind::NeoForge => "neoforge",
             LoaderKind::Forge => "forge",
+            LoaderKind::Horizon => "horizon",
         }
     }
 }
@@ -82,6 +86,7 @@ pub async fn versions(client: &Client, minecraft: &str, kind: LoaderKind) -> Res
     check_new(client, minecraft, &Loader { kind, version: None }).await?;
     match kind {
         LoaderKind::Fabric => fabric::versions(client, minecraft).await,
+        LoaderKind::Horizon => Ok(Vec::new()),
         _ => forge::versions(client, kind, minecraft).await,
     }
 }
@@ -92,6 +97,10 @@ pub async fn resolve_new(client: &Client, minecraft: &str, loader: &Loader) -> R
 }
 
 pub async fn resolve(client: &Client, minecraft: &str, loader: &Loader) -> Result<Loader> {
+    // Horizon has one Minecraft version and no loader version.
+    if loader.kind == LoaderKind::Horizon {
+        return Ok(Loader { kind: loader.kind, version: None });
+    }
     check_id(minecraft)?;
     let version = match &loader.version {
         Some(v) => v.clone(),
@@ -113,6 +122,7 @@ pub async fn profile(
 ) -> Result<VersionJson> {
     match kind {
         LoaderKind::Fabric => fabric::profile(client, paths, minecraft, version).await,
+        LoaderKind::Horizon => Err(Error::Other("Horizon is not a mod loader".into())),
         kind => forge::install(client, paths, kind, minecraft, version, java, progress).await,
     }
 }
@@ -136,6 +146,8 @@ mod tests {
         let dead = reqwest::Client::builder().proxy(reqwest::Proxy::all("http://127.0.0.1:1").unwrap()).build().unwrap();
         let pinned = Loader { kind: LoaderKind::Forge, version: Some("7.8.1.738".into()) };
         assert_eq!(resolve(&dead, "1.5.2", &pinned).await.unwrap(), pinned);
+        let horizon = Loader::parse("horizon").unwrap();
+        assert_eq!(resolve_new(&dead, "", &horizon).await.unwrap(), horizon);
     }
 
     #[test]
@@ -166,5 +178,6 @@ mod tests {
         assert!(matches!(LoaderKind::parse("NeoForge").unwrap(), LoaderKind::NeoForge));
         assert!(matches!(LoaderKind::parse("quilt"), Err(Error::Unsupported(_))));
         assert!(LoaderKind::parse("rift").is_err());
+        assert_eq!(Loader::parse("horizon").unwrap(), Loader { kind: LoaderKind::Horizon, version: None });
     }
 }

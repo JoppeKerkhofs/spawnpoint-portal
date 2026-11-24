@@ -125,7 +125,7 @@ export function playersText(p: Players | null): string {
 }
 
 const catalogues: Record<string, string> = { ftb: "FTB", modrinth: "Modrinth", curseforge: "CurseForge" };
-const loaders: Record<string, string> = { fabric: "Fabric", neoforge: "NeoForge", forge: "Forge" };
+const loaders: Record<string, string> = { fabric: "Fabric", neoforge: "NeoForge", forge: "Forge", horizon: "Horizon" };
 
 export const catalogueName = (c: string) => catalogues[c] ?? upper(c);
 export const loaderName = (l: string) => loaders[l] ?? upper(l);

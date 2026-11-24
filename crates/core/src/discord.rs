@@ -54,6 +54,7 @@ pub fn activity(instance: &Instance, started_at: u64) -> Value {
             LoaderKind::Fabric => "Fabric",
             LoaderKind::NeoForge => "NeoForge",
             LoaderKind::Forge => "Forge",
+            LoaderKind::Horizon => "Horizon",
         };
         state = format!("{state} \u{b7} {name}");
     }

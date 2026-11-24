@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref, watch } from "vue";
 import { modsSearch, type CommandError, type InstalledMod, type Loader, type ModHit } from "../api";
 import { errorText } from "../logic/format";
-import { downloadsText, modrinthPage, noResultsText, resultControl } from "../logic/mods";
+import { downloadsText, modSource, noResultsText, projectPage, resultControl } from "../logic/mods";
 import { busy, op } from "../logic/operation";
 import AppButton from "./AppButton.vue";
 import Icon from "./Icon.vue";
@@ -12,6 +12,7 @@ import Picture from "./Picture.vue";
 import Skeleton from "./Skeleton.vue";
 
 const props = defineProps<{ id: string; minecraft: string; loader: Loader; installed: InstalledMod[] | null }>();
+const source = modSource(props.loader);
 const emit = defineEmits<{ install: [project: string]; page: [url: string]; back: [] }>();
 
 const query = ref("");
@@ -59,16 +60,16 @@ onUnmounted(() => clearTimeout(timer));
   <section class="card" aria-labelledby="browse-heading">
     <div class="card-head flex-wrap">
       <h2 id="browse-heading" class="card-title mc-name">Browse mods</h2>
-      <span class="card-meta">Modrinth</span>
+      <span class="card-meta">{{ source }}</span>
       <span class="flex-1" />
-      <label for="browse-search" class="sr-only">Search Modrinth</label>
+      <label for="browse-search" class="sr-only">Search {{ source }}</label>
       <input
         id="browse-search"
         ref="field"
         v-model="query"
         class="input"
         style="width: 220px; height: 30px"
-        placeholder="Search Modrinth"
+        :placeholder="`Search ${source}`"
         @keydown.enter="load()"
       />
       <AppButton variant="secondary" size="small" icon="chevron-left" @click="emit('back')">Back to installed mods</AppButton>
@@ -92,9 +93,9 @@ onUnmounted(() => clearTimeout(timer));
           variant="secondary"
           size="small"
           icon="external"
-          :aria-label="`Open the page of ${h.title} on Modrinth`"
-          title="Open its page on Modrinth"
-          @click="emit('page', modrinthPage(h.project_id))"
+          :aria-label="`Open the page of ${h.title} on ${source}`"
+          :title="`Open its page on ${source}`"
+          @click="emit('page', projectPage(loader, h.project_id))"
         />
         <span class="flex w-28 shrink-0 justify-end">
           <template v-for="control in [resultControl(h.project_id, installed)]" :key="control">
@@ -120,7 +121,7 @@ onUnmounted(() => clearTimeout(timer));
     </template>
     <div v-if="failure" class="px-4 pb-4 pt-3" role="alert">
       <Note kind="err">
-        <strong>Couldn’t reach Modrinth.</strong>
+        <strong>Couldn’t reach {{ source }}.</strong>
         <div>{{ errorText(failure) }}</div>
         <AppButton variant="secondary" size="small" class="mt-2" @click="load(hits.length)">Try again</AppButton>
       </Note>

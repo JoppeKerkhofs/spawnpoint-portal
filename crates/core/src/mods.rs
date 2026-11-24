@@ -14,6 +14,8 @@ use crate::loader::Loader;
 use crate::sync::safe_path;
 use crate::{Error, Paths, Result};
 
+pub mod horizon;
+
 pub const API: &str = "https://api.modrinth.com/v2";
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -158,6 +160,9 @@ async fn projects(client: &Client, api: &str, ids: Vec<String>) -> Result<HashMa
 }
 
 pub async fn search(client: &Client, api: &str, instance: &Instance, query: &str, offset: usize) -> Result<Found> {
+    if instance.is_horizon() {
+        return horizon::search(client, horizon::INDEX, instance, query, offset).await;
+    }
     let loader = loader_of(instance)?.kind.as_str();
     let facets = json!([["project_type:mod"], [format!("categories:{loader}")], [format!("versions:{}", instance.minecraft)], ["client_side:required", "client_side:optional"]]);
     let params = [
@@ -186,6 +191,9 @@ pub async fn search(client: &Client, api: &str, instance: &Instance, query: &str
 }
 
 pub async fn installed(client: &Client, api: &str, paths: &Paths, instance: &Instance) -> Result<Vec<Installed>> {
+    if instance.is_horizon() {
+        return horizon::installed(client, horizon::INDEX, paths, instance).await;
+    }
     let loader = loader_of(instance)?.kind.as_str();
     let (p, i) = (paths.clone(), instance.clone());
     let mut list: Vec<Installed> = blocking(move || {
@@ -324,6 +332,9 @@ async fn version_project(client: &Client, api: &str, version: &str) -> Result<St
 }
 
 pub async fn install(client: &Client, api: &str, paths: &Paths, instance: &Instance, project: &str, progress: &ProgressTx) -> Result<Outcome> {
+    if instance.is_horizon() {
+        return horizon::install(client, horizon::INDEX, paths, instance, project, progress).await;
+    }
     plain_id(project)?;
     let _lock = instance::lock(&instance.id)?;
     let instance = instance::load(paths, &instance.id)?;

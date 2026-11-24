@@ -29,7 +29,11 @@ export function instancesSummary(l: Listing | null): string {
   return `${n} instance${n === 1 ? "" : "s"}${k > 0 ? ` · ${k} couldn’t be read` : ""}`;
 }
 
-export const loaderText = (l: Loader | null): string => (l ? `${loaderName(l.kind)} ${l.version ?? "(newest)"}` : "No mod loader");
+// Horizon is a game of its own (Minecraft rewritten in Rust), kept in the loader field: it has no loader version.
+export const isHorizon = (l: Loader | null): boolean => l?.kind === "horizon";
+
+export const loaderText = (l: Loader | null): string =>
+  !l ? "No mod loader" : isHorizon(l) ? "Horizon" : `${loaderName(l.kind)} ${l.version ?? "(newest)"}`;
 
 export function kindOf(i: Instance): "Server" | "Pack" | "By hand" {
   return i.source.kind === "server" ? "Server" : i.source.kind === "pack" ? "Pack" : "By hand";
@@ -52,7 +56,9 @@ export const versionChoices = (versions: MinecraftVersion[] | null, snapshots: b
 export const loaderChoice = (loader: string, version: string): string | null =>
   loader === "none" ? null : version ? `${loader}:${version}` : loader;
 
-export const canCreate = (name: string, versions: string[] | null): boolean => name.trim() !== "" && versions !== null && versions.length > 0;
+// A Horizon instance has one Minecraft version, which the core fills in.
+export const canCreate = (name: string, versions: string[] | null, horizon = false): boolean =>
+  name.trim() !== "" && (horizon || (versions !== null && versions.length > 0));
 
 // Shared by the list rows and the instance page.
 export function playButton(i: Instance, op: Op, opKey: string | null, playing: Playing[]): { label: string; aria: string; disabled: boolean } {
