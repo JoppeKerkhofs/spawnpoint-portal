@@ -1,0 +1,41 @@
+{
+ "files": {
+  "bin": {
+   "type": "directory"
+  },
+  "bin/java": {
+   "downloads": {
+    "raw": {
+     "sha1": "6acf5fc3bcbc5c0fe3ffe9801a9c71158d7f3215",
+     "size": 12328,
+     "url": "https://piston-data.mojang.com/v1/objects/6acf5fc3bcbc5c0fe3ffe9801a9c71158d7f3215/java"
+    }
+   },
+   "executable": true,
+   "type": "file"
+  },
+  "legal/java.base/LICENSE": {
+   "downloads": {
+    "raw": {
+     "sha1": "a4fb972c240d89131ee9e16b845cd302e0ecb05f",
+     "size": 19274,
+     "url": "https://piston-data.mojang.com/v1/objects/a4fb972c240d89131ee9e16b845cd302e0ecb05f/LICENSE"
+    }
+   },
+   "executable": false,
+   "type": "file"
+  },
+  "legal/java.compiler/ADDITIONAL_LICENSE_INFO": {
+   "target": "../java.base/ADDITIONAL_LICENSE_INFO",
+   "type": "link"
+  },
+  "legal/java.compiler/ASSEMBLY_EXCEPTION": {
+   "target": "../java.base/ASSEMBLY_EXCEPTION",
+   "type": "link"
+  },
+  "legal/java.compiler/LICENSE": {
+   "target": "../java.base/LICENSE",
+   "type": "link"
+  }
+ }
+}
