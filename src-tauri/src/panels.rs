@@ -64,7 +64,7 @@ pub async fn panel_pair_start(state: State<'_, AppState>, address: String, allow
 #[tauri::command]
 pub async fn open_pairing_page(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     let url = match &*state.pairing.lock().unwrap_or_else(|e| e.into_inner()) {
-        Some(k) => format!("{}/settings/api-tokens", k.address),
+        Some(k) => panel::approve_page(&k.address, &k.pairing).0,
         None => return Err(Error::Other("no pairing is running".into()).into()),
     };
     open(&app, &url)

@@ -65,6 +65,8 @@ const flow = pairingFlow(
       unreachable.value = false;
       openError.value = null;
       phase.value = "code";
+      // A panel that takes a sign-in needs nothing typed, so its page opens by itself.
+      if (p.sign_in) openPage();
     },
     tick: (t) => (now.value = t),
     unreachable: (v) => (unreachable.value = v),
@@ -200,12 +202,13 @@ onUnmounted(() => flow.leave());
             <strong>Couldn’t start linking.</strong>
             <div>{{ errorText(startError) }}</div>
           </Note>
-          <div><AppButton variant="primary" icon="link" type="submit" :disabled="!canStart">Get a code</AppButton></div>
+          <div><AppButton variant="primary" icon="link" type="submit" :disabled="!canStart">Link</AppButton></div>
         </form>
 
         <div v-else-if="phase === 'code' && pairing" class="flex flex-wrap gap-7">
           <div class="flex min-w-0 flex-[1_1_320px] flex-col gap-2.5">
-            <div class="text-(--muted)">Approve this code in <strong class="mono">{{ pairing.address }}</strong></div>
+            <div v-if="pairing.sign_in" class="text-(--muted)">Finish in your browser, on <strong class="mono">{{ pairing.address }}</strong>. It shows this code:</div>
+            <div v-else class="text-(--muted)">Approve this code in <strong class="mono">{{ pairing.address }}</strong></div>
             <PairingCode :code="pairing.code" />
             <div class="flex items-center gap-2" aria-live="polite">
               <Spinner />
@@ -215,14 +218,19 @@ onUnmounted(() => flow.leave());
             <div class="tabular text-xs text-(--muted)">The code expires in {{ left }}.</div>
           </div>
           <div class="flex min-w-0 flex-[1_1_280px] flex-col gap-3">
-            <ol class="m-0 list-decimal pl-5">
+            <ol v-if="pairing.sign_in" class="m-0 list-decimal pl-5">
+              <li>Sign in to your panel in the browser, if it asks.</li>
+              <li>Check that the page shows the same code.</li>
+              <li>Name this PC if you like, then click Allow. This window updates on its own.</li>
+            </ol>
+            <ol v-else class="m-0 list-decimal pl-5">
               <li>Open the approval page and sign in to your panel.</li>
               <li>Check that the panel shows the same code.</li>
               <li>Approve it. This window updates on its own.</li>
             </ol>
             <Note v-if="openError" kind="err" role="alert">{{ errorText(openError) }}</Note>
             <div class="flex gap-2">
-              <AppButton variant="primary" icon="external" @click="openPage">Open the approval page</AppButton>
+              <AppButton variant="primary" icon="external" @click="openPage">{{ pairing.sign_in ? "Open the page again" : "Open the approval page" }}</AppButton>
               <AppButton variant="secondary" @click="cancel">Cancel</AppButton>
             </div>
           </div>

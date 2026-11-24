@@ -4,7 +4,7 @@ import { pairingFlow } from "./pairingFlow";
 
 const T0 = Date.parse("2026-11-20T12:00:00Z");
 const view = (pairing: number, ttl = 60): PairingView => ({
-  pairing, code: "ABCD", address: "https://p.example", approve_at: "https://p.example/approve", expires_at: new Date(T0 + ttl * 1000).toISOString(), interval: 2,
+  pairing, code: "ABCD", address: "https://p.example", approve_at: "https://p.example/approve", sign_in: false, expires_at: new Date(T0 + ttl * 1000).toISOString(), interval: 2,
 });
 const linked: Linked = { panel: { id: "p", address: "https://p.example", name: "p" }, missing: [] };
 
