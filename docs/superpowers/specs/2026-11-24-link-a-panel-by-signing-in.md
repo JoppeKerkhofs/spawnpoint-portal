@@ -45,7 +45,7 @@ The player never types a code and never sees the ability picker. They still need
 
 Stored on the pairing in a new nullable column `requested_abilities` (json) of `device_pairings`.
 
-The answer gains `approve_url` when `abilities` was sent: the address of the Allow screen for this pairing, `<panel>/pair/<code>`. A pairing started without `abilities` behaves as today and has no `approve_url`.
+The answer gains `approve_path` when `abilities` was sent: the path of the Allow screen for this pairing, `/pair/<code>`. A path and not an address, because the app knows which address it reached the panel at and the panel may be known under more than one. A pairing started without `abilities` behaves as today and has no `approve_path`.
 
 ### The Allow screen
 
@@ -61,9 +61,9 @@ Rules:
 - Only a pairing that is waiting, not expired, and has `requested_abilities` gets the screen. Anything else shows one message: "No device is waiting with that code. Codes expire after ten minutes. Start again in the app."
 - Allow calls the existing `DevicePairing::approve` with the requested abilities and the chosen name. The token is created under that name, and the activity log records it as it does today.
 - After Allow the screen says the device is linked and the tab can be closed.
-- All three routes are throttled like the pairing lookup on the tokens page, since a signed-in user could otherwise guess codes.
+- All three routes are throttled (20 a minute per user), since a signed-in user could otherwise guess codes.
 
-The page is a new Inertia page in the panel's existing look, with both languages the panel has.
+The page is a new Inertia page in the look of the panel's sign-in pages, with its texts going through the panel's translation calls.
 
 ### Not changed
 
@@ -74,8 +74,8 @@ The page is a new Inertia page in the panel's existing look, with both languages
 ### Core
 
 - `pair_start` sends `abilities: ["servers:read", "servers:join"]`.
-- `Pairing` gains `approve_url: Option<String>`. It is used only when it starts with the panel's address followed by `/`; anything else is treated as absent. A panel must not be able to make Portal open another site.
-- A 403 from the panel shows the panel's own message when it sends one (two-factor required), instead of always saying the token lacks abilities.
+- `Pairing` gains `approve_path: Option<String>`. It is used only when it is exactly `/pair/<this pairing's code>`, and is then put behind the address the player typed; anything else is treated as absent. A panel must not be able to make Portal open another site.
+- A 403 from the panel shows the panel's own message when it is about two-factor, instead of always saying the token lacks abilities.
 - A pairing that the player refused answers 404 like an expired one. The text becomes "the link was refused or the code expired".
 
 ### Window
@@ -83,34 +83,34 @@ The page is a new Inertia page in the panel's existing look, with both languages
 The Panels view's link card:
 
 - The button reads **Link** instead of "Get a code".
-- With an `approve_url`: Portal opens it in the browser at once and shows "Finish in your browser", the code to compare, the countdown, **Open the page again** and **Cancel**. The three numbered steps become: sign in to the panel, check the code, click Allow.
+- With an `approve_path`: Portal opens that page in the browser at once and shows "Finish in your browser", the code to compare, the countdown, **Open the page again** and **Cancel**. The three numbered steps become: sign in to the panel, check the code, click Allow.
 - Without one (a panel older than 1.9.4): exactly today's screen and steps.
 - The warning about missing abilities after linking stays; it can only appear with an older panel.
 
 ### Command line
 
-`portal panel add` prints the `approve_url` to open when there is one, and today's line otherwise.
+`portal panel add` prints the page to open when there is one, and today's line otherwise.
 
 ## Old and new together
 
 | Portal | Panel | What happens |
 |---|---|---|
 | 0.3.0 | 1.9.4 | Sign-in link, Allow screen. |
-| 0.3.0 | older | The panel ignores `abilities` and sends no `approve_url`; today's code flow. |
+| 0.3.0 | older | The panel ignores `abilities` and sends no `approve_path`; today's code flow. |
 | older | 1.9.4 | No `abilities` sent; today's code flow. |
 
 ## Checks
 
 Panel (Pest):
 
-- Starting with `abilities` stores them and returns an `approve_url`; an ability outside the two is refused; starting without them is unchanged.
+- Starting with `abilities` stores them and returns an `approve_path`; an ability outside the two is refused; starting without them is unchanged.
 - The Allow screen: a guest is sent to sign in and comes back; a viewer (not an admin) can allow; an expired, unknown, already approved or hand-flow pairing shows the one message.
 - Allow mints a token with exactly the requested abilities under the chosen name; a name over 60 characters is refused; Not my device deletes the pairing and the device's next poll answers 404.
 
 Portal:
 
-- Core: `approve_url` is kept when it is under the panel's address and dropped otherwise (other host, other scheme, a look-alike prefix such as `https://panel.example.org.evil.org/`); the 403 message; fixtures for both answers of `/pair`.
-- Window logic: which screen shows with and without an `approve_url`.
+- Core: `approve_path` is used when it is this code's own path and dropped otherwise (another code, an address, a path that climbs out); the 403 message; both answers of `/pair`.
+- Window: which screen shows with and without an `approve_path`.
 - By hand, with a non-admin account on a real panel: link from a signed-out browser, from a signed-in one, rename the device and find that name in the panel's token list, refuse once, let a code expire once.
 
 ## Order of work

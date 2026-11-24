@@ -109,6 +109,9 @@ pub struct Pairing {
     pub secret: String,
     pub expires_at: String,
     pub interval: u64,
+    // Where a signed-in person allows this device; a panel before 1.9.4 sends none.
+    #[serde(default)]
+    pub approve_path: Option<String>,
 }
 
 impl std::fmt::Debug for Pairing {
@@ -254,6 +257,18 @@ fn panel_error(panel: &str, message: impl Into<String>) -> Error {
     Error::Panel { panel: panel.into(), message: message.into() }
 }
 
+// The page to open for a pairing, and whether it is the one where signing in is all it takes.
+// The panel's path is only used when it is exactly this code's: it must not send Portal elsewhere.
+pub fn approve_page(address: &str, pairing: &Pairing) -> (String, bool) {
+    let own = format!("/pair/{}", pairing.code);
+    let plain = pairing.code.bytes().all(|b| b.is_ascii_alphanumeric());
+    if plain && pairing.approve_path.as_deref() == Some(own.as_str()) {
+        (format!("{address}{own}"), true)
+    } else {
+        (format!("{address}/settings/api-tokens"), false)
+    }
+}
+
 pub fn device_name(computer: Option<String>) -> String {
     let name = format!("Spawnpoint Portal on {}", computer.as_deref().unwrap_or("this PC"));
     name.chars().take(60).collect()
@@ -279,10 +294,15 @@ async fn send(
     let status = resp.status();
     match status.as_u16() {
         401 => Err(panel_error(name, "no longer accepts this launcher; link it again")),
-        403 => Err(panel_error(
-            name,
-            format!("this launcher's token may not do that: it needs servers:read and servers:join, granted at {address}/settings/api-tokens"),
-        )),
+        403 => {
+            let said = resp.json::<serde_json::Value>().await.ok().and_then(|v| v["message"].as_str().map(String::from)).unwrap_or_default();
+            // The panel's own words when the account lacks two-factor; the token is fine then.
+            Err(panel_error(name, if said.contains("two-factor") {
+                said.chars().take(200).collect()
+            } else {
+                format!("this launcher's token may not do that: it needs servers:read and servers:join, granted at {address}/settings/api-tokens")
+            }))
+        }
         502 => Err(panel_error(name, "the panel's host service is not answering")),
         _ if status.is_redirection() => Err(panel_error(name, "answered with a redirect; check the panel address")),
         _ => Ok(resp),
@@ -317,7 +337,7 @@ async fn data<T: DeserializeOwned>(resp: Response) -> Result<T> {
 
 pub async fn pair_start(address: &str, device_name: &str) -> Result<Pairing> {
     let name: String = device_name.chars().take(60).collect();
-    let body = serde_json::json!({ "device_name": name });
+    let body = serde_json::json!({ "device_name": name, "abilities": ["servers:read", "servers:join"] });
     let resp = send(address, address, None, Method::POST, "/pair", Some(body)).await?;
     if resp.status().as_u16() == 429 {
         return Err(Error::Other("too many pairings started; wait a minute".into()));
@@ -330,7 +350,7 @@ pub async fn pair_poll(address: &str, pairing: &Pairing) -> Result<Option<PairTo
     let resp = send(address, address, None, Method::POST, "/pair/token", Some(body)).await?;
     match resp.status().as_u16() {
         202 => Ok(None),
-        404 => Err(Error::Other("the pairing code expired or was already used".into())),
+        404 => Err(Error::Other("the link was refused or the code expired".into())),
         _ => data(resp).await.map(Some),
     }
 }
@@ -525,7 +545,7 @@ mod tests {
 
     #[test]
     fn a_pairing_secret_is_never_serialized() {
-        let p = Pairing { code: "ABCD".into(), secret: "pair-SECRET".into(), expires_at: "t".into(), interval: 1 };
+        let p = Pairing { code: "ABCD".into(), secret: "pair-SECRET".into(), expires_at: "t".into(), interval: 1, approve_path: None };
         assert!(!serde_json::to_string(&p).unwrap().contains("pair-SECRET"));
         assert!(!format!("{p:?}").contains("pair-SECRET"));
     }
@@ -635,10 +655,22 @@ mod tests {
         assert_eq!(err.to_string(), "panel Home: has no server lobby");
     }
 
+    #[test]
+    fn only_this_codes_own_path_is_opened() {
+        let with = |code: &str, path: Option<&str>| Pairing { code: code.into(), secret: "s".into(), expires_at: "t".into(), interval: 1, approve_path: path.map(String::from) };
+        let panel = "https://panel.example.org";
+        assert_eq!(approve_page(panel, &with("7ABR547C", Some("/pair/7ABR547C"))), ("https://panel.example.org/pair/7ABR547C".into(), true));
+        let tokens = ("https://panel.example.org/settings/api-tokens".to_string(), false);
+        for path in [None, Some("/pair/OTHER123"), Some("//evil.org/pair/7ABR547C"), Some(".evil.org/pair/7ABR547C"), Some("https://evil.org/pair/7ABR547C"), Some("/pair/7ABR547C/../../x")] {
+            assert_eq!(approve_page(panel, &with("7ABR547C", path)), tokens, "{path:?}");
+        }
+        assert_eq!(approve_page(panel, &with("../x", Some("/pair/../x"))), tokens);
+    }
+
     #[tokio::test]
     async fn pending_pairing_is_none() {
         let (url, _) = serve(202, b"").await;
-        let pairing = Pairing { code: "ABCD".into(), secret: "s".into(), expires_at: "t".into(), interval: 1 };
+        let pairing = Pairing { code: "ABCD".into(), secret: "s".into(), expires_at: "t".into(), interval: 1, approve_path: None };
         assert!(pair_poll(&url, &pairing).await.unwrap().is_none());
     }
 
@@ -647,7 +679,10 @@ mod tests {
         let body = br#"{"data":{"code":"ABCD","secret":"s","expires_at":"t","interval":2}}"#.to_vec();
         let (url, _, heads) = serve_full(201, body, String::new()).await;
         let p = pair_start(&url, &"n".repeat(80)).await.unwrap();
-        assert_eq!((p.code.as_str(), p.interval), ("ABCD", 2));
+        assert_eq!((p.code.as_str(), p.interval, p.approve_path.as_deref()), ("ABCD", 2, None));
+        let newer = br#"{"data":{"code":"ABCD","secret":"s","expires_at":"t","interval":2,"approve_path":"/pair/ABCD"}}"#;
+        let (newer_url, _) = serve(201, newer).await;
+        assert!(approve_page(&newer_url, &pair_start(&newer_url, "n").await.unwrap()).1);
         assert!(!heads.lock().unwrap()[0].to_lowercase().contains("authorization"));
         let (url, _) = serve(200, br#"{"data":{"token":"tok","abilities":["servers:read"],"user":{"name":"Jo"}}}"#).await;
         let t = pair_poll(&url, &p).await.unwrap().unwrap();
@@ -665,6 +700,14 @@ mod tests {
         let err = servers(&l.panel).await.unwrap_err();
         assert!(matches!(err, Error::Panel { .. }));
         assert!(err.to_string().contains("link it again"));
+    }
+
+    #[tokio::test]
+    async fn a_panel_that_wants_two_factor_says_so_itself() {
+        let (url, _) = serve(403, br#"{"message":"This panel requires two-factor authentication. Set it up in the panel first."}"#).await;
+        let l = link(&url, "tok-1");
+        let msg = servers(&l.panel).await.unwrap_err().to_string();
+        assert!(msg.contains("Set it up in the panel first") && !msg.contains("servers:join"), "{msg}");
     }
 
     #[tokio::test]
@@ -750,7 +793,7 @@ mod tests {
             let (other, other_hits) = serve(200, b"{}").await;
             let (url, _, _) = serve_full(status, vec![], format!("Location: {other}/x\r\n")).await;
             let l = link(&url, "tok-1");
-            let pairing = Pairing { code: "ABCD".into(), secret: "s".into(), expires_at: "t".into(), interval: 1 };
+            let pairing = Pairing { code: "ABCD".into(), secret: "s".into(), expires_at: "t".into(), interval: 1, approve_path: None };
             assert!(servers(&l.panel).await.is_err());
             assert!(pair_poll(&url, &pairing).await.is_err());
             assert!(pair_start(&url, "n").await.is_err());

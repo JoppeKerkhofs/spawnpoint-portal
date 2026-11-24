@@ -211,6 +211,7 @@ export interface PairingView {
   code: string;
   address: string;
   approve_at: string;
+  sign_in: boolean;
   expires_at: string;
   interval: number;
 }
