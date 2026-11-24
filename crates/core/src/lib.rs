@@ -15,6 +15,7 @@ pub mod settings;
 pub mod sync;
 pub mod error;
 pub mod paths;
+pub mod platform;
 pub mod play;
 pub mod secrets;
 pub mod version;

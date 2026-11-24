@@ -403,7 +403,7 @@ mod tests {
         let _guard = Tmp(root.clone());
         let paths = Paths { root: root.clone() };
         let version: VersionJson = serde_json::from_str(
-            r#"{"id":"t","mainClass":"m","libraries":[{"name":"a:b:1","natives":{"windows":"natives-windows"},
+            r#"{"id":"t","mainClass":"m","libraries":[{"name":"a:b:1","natives":{"windows":"natives-windows","linux":"natives-windows"},
             "downloads":{"classifiers":{"natives-windows":{"path":"n/n.jar","url":"u"}}}}]}"#,
         )
         .unwrap();
