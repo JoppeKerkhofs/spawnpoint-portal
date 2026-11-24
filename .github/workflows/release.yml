@@ -97,8 +97,7 @@ jobs:
       - name: Find the installer
         run: |
           set -eu
-          shopt -s nullglob
-          files=($INSTALLER)
+          mapfile -t files < <(compgen -G "$INSTALLER")
           [ "${#files[@]}" -eq 1 ] || { echo "Expected one installer, found ${#files[@]}." >&2; exit 1; }
           [ -f "${files[0]}.sig" ] || { echo "The installer has no signature beside it." >&2; exit 1; }
           echo "INSTALLER_FILE=${files[0]}" >> "$GITHUB_ENV"
