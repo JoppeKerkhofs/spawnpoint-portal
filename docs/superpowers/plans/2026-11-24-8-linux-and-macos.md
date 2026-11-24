@@ -13,7 +13,7 @@ Updated 24 November 2026. Change this table in the pull request that changes a p
 | 1. The tests on Linux | Merged | #11 | |
 | 2. Game files | Merged | #12 | |
 | 3. Java | Merged | #13 | |
-| 4. Starting the game | Open | #14 | `portal join` through a linked panel on Linux |
+| 4. Starting the game | Merged | #14 | `portal join` through a linked panel on Linux |
 | 5. The rest of the core | Open | #16 | Linking a panel on Linux and finding it after a restart; presence in a Discord on Linux |
 | 6. The window | Not started | | |
 | 7. The panel serves more than one installer | Not started | | |
