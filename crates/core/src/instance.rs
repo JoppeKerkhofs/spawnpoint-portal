@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::launch::DEFAULT_MEMORY_MB;
-use crate::loader::Loader;
+use crate::loader::{Loader, LoaderKind};
 use crate::paths::{check_id, check_relative};
 use crate::sync::{Manual, safe_path};
 use crate::{Error, Paths, Result};
@@ -43,6 +43,15 @@ pub const MEMORY_CHOICES_MB: [u32; 4] = [4096, 6144, 8192, 10240];
 impl Instance {
     pub fn memory_mb(&self) -> u32 {
         self.memory_mb.unwrap_or(DEFAULT_MEMORY_MB)
+    }
+
+    pub fn is_horizon(&self) -> bool {
+        matches!(self.loader, Some(Loader { kind: LoaderKind::Horizon, .. }))
+    }
+
+    // The folder under the game folder that holds the mods, and how a mod file ends.
+    pub fn mods_place(&self) -> (&'static str, &'static str) {
+        if self.is_horizon() { ("horizon-mods", ".hmod") } else { ("mods", ".jar") }
     }
 }
 
@@ -136,6 +145,8 @@ pub fn create(
 }
 
 pub fn create_manual(paths: &Paths, name: &str, minecraft: &str, loader: Option<Loader>) -> Result<Instance> {
+    let horizon = matches!(loader, Some(Loader { kind: LoaderKind::Horizon, .. }));
+    let minecraft = if horizon { crate::horizon::MINECRAFT } else { minecraft };
     check_id(minecraft)?;
     create(paths, name, minecraft, loader, Source::Manual)
 }
@@ -301,7 +312,8 @@ fn has_ext(name: &str, ext: &str) -> bool {
 
 pub fn mods(paths: &Paths, instance: &Instance) -> Result<Vec<ModFile>> {
     let mut out = Vec::new();
-    let entries = match std::fs::read_dir(game_dir(paths, &instance.id).join("mods")) {
+    let (folder, ext) = instance.mods_place();
+    let entries = match std::fs::read_dir(game_dir(paths, &instance.id).join(folder)) {
         Ok(e) => e,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(out),
         Err(e) => return Err(e.into()),
@@ -310,8 +322,8 @@ pub fn mods(paths: &Paths, instance: &Instance) -> Result<Vec<ModFile>> {
         let entry = entry?;
         let meta = entry.metadata()?;
         let Some(name) = entry.file_name().to_str().map(String::from) else { continue };
-        if meta.is_file() && (has_ext(&name, ".jar") || has_ext(&name, ".jar.disabled")) {
-            let rel = format!("mods/{name}").to_lowercase();
+        if meta.is_file() && (has_ext(&name, ext) || has_ext(&name, &format!("{ext}.disabled"))) {
+            let rel = format!("{folder}/{name}").to_lowercase();
             let managed = instance.managed.iter().any(|m| m.path.to_lowercase() == rel);
             out.push(ModFile { name, size: meta.len(), managed });
         }
@@ -321,18 +333,24 @@ pub fn mods(paths: &Paths, instance: &Instance) -> Result<Vec<ModFile>> {
 }
 
 pub fn add_mod(paths: &Paths, instance: &Instance, file: &Path) -> Result<()> {
+    let (folder, ext) = instance.mods_place();
     let name = file
         .file_name()
         .and_then(|n| n.to_str())
-        .filter(|n| has_ext(n, ".jar"))
-        .ok_or_else(|| Error::Other(format!("{} is not a .jar file", file.display())))?;
-    let mods = game_dir(paths, &instance.id).join("mods");
+        .filter(|n| has_ext(n, ext))
+        .ok_or_else(|| Error::Other(format!("{} is not a {ext} file", file.display())))?;
+    let game = game_dir(paths, &instance.id);
+    let mods = game.join(folder);
     std::fs::create_dir_all(&mods)?;
     let target = mods.join(name);
     if target.exists() {
         return Err(Error::Other(format!("{name} is already in this instance")));
     }
     std::fs::copy(file, target)?;
+    if instance.is_horizon() {
+        // The file of a Horizon mod is named after its id.
+        crate::horizon::enable_mod(&game, &name[..name.len() - ext.len()])?;
+    }
     Ok(())
 }
 
@@ -341,14 +359,15 @@ pub fn remove_mod(paths: &Paths, instance: &mut Instance, name: &str) -> Result<
     if name.contains('/') {
         return Err(Error::Other(format!("{name:?} is not a plain file name")));
     }
-    match std::fs::remove_file(game_dir(paths, &instance.id).join("mods").join(name)) {
+    let folder = instance.mods_place().0;
+    match std::fs::remove_file(game_dir(paths, &instance.id).join(folder).join(name)) {
         Ok(()) => {}
         Err(e) if e.kind() == ErrorKind::NotFound => {
             return Err(Error::Other(format!("{name} is not in this instance")));
         }
         Err(e) => return Err(e.into()),
     }
-    let rel = format!("mods/{name}");
+    let rel = format!("{folder}/{name}");
     instance.managed.retain(|m| m.path != rel);
     update(paths, &instance.id, |i| i.managed.retain(|m| m.path != rel)).map(|_| ())
 }
@@ -486,6 +505,20 @@ mod tests {
         assert!(mods(&p, &inst).unwrap().is_empty());
         assert!(inst.managed.is_empty());
         assert!(load(&p, "m").unwrap().managed.is_empty());
+    }
+
+    #[test]
+    fn a_horizon_instance_keeps_hmod_files_in_its_own_folder_and_turns_them_on() {
+        let (t, p) = tmp();
+        let mut inst = create_manual(&p, "H", "", Some(Loader::parse("horizon").unwrap())).unwrap();
+        assert_eq!((inst.minecraft.as_str(), inst.is_horizon()), (crate::horizon::MINECRAFT, true));
+        assert!(add_mod(&p, &inst, &jar_named(&t, "own.jar")).is_err());
+        add_mod(&p, &inst, &jar_named(&t, "lights.hmod")).unwrap();
+        let game = game_dir(&p, "h");
+        assert_eq!(std::fs::read_to_string(game.join("horizon-mods.txt")).unwrap(), "mod.lights:true\n");
+        assert_eq!(mods(&p, &inst).unwrap().iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["lights.hmod"]);
+        remove_mod(&p, &mut inst, "lights.hmod").unwrap();
+        assert!(!game.join("horizon-mods/lights.hmod").exists());
     }
 
     #[test]

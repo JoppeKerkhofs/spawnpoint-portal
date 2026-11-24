@@ -8,6 +8,8 @@ const stages: Record<string, string> = {
   "loader libraries": "Mod loader libraries",
   loader: "Mod loader",
   mods: "Mods",
+  horizon: "Horizon",
+  prepare: "Preparing the game files",
 };
 
 export const upper = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);

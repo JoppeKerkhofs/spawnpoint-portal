@@ -30,11 +30,11 @@ test('where an instance comes from', () => {
   expect(sourceText(inst({ source: { kind: 'manual' } }), panels)).toBe('Made by you')
   expect(kindOf(inst({ source: { kind: 'manual' } }))).toBe('By hand')
   expect(kindOf(home)).toBe('Server'); expect(kindTone(home)).toBe('own'); expect(kindTone(inst())).toBe('hand')
-  expect(loaderText({ kind: 'neoforge', version: '21.1.77' })).toBe('NeoForge 21.1.77'); expect(loaderText(null)).toBe('No mod loader')
+  expect(loaderText({ kind: 'neoforge', version: '21.1.77' })).toBe('NeoForge 21.1.77'); expect(loaderText(null)).toBe('No mod loader'); expect(loaderText({ kind: 'horizon', version: null })).toBe('Horizon')
   expect(packText({ catalogue: 'modrinth', project: 'x', version: 'y', version_name: '1.3.7' })).toBe('Modrinth pack 1.3.7')
 })
 test('create needs a name and versions', () => {
-  expect(canCreate('  ', ['26.3'])).toBe(false); expect(canCreate('My new world', null)).toBe(false); expect(canCreate('My new world', ['26.3'])).toBe(true)
+  expect(canCreate('  ', ['26.3'])).toBe(false); expect(canCreate('My new world', null)).toBe(false); expect(canCreate('My new world', ['26.3'])).toBe(true); expect(canCreate('My new world', null, true)).toBe(true); expect(canCreate(' ', null, true)).toBe(false)
 })
 test('snapshots are listed only when asked for', () => {
   const all = [{ id: '26.4-snapshot-10', snapshot: true }, { id: '26.3', snapshot: false }]

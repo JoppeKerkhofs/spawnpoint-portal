@@ -3,7 +3,7 @@ import type { Instance, Server } from "../api";
 export type Texture = "grass" | "wood" | "sand" | "machine" | "stone" | "wool" | "chest";
 export type PillTone = "ok" | "busy" | "idle" | "error";
 
-const byLoader: Record<string, Texture> = { fabric: "wood", forge: "sand", neoforge: "machine" };
+const byLoader: Record<string, Texture> = { fabric: "wood", forge: "sand", neoforge: "machine", horizon: "wool" };
 
 export function serverTexture(s: Server): Texture {
   if (s.modpack) return "machine";

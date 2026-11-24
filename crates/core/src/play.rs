@@ -21,6 +21,9 @@ pub struct StartRequest {
 pub const SYNC_STAGES: [&str; 2] = ["check", "mods"];
 
 pub fn launch_stages(loader: Option<LoaderKind>) -> Vec<&'static str> {
+    if loader == Some(LoaderKind::Horizon) {
+        return crate::horizon::STAGES.to_vec();
+    }
     let mut stages = vec!["java", "libraries", "assets"];
     if matches!(loader, Some(LoaderKind::NeoForge | LoaderKind::Forge)) {
         stages.extend(["loader libraries", "loader"]);
@@ -29,6 +32,9 @@ pub fn launch_stages(loader: Option<LoaderKind>) -> Vec<&'static str> {
 }
 
 pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progress: &ProgressTx) -> Result<(std::process::Child, bool)> {
+    if matches!(request.loader, Some(Loader { kind: LoaderKind::Horizon, .. })) {
+        return crate::horizon::launch(client, paths, &request.game_dir, &request.profile, request.server.as_deref(), progress).await;
+    }
     let version = version_json(client, paths, &request.minecraft).await?;
     if version.kind.as_deref().is_some_and(|k| !supported(k)) {
         return Err(crate::Error::Unsupported("Minecraft alpha and beta versions are not supported".into()));
@@ -100,5 +106,6 @@ mod tests {
         assert_eq!(launch_stages(None), ["java", "libraries", "assets"]);
         assert_eq!(launch_stages(Some(LoaderKind::Fabric)), ["java", "libraries", "assets"]);
         assert_eq!(launch_stages(Some(LoaderKind::Forge)), ["java", "libraries", "assets", "loader libraries", "loader"]);
+        assert_eq!(launch_stages(Some(LoaderKind::Horizon)), ["horizon", "java", "libraries", "assets", "prepare"]);
     }
 }

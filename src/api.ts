@@ -34,7 +34,7 @@ export interface Manual {
 }
 
 export interface Loader {
-  kind: "fabric" | "neoforge" | "forge";
+  kind: "fabric" | "neoforge" | "forge" | "horizon";
   version: string | null;
 }
 
