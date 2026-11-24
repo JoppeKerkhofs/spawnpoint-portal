@@ -3,6 +3,7 @@ use std::process::Command;
 
 use crate::{Error, Result};
 
+#[cfg(windows)]
 const PACKAGES: &str = r"HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages";
 const PACKAGE: &str = "Microsoft.MinecraftUWP_";
 

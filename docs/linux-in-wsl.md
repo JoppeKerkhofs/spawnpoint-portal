@@ -92,6 +92,15 @@ cargo run -p portal-core -- launch vanilla
 
 A new instance started with `launch --server` first shows Minecraft's accessibility screen and joins after a click; `portal join` turns that screen off. Run `logout` when done: the keyring's password is the word in the line above.
 
+## Build and open the window
+
+```bash
+npm ci
+npm run tauri build -- --config src-tauri/tauri.local.json
+```
+
+The last line it prints is the AppImage, which starts like any program. The local config leaves out the update files, which need the release key. Started inside the session of the previous section, the window finds that sign-in.
+
 ## What WSL does not show
 
 - How the game performs, and whether a real graphics driver is happy.

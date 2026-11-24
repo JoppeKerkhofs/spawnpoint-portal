@@ -10,6 +10,7 @@ import SignInView from "./SignInView.vue";
 import { errorText } from "../logic/format";
 import { look, setLook, type Appearance, type Theme } from "../logic/look";
 import { busy, playerName, playing } from "../logic/operation";
+import { followSystem, thisComputer } from "../logic/os";
 import { availableVersion, canInstall, checkForUpdate, installBlock, installUpdate, update } from "../logic/update";
 
 const discord = ref(true);
@@ -115,11 +116,11 @@ const appearance = computed({
             <select id="look-appearance" v-model="appearance" class="select w-full">
               <option value="light">Light</option>
               <option value="dark">Dark</option>
-              <option value="system">Follow Windows</option>
+              <option value="system">{{ followSystem }}</option>
             </select>
           </div>
         </div>
-        <div class="text-xs text-(--muted)">Stored on this PC only.</div>
+        <div class="text-xs text-(--muted)">Stored on {{ thisComputer }} only.</div>
       </div>
     </section>
 

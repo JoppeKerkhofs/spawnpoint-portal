@@ -55,7 +55,7 @@ export function setLook(l: Look): void {
   applyLook(l, document.documentElement, query().matches);
 }
 
-// Called once from main.ts: load the stored look, apply it and follow Windows while appearance is "system".
+// Called once from main.ts: load the stored look, apply it and follow the system while appearance is "system".
 export function initLook(): void {
   look.value = readLook(localStorage);
   const q = query();

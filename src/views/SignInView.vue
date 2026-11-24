@@ -11,6 +11,7 @@ import ViewHead from "../components/ViewHead.vue";
 import { countdown, errorText } from "../logic/format";
 import { view } from "../logic/operation";
 import { headUrl } from "../logic/picture";
+import { secretStore } from "../logic/os";
 import { initials } from "../logic/visuals";
 
 const emit = defineEmits<{ back: []; signedIn: [name: string]; signOut: [] }>();
@@ -142,7 +143,7 @@ onUnmounted(stop);
       <div v-else class="flex items-center gap-2" role="status"><Spinner />Asking Microsoft for a code…</div>
 
       <Note kind="info" icon="lock" role="note">
-        Your password goes only to Microsoft, on Microsoft’s own page. Portal keeps a sign-in token in Windows Credential Manager and never shows it. You can sign out at any time.
+        Your password goes only to Microsoft, on Microsoft’s own page. Portal keeps a sign-in token in {{ secretStore }} and never shows it. You can sign out at any time.
       </Note>
     </div>
   </div>

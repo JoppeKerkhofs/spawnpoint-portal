@@ -27,6 +27,7 @@ import ViewHead from "../components/ViewHead.vue";
 import { errorText, minecraftText } from "../logic/format";
 import { canCreate, loaderChoice, versionChoices, instancesState, instancesSummary, kindOf, kindTone, loaderText, playButton, sourceText } from "../logic/instances";
 import { look } from "../logic/look";
+import { os } from "../logic/os";
 import { focusRow, instanceRowKey, takeReturn } from "../logic/focus";
 import { markPlaying, op, openInstance, playing, view, withProgress } from "../logic/operation";
 import { instanceTexture } from "../logic/visuals";
@@ -188,7 +189,7 @@ onMounted(async () => {
           <label class="label" for="instance-game">Game</label>
           <select id="instance-game" v-model="game" class="select w-full">
             <option value="java">Java Edition</option>
-            <option value="horizon">Horizon</option>
+            <option v-if="os === 'windows'" value="horizon">Horizon</option>
           </select>
         </div>
         <div v-if="game === 'java'" class="min-w-0 flex-[1_1_200px]">
