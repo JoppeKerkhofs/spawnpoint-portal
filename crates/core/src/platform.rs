@@ -10,10 +10,11 @@ pub struct Platform {
     // In the runtime's `bin`: the one that starts the game, and the one that prints to a console.
     pub java: &'static str,
     pub console_java: &'static str,
+    pub classpath_separator: &'static str,
 }
 
-pub const WINDOWS: Platform = Platform { os: "windows", arch: "x86_64", java_runtime: "windows-x64", java: "javaw.exe", console_java: "java.exe" };
-pub const LINUX: Platform = Platform { os: "linux", arch: "x86_64", java_runtime: "linux", java: "java", console_java: "java" };
+pub const WINDOWS: Platform = Platform { os: "windows", arch: "x86_64", java_runtime: "windows-x64", java: "javaw.exe", console_java: "java.exe", classpath_separator: ";" };
+pub const LINUX: Platform = Platform { os: "linux", arch: "x86_64", java_runtime: "linux", java: "java", console_java: "java", classpath_separator: ":" };
 
 pub fn current() -> &'static Platform {
     if cfg!(windows) { &WINDOWS } else { &LINUX }
