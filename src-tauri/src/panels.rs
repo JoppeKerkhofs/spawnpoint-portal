@@ -1,5 +1,6 @@
 use crate::instances::refresh_presence;
 use crate::state::{AppState, CmdResult, CommandError, Kept, PairingView, claim, forget_pairing, safe_url};
+use portal_core::auth::{self, DeviceCode, Poll};
 use portal_core::join::all_servers;
 use portal_core::panel::{self, Panel, Server};
 use portal_core::settings::{self, Settings};
@@ -63,7 +64,7 @@ pub async fn panel_pair_start(state: State<'_, AppState>, address: String, allow
 #[tauri::command]
 pub async fn open_pairing_page(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     let url = match &*state.pairing.lock().unwrap_or_else(|e| e.into_inner()) {
-        Some(k) => format!("{}/settings/api-tokens", k.address),
+        Some(k) => panel::approve_page(&k.address, &k.pairing).0,
         None => return Err(Error::Other("no pairing is running".into()).into()),
     };
     open(&app, &url)
@@ -99,8 +100,8 @@ pub async fn settings_get(state: State<'_, AppState>) -> CmdResult<Settings> {
 }
 
 #[tauri::command]
-pub async fn settings_set(app: AppHandle, state: State<'_, AppState>, player_name: String, discord: bool) -> CmdResult<Settings> {
-    let new = Settings { player_name, discord };
+pub async fn settings_set(app: AppHandle, state: State<'_, AppState>, discord: bool) -> CmdResult<Settings> {
+    let new = Settings { discord, ..settings::load(&state.paths) };
     settings::save(&state.paths, &new)?;
     refresh_presence(&app);
     Ok(new)
@@ -109,6 +110,37 @@ pub async fn settings_set(app: AppHandle, state: State<'_, AppState>, player_nam
 #[tauri::command]
 pub async fn open_page(app: AppHandle, url: String) -> CmdResult<()> {
     open(&app, safe_url(&url)?)
+}
+
+#[tauri::command]
+pub async fn account_sign_in_start(state: State<'_, AppState>) -> CmdResult<DeviceCode> {
+    let code = auth::device_code().await?;
+    *state.sign_in.lock().unwrap_or_else(|e| e.into_inner()) = Some(code.clone());
+    Ok(code)
+}
+
+// The player name once the code has been entered; `None` while Microsoft is still waiting for it.
+#[tauri::command]
+pub async fn account_sign_in_poll(state: State<'_, AppState>) -> CmdResult<Option<String>> {
+    let code = state.sign_in.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some(code) = code else { return Err(Error::Other("no sign-in is running".into()).into()) };
+    match auth::poll(&code).await? {
+        Poll::Pending => Ok(None),
+        Poll::SlowDown => {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            Ok(None)
+        }
+        Poll::Done(tokens) => {
+            *state.sign_in.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            Ok(Some(auth::finish_sign_in(&state.paths, tokens).await?))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn account_sign_out(state: State<'_, AppState>) -> CmdResult<()> {
+    *state.sign_in.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    Ok(auth::sign_out(&state.paths)?)
 }
 
 #[cfg(test)]

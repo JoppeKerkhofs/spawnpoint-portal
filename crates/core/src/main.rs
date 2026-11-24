@@ -1,15 +1,15 @@
 use portal_core::download::{numbered, Progress, ProgressTx};
+use portal_core::auth::{self, Poll};
 use portal_core::gamefiles::{install, manifest, version_json};
 use portal_core::instance::{self, Instance, PackRef, Source};
 use portal_core::java;
 use portal_core::join;
-use portal_core::launch::Profile;
 use portal_core::panel;
 use portal_core::loader::{self, Loader};
 use portal_core::pack::{self, PackInstall};
 use portal_core::play::{launch_stages, start_instance};
 use portal_core::sync::Manual;
-use portal_core::{http_client, Error, Paths, Result};
+use portal_core::{http_client, settings, Error, Paths, Result};
 use reqwest::Client;
 use std::collections::HashMap;
 use std::io::Write;
@@ -33,11 +33,15 @@ const USAGE: &str = "usage:
   portal panel remove <id>                 unlink a panel and forget its token
   portal servers                           <panel id>/<server>, name, state, version, loader or pack
   portal sync <panel id>/<server>          make the server's instance match the server
-  portal join <panel id>/<server> [--name <player>]
+  portal join <panel id>/<server>
                                            sync, then start the game on that server
                                            (the panel id may be left out when one panel is linked)
-  portal launch <id> [--name <player>] [--server <host>] [--memory <MB>]
-                                           start the game offline, wait for it to exit";
+  portal launch <id> [--server <host>] [--memory <MB>]
+                                           start the game, wait for it to exit
+                                           (join and launch need a sign-in first)
+  portal login                             sign in with Microsoft: enter the code it prints
+  portal logout                            forget the Microsoft sign-in
+  portal whoami                            the signed-in player";
 
 async fn with_progress<T, F: std::future::Future<Output = Result<T>>>(work: impl FnOnce(ProgressTx) -> F) -> Result<T> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Progress>();
@@ -71,11 +75,30 @@ fn options(rest: &[String], known: &[&str]) -> Result<HashMap<String, String>> {
     Ok(out)
 }
 
-fn launch_options(rest: &[String]) -> Result<(Profile, Option<String>, Option<u32>)> {
-    let mut o = options(rest, &["--name", "--server", "--memory"])?;
+async fn login() -> Result<()> {
+    let code = auth::device_code().await?;
+    println!("Go to {} and enter {}", show(&code.verification_uri), show(&code.user_code));
+    let started = std::time::Instant::now();
+    let mut interval = code.interval.max(1);
+    let tokens = loop {
+        tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+        match auth::poll(&code).await? {
+            Poll::Done(tokens) => break tokens,
+            Poll::SlowDown => interval += 5,
+            Poll::Pending => {}
+        }
+        if started.elapsed().as_secs() > code.expires_in {
+            return Err(Error::SignIn("the code expired; start again".into()));
+        }
+    };
+    println!("signed in as {}", show(&auth::finish_sign_in(&Paths::new()?, tokens).await?));
+    Ok(())
+}
+
+fn launch_options(rest: &[String]) -> Result<(Option<String>, Option<u32>)> {
+    let mut o = options(rest, &["--server", "--memory"])?;
     let memory = o.remove("--memory").map(|m| m.parse().map_err(|_| Error::Other(format!("invalid --memory: {m}")))).transpose()?;
-    let name = o.remove("--name").unwrap_or_else(|| "Player".into());
-    Ok((Profile::offline(&name), o.remove("--server"), memory))
+    Ok((o.remove("--server"), memory))
 }
 
 fn loader_option(rest: &[String]) -> Result<Option<Loader>> {
@@ -116,15 +139,14 @@ fn allow_http(rest: &[String]) -> Result<bool> {
     }
 }
 
-fn join_profile(rest: &[String]) -> Result<Profile> {
-    Ok(Profile::offline(&options(rest, &["--name"])?.remove("--name").unwrap_or_else(|| "Player".into())))
-}
-
 async fn panel_add(address: &str, allow_http: bool) -> Result<()> {
     let paths = Paths::new()?;
     let address = panel::normalize_address(address, allow_http)?;
     let pairing = panel::pair_start(&address, &panel::device_name(std::env::var("COMPUTERNAME").ok())).await?;
-    println!("Approve the code {} at {address}/settings/api-tokens", show(&pairing.code));
+    match panel::approve_page(&address, &pairing) {
+        (page, true) => println!("Open {}, sign in and allow the code {}", show(&page), show(&pairing.code)),
+        (page, false) => println!("Approve the code {} at {}", show(&pairing.code), show(&page)),
+    }
     let started = std::time::Instant::now();
     let token = loop {
         tokio::time::sleep(std::time::Duration::from_secs(pairing.interval.max(1))).await;
@@ -185,8 +207,9 @@ fn wait_and_record(paths: &Paths, id: &str, child: &mut std::process::Child) -> 
     Ok(code)
 }
 
-async fn join_server(target: &str, profile: Profile) -> Result<()> {
+async fn join_server(target: &str) -> Result<()> {
     let (client, paths) = (http_client(), Paths::new()?);
+    let profile = auth::current_profile(&paths).await?;
     let (panel, slug) = join::parse_target(target, &panel::list(&paths)?)?;
     let p = paths.clone();
     let (mut child, instance, manual, joined) = with_progress(|tx| async move { join::join(&client, &p, &panel, &slug, profile, &tx).await }).await?;
@@ -308,10 +331,11 @@ async fn run(args: &[String]) -> Result<()> {
         [cmd, sub, id] if cmd == "panel" && sub == "remove" => panel::remove(&Paths::new()?, id)?,
         [cmd] if cmd == "servers" => servers().await?,
         [cmd, target] if cmd == "sync" => sync_server(target).await?,
-        [cmd, target, rest @ ..] if cmd == "join" => join_server(target, join_profile(rest)?).await?,
+        [cmd, target] if cmd == "join" => join_server(target).await?,
         [cmd, id, rest @ ..] if cmd == "launch" => {
-            let (profile, server, memory) = launch_options(rest)?;
+            let (server, memory) = launch_options(rest)?;
             let (client, paths) = (http_client(), Paths::new()?);
+            let profile = auth::current_profile(&paths).await?;
             let instance = instance::load(&paths, id)?;
             let memory = memory.unwrap_or(instance.memory_mb());
             let p = paths.clone();
@@ -323,6 +347,12 @@ async fn run(args: &[String]) -> Result<()> {
             let code = wait_and_record(&paths, id, &mut child)?;
             std::process::exit(code);
         }
+        [cmd] if cmd == "login" => login().await?,
+        [cmd] if cmd == "logout" => auth::sign_out(&Paths::new()?)?,
+        [cmd] if cmd == "whoami" => match settings::load(&Paths::new()?).account_name {
+            Some(name) => println!("{}", show(&name)),
+            None => println!("not signed in"),
+        },
         _ => {
             println!("{USAGE}");
             std::process::exit(1);
@@ -352,11 +382,10 @@ mod tests {
 
     #[test]
     fn launch_option_parsing() {
-        let (p, server, memory) = launch_options(&args(&["--name", "Bob", "--server", "mc.test", "--memory", "2048"])).unwrap();
-        assert_eq!((p.name, server, memory), ("Bob".into(), Some("mc.test".into()), Some(2048)));
-        let (p, server, memory) = launch_options(&[]).unwrap();
-        assert_eq!((p.name.as_str(), server, memory), ("Player", None, None));
-        for bad in [&["--server"][..], &["--srever", "h"], &["--memory=8"], &["--name", "--server", "x"], &["--memory", "lots"], &["--dir", "x"], &["--loader", "fabric"]] {
+        let parsed = launch_options(&args(&["--server", "mc.test", "--memory", "2048"])).unwrap();
+        assert_eq!(parsed, (Some("mc.test".into()), Some(2048)));
+        assert_eq!(launch_options(&[]).unwrap(), (None, None));
+        for bad in [&["--server"][..], &["--srever", "h"], &["--memory=8"], &["--name", "Bob"], &["--memory", "lots"], &["--dir", "x"], &["--loader", "fabric"]] {
             assert!(launch_options(&args(bad)).is_err(), "{bad:?}");
         }
     }
@@ -369,15 +398,6 @@ mod tests {
             assert!(allow_http(&args(bad)).is_err(), "{bad:?}");
         }
         assert_eq!(show("a\u{1b}[31mb\n"), "a [31mb ");
-    }
-
-    #[test]
-    fn join_options() {
-        assert_eq!(join_profile(&args(&["--name", "Bob"])).unwrap().name, "Bob");
-        assert_eq!(join_profile(&[]).unwrap().name, "Player");
-        for bad in [&["--name"][..], &["--server", "x"], &["--memory", "1"], &["Bob"]] {
-            assert!(join_profile(&args(bad)).is_err(), "{bad:?}");
-        }
     }
 
     #[test]

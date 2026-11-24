@@ -6,10 +6,9 @@ use crate::loader::{forge_supported, profile, resolve, Loader, LoaderKind};
 use crate::version::merge;
 use crate::{java, Paths, Result};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct StartRequest {
     pub minecraft: String,
     pub game_dir: PathBuf,

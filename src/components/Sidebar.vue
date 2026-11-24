@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { headUrl } from "../logic/picture";
 import { initials } from "../logic/visuals";
 import { playerName, view, type View } from "../logic/operation";
 import { availableVersion, update } from "../logic/update";
 import Icon, { type IconName } from "./Icon.vue";
 import Logo from "./Logo.vue";
+import Picture from "./Picture.vue";
 
 const items: { id: View; label: string; icon: IconName }[] = [
   { id: "servers", label: "Servers", icon: "server" },
@@ -36,15 +38,15 @@ const active = computed(() => (view.value === "instance" ? "instances" : view.va
     <button
       type="button"
       class="side-foot"
-      :aria-label="`Account, ${playerName}`"
-      :title="playerName"
+      :aria-label="`Account, ${playerName || 'not signed in'}`"
+      :title="playerName || 'Not signed in'"
       :aria-current="view === 'account' ? 'page' : undefined"
       @click="view = 'account'"
     >
-      <span class="avatar" aria-hidden="true">{{ initials(playerName) }}</span>
+      <Picture :picture="headUrl(playerName)" :size="32"><span class="avatar" aria-hidden="true">{{ initials(playerName) }}</span></Picture>
       <span class="side-text" style="min-width: 0">
-        <span class="side-name mc-name">{{ playerName }}</span>
-        <span class="side-sub">Offline name</span>
+        <span class="side-name mc-name">{{ playerName || "Not signed in" }}</span>
+        <span class="side-sub">{{ playerName ? "Microsoft account" : "Sign in to play" }}</span>
       </span>
     </button>
   </nav>

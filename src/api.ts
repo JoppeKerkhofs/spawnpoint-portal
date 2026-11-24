@@ -211,6 +211,7 @@ export interface PairingView {
   code: string;
   address: string;
   approve_at: string;
+  sign_in: boolean;
   expires_at: string;
   interval: number;
 }
@@ -221,8 +222,15 @@ export interface Linked {
 }
 
 export interface Settings {
-  player_name: string;
   discord: boolean;
+  account_name: string | null;
+}
+
+export interface DeviceCode {
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
 }
 
 export const servers = () => invoke<PanelServers[]>("servers");
@@ -234,9 +242,11 @@ export const panelPairPoll = (number: number) => invoke<Linked | null>("panel_pa
 export const panelPairCancel = (number: number) => invoke<void>("panel_pair_cancel", { number });
 export const panelRemove = (id: string) => invoke<void>("panel_remove", { id });
 export const settingsGet = () => invoke<Settings>("settings_get");
-export const settingsSet = (playerName: string, discord: boolean) =>
-  invoke<Settings>("settings_set", { playerName, discord });
+export const settingsSet = (discord: boolean) => invoke<Settings>("settings_set", { discord });
 export const openPage = (url: string) => invoke<void>("open_page", { url });
+export const accountSignInStart = () => invoke<DeviceCode>("account_sign_in_start");
+export const accountSignInPoll = () => invoke<string | null>("account_sign_in_poll");
+export const accountSignOut = () => invoke<void>("account_sign_out");
 
 export const appVersion = () => invoke<string>("app_version");
 export const updateCheck = () => invoke<string | null>("update_check");

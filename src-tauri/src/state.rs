@@ -16,6 +16,7 @@ pub struct AppState {
     pub presence: Mutex<portal_core::discord::Presence>,
     pub pairing: Mutex<Option<Kept>>,
     pub pairings: AtomicU64,
+    pub sign_in: Mutex<Option<portal_core::auth::DeviceCode>>,
 }
 
 pub struct Kept {
@@ -149,17 +150,21 @@ pub struct PairingView {
     pub code: String,
     pub address: String,
     pub approve_at: String,
+    // True when signing in on that page is all it takes; false for the code field of an older panel.
+    pub sign_in: bool,
     pub expires_at: String,
     pub interval: u64,
 }
 
 impl PairingView {
     pub fn new(address: &str, pairing: &Pairing, number: u64) -> PairingView {
+        let (approve_at, sign_in) = portal_core::panel::approve_page(address, pairing);
         PairingView {
             pairing: number,
             code: pairing.code.clone(),
             address: address.into(),
-            approve_at: format!("{address}/settings/api-tokens"),
+            approve_at,
+            sign_in,
             expires_at: pairing.expires_at.clone(),
             interval: pairing.interval,
         }
@@ -305,7 +310,7 @@ mod tests {
         busy.lock().unwrap().clear();
         assert_eq!(check(&running, &busy, &pairing).as_deref(), Some(game));
         running.lock().unwrap().clear();
-        *pairing.lock().unwrap() = Some(Kept { address: "https://panel.example.org".into(), pairing: Pairing { code: "7ABR547C".into(), secret: "s".into(), expires_at: "2026-11-20T14:10:00Z".into(), interval: 3 }, allow_http: false, number: 1 });
+        *pairing.lock().unwrap() = Some(Kept { address: "https://panel.example.org".into(), pairing: Pairing { code: "7ABR547C".into(), secret: "s".into(), expires_at: "2026-11-20T14:10:00Z".into(), interval: 3, approve_path: None }, allow_http: false, number: 1 });
         assert_eq!(check(&running, &busy, &pairing).as_deref(), Some(link));
         busy.lock().unwrap().insert("pairing".to_string());
         assert_eq!(check(&running, &busy, &pairing).as_deref(), Some(task));
@@ -327,7 +332,7 @@ mod tests {
 
     #[test]
     fn a_pairing_view_has_no_secret() {
-        let p = Pairing { code: "7ABR547C".into(), secret: "s3cr3t".into(), expires_at: "2026-11-20T14:10:00Z".into(), interval: 3 };
+        let p = Pairing { code: "7ABR547C".into(), secret: "s3cr3t".into(), expires_at: "2026-11-20T14:10:00Z".into(), interval: 3, approve_path: None };
         let json = serde_json::to_string(&PairingView::new("https://panel.example.org", &p, 1)).unwrap();
         assert!(!json.contains("s3cr3t"));
         assert!(json.contains("https://panel.example.org/settings/api-tokens"));
@@ -335,7 +340,7 @@ mod tests {
 
     #[test]
     fn only_the_kept_pairing_number_matches() {
-        let pairing = Pairing { code: "7ABR547C".into(), secret: "s3cr3t".into(), expires_at: "2026-11-20T14:10:00Z".into(), interval: 3 };
+        let pairing = Pairing { code: "7ABR547C".into(), secret: "s3cr3t".into(), expires_at: "2026-11-20T14:10:00Z".into(), interval: 3, approve_path: None };
         let slot = Mutex::new(Some(Kept { address: "https://panel.example.org".into(), pairing, allow_http: false, number: 2 }));
         forget_pairing(&slot, 1);
         assert!(slot.lock().unwrap().is_some());

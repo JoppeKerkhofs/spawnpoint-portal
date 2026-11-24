@@ -63,7 +63,7 @@ Instances, game files, Java runtimes and settings are under `%APPDATA%\Spawnpoin
 - **Instances**: your instances, and a form to create a plain one. Instances Portal cannot read are listed with a button to show their folder.
 - **An instance**: memory, the mods folder, adding and removing your own mods, files a pack's author does not allow launchers to download (to fetch by hand), and delete.
 - **Panels**: link a panel by approving a code on its page, or remove one.
-- **Account**: the player name and the appearance (standard light, dark or following Windows, or blocky).
+- **Account**: signing in with Microsoft, which starting a game needs (one account; only its sign-in is kept, in the Windows Credential Manager), and the appearance (standard light, dark or following Windows, or blocky).
 
 The status bar shows the steps of a join and whether the game is running.
 
@@ -87,9 +87,11 @@ The `portal` tool does everything the window does, and also installs packs witho
     portal pack install modrinth <version id> [--name <name>]
                                        make an instance from a pack; files to fetch by hand are listed
     portal pack update <id> <version>  install another version of the instance's pack over it
-    portal launch <id> [--name <player>] [--server <host>] [--memory <MB>]
-                                       start the game offline (name defaults to Player, memory to 4096),
-                                       wait for it to exit
+    portal launch <id> [--server <host>] [--memory <MB>]
+                                       start the game (memory defaults to 4096), wait for it to exit
+    portal login                       sign in with Microsoft: open the page it prints and enter the code
+    portal logout                      forget the Microsoft sign-in
+    portal whoami                      the signed-in player; join and launch need a sign-in
     portal panel add <address> [--allow-http]
                                        link a Spawnpoint panel: approve the code it prints at
                                        <address>/settings/api-tokens (the token goes in the
@@ -98,6 +100,6 @@ The `portal` tool does everything the window does, and also installs packs witho
     portal panel remove <id>           unlink a panel and forget its token
     portal servers                     <panel id>/<server>, name, state, version, loader or pack
     portal sync <panel id>/<server>    make the server's instance match the server
-    portal join <panel id>/<server> [--name <player>]
+    portal join <panel id>/<server>
                                        sync, then start the game on that server; the panel id
                                        may be left out when one panel is linked

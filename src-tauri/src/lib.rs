@@ -48,6 +48,9 @@ pub fn run() {
             panels::settings_get,
             panels::settings_set,
             panels::open_page,
+            panels::account_sign_in_start,
+            panels::account_sign_in_poll,
+            panels::account_sign_out,
             updates::app_version,
             updates::update_check,
             updates::update_install,
@@ -61,6 +64,7 @@ pub fn run() {
                 presence: Default::default(),
                 pairing: Mutex::new(None),
                 pairings: Default::default(),
+                sign_in: Mutex::new(None),
             });
             instances::refresh_presence(app.handle());
             Ok(())

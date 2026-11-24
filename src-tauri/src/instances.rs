@@ -1,9 +1,9 @@
 use crate::state::{AppState, CmdResult, CommandError, Running, claim, end_all_runs, end_run, forward_progress, list_running, refuse_if_running, shown};
 use portal_core::download::numbered;
 use portal_core::instance::{self, Instance, Listing, ModFile};
-use portal_core::launch::{DEFAULT_MEMORY_MB, Profile};
+use portal_core::launch::DEFAULT_MEMORY_MB;
 use portal_core::loader::{self, Loader};
-use portal_core::{Error, Paths, discord, gamefiles, join as core_join, mods, panel, play, settings};
+use portal_core::{Error, Paths, auth, discord, gamefiles, join as core_join, mods, panel, play, settings};
 use serde::Serialize;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -182,7 +182,7 @@ pub async fn instance_launch(app: AppHandle, state: State<'_, AppState>, id: Str
     refuse_if_running(&state.running, &id)?;
     let lock = instance::lock(&id)?;
     let inst = instance::load(&state.paths, &id)?;
-    let profile = Profile::offline(&settings::load(&state.paths).player_name);
+    let profile = auth::current_profile(&state.paths).await?;
     let stages = play::launch_stages(inst.loader.as_ref().map(|l| l.kind));
     let progress = numbered(stages, forwarder(&app));
     let (child, _) = play::start_instance(&state.client, &state.paths, &inst, profile, None, inst.memory_mb(), &progress).await?;
@@ -214,7 +214,7 @@ pub async fn join(app: AppHandle, state: State<'_, AppState>, panel_id: String, 
         .into_iter()
         .find(|p| p.id == panel_id)
         .ok_or_else(|| Error::Other(format!("no linked panel {panel_id}")))?;
-    let profile = Profile::offline(&settings::load(&state.paths).player_name);
+    let profile = auth::current_profile(&state.paths).await?;
     let (child, instance, _, joined) = core_join::join(&state.client, &state.paths, &linked, &slug, profile, &forwarder(&app)).await?;
     watch(app, state.paths.clone(), instance.id.clone(), child);
     Ok(Joined { instance, joined })

@@ -64,7 +64,10 @@ export async function withProgress<T>(name: string, run: () => Promise<T>, key?:
     op.value = { phase: "idle" };
     return result;
   } catch (e) {
-    op.value = { phase: "failed", name, key, error: normalizeError(e) };
+    const error = normalizeError(e);
+    op.value = { phase: "failed", name, key, error };
+    // Nothing starts without a sign-in; the Account view is where that is done.
+    if (error.kind === "sign_in") view.value = "account";
     return undefined;
   } finally {
     live = false;

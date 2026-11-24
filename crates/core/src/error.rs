@@ -15,6 +15,7 @@ pub enum Error {
     Panel { panel: String, message: String },
     Unreachable { panel: String },
     Busy(String),
+    SignIn(String),
     Other(String),
 }
 
@@ -37,7 +38,7 @@ impl fmt::Display for Error {
             Error::Panel { panel, message } => write!(f, "panel {panel}: {message}"),
             Error::Unreachable { panel } => write!(f, "panel {panel}: cannot be reached"),
             Error::Busy(_) => f.write_str("this instance is being prepared; try again in a moment"),
-            Error::NotReady(m) | Error::Unsupported(m) | Error::Other(m) => f.write_str(m),
+            Error::NotReady(m) | Error::Unsupported(m) | Error::SignIn(m) | Error::Other(m) => f.write_str(m),
         }
     }
 }
@@ -54,6 +55,7 @@ impl Error {
             Error::NotReady(_) => "not_ready",
             Error::Secret(_) => "secret",
             Error::Busy(_) => "busy",
+            Error::SignIn(_) => "sign_in",
             Error::Other(_) => "other",
         }
     }

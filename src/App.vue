@@ -22,7 +22,7 @@ let unlisten: (() => void) | undefined;
 const stopPolling = pollServers(() => getCurrentWindow().isMinimized());
 onMounted(async () => {
   settingsGet().then(
-    (s) => (playerName.value = s.player_name),
+    (s) => (playerName.value = s.account_name ?? ""),
     () => {}, // The footer stays empty; the Account view reports a failing settings call itself.
   );
   try {

@@ -222,7 +222,7 @@ copying what is needed, not by sharing a package **(call)**.
 
 One plan per piece; each ends with something that runs.
 
-0. Azure app and Mojang review. Done by the owner: submitted 19 November 2026, awaiting approval.
+0. Azure app and Mojang review. Done by the owner: submitted 19 November 2026, approved 24 November 2026.
 1. Core from the command line: game files, Java, launch offline.
 2. Loaders: Fabric, then NeoForge and Forge.
 3. Instances and pack installers: FTB first (the owner's live server), then Modrinth.

@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
 use crate::version::{allowed, library_files, Argument, Arguments, Features, OneOrMany, VersionJson};
@@ -12,7 +11,8 @@ use crate::{Error, Paths, Result};
 pub const DEFAULT_MEMORY_MB: u32 = 4096;
 const QUICK_PLAY: &str = "is_quick_play_multiplayer";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// No Debug or Serialize: the access token must not reach a log or the window.
+#[derive(Clone)]
 pub struct Profile {
     pub name: String,
     pub uuid: String,
@@ -32,7 +32,7 @@ impl Profile {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct LaunchOptions {
     pub game_dir: PathBuf,
     pub profile: Profile,
