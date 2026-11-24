@@ -61,7 +61,7 @@ git fetch origin && git checkout <branch> && git pull
 cargo test -p portal-core
 ```
 
-The command-line tool keeps its data in a folder of its own, so a try leaves nothing else behind. Until Portal has a default folder on Linux, it must be given one:
+On Linux Portal keeps its files in `~/.local/share/spawnpoint-portal`. Give a try a folder of its own, so it leaves nothing else behind:
 
 ```bash
 export SPAWNPOINT_PORTAL_HOME=~/portal-try

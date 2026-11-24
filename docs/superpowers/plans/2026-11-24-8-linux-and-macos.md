@@ -14,13 +14,13 @@ Updated 24 November 2026. Change this table in the pull request that changes a p
 | 2. Game files | Merged | #12 | |
 | 3. Java | Merged | #13 | |
 | 4. Starting the game | Open | #14 | Starting the game on Linux; the Forge and NeoForge installer steps on Linux |
-| 5. The rest of the core | Not started | | |
+| 5. The rest of the core | Open | | Signing in and linking a panel on Linux, and both still there after a restart; presence in a Discord on Linux |
 | 6. The window | Not started | | |
 | 7. The panel serves more than one installer | Not started | | |
 | 8. Releasing | Not started | | |
 | macOS | Not started | | Everything; see "macOS, later" |
 
-Tried on real Linux so far (WSL, Ubuntu 24.04): the core's tests, downloading and running Java 21 and Java 8, downloading the game files of 1.21.1. Nothing has been tried on a Linux desktop or a Mac.
+Tried on real Linux so far (WSL, Ubuntu 24.04): the core's tests, downloading and running Java 21 and Java 8, downloading the game files of 1.21.1, the default data folder, and keeping a secret in GNOME Keyring (unlocked, locked and absent). Nothing has been tried on a Linux desktop or a Mac.
 
 **Scope**
 

@@ -54,7 +54,7 @@ pub async fn panels(state: State<'_, AppState>) -> CmdResult<Vec<Panel>> {
 #[tauri::command]
 pub async fn panel_pair_start(state: State<'_, AppState>, address: String, allow_http: bool) -> CmdResult<PairingView> {
     let address = panel::normalize_address(&address, allow_http)?;
-    let pairing = panel::pair_start(&address, &panel::device_name(std::env::var("COMPUTERNAME").ok())).await?;
+    let pairing = panel::pair_start(&address, &panel::device_name(panel::computer_name())).await?;
     let number = state.pairings.fetch_add(1, Ordering::Relaxed) + 1;
     let view = PairingView::new(&address, &pairing, number);
     *state.pairing.lock().unwrap_or_else(|e| e.into_inner()) = Some(Kept { address, pairing, allow_http, number });

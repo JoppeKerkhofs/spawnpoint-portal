@@ -269,8 +269,15 @@ pub fn approve_page(address: &str, pairing: &Pairing) -> (String, bool) {
     }
 }
 
+// ponytail: Windows and Linux only; macOS has neither source and will need its own.
+pub fn computer_name() -> Option<String> {
+    let name = if cfg!(windows) { std::env::var("COMPUTERNAME").ok() } else { std::fs::read_to_string("/proc/sys/kernel/hostname").ok() };
+    name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty())
+}
+
 pub fn device_name(computer: Option<String>) -> String {
-    let name = format!("Spawnpoint Portal on {}", computer.as_deref().unwrap_or("this PC"));
+    let unnamed = if cfg!(windows) { "this PC" } else { "this computer" };
+    let name = format!("Spawnpoint Portal on {}", computer.as_deref().unwrap_or(unnamed));
     name.chars().take(60).collect()
 }
 
@@ -804,7 +811,8 @@ mod tests {
     #[test]
     fn device_names() {
         assert_eq!(device_name(Some("DESKTOP-1".into())), "Spawnpoint Portal on DESKTOP-1");
-        assert_eq!(device_name(None), "Spawnpoint Portal on this PC");
+        assert_eq!(device_name(None), if cfg!(windows) { "Spawnpoint Portal on this PC" } else { "Spawnpoint Portal on this computer" });
+        assert!(computer_name().is_some_and(|n| n == n.trim() && !n.is_empty()));
         assert_eq!(device_name(Some("x".repeat(100))).chars().count(), 60);
     }
 }

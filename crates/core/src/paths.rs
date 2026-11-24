@@ -1,8 +1,10 @@
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+use crate::platform::{self, Platform};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Paths {
@@ -11,16 +13,8 @@ pub struct Paths {
 
 impl Paths {
     pub fn new() -> Result<Paths> {
-        let home = std::env::var_os("SPAWNPOINT_PORTAL_HOME").filter(|h| !h.is_empty());
-        let root = if let Some(home) = home {
-            PathBuf::from(home)
-        } else if let Some(appdata) = std::env::var_os("APPDATA") {
-            PathBuf::from(appdata).join("SpawnpointPortal")
-        } else {
-            return Err(Error::Other(
-                "neither SPAWNPOINT_PORTAL_HOME nor APPDATA is set".into(),
-            ));
-        };
+        let root = root_from(platform::current(), |name| std::env::var_os(name))
+            .ok_or_else(|| Error::Other("there is no folder for Portal's files: set SPAWNPOINT_PORTAL_HOME".into()))?;
         Ok(Paths { root: std::path::absolute(root)? })
     }
 
@@ -65,6 +59,20 @@ impl Paths {
     }
 }
 
+// SPAWNPOINT_PORTAL_HOME wins everywhere; else the system's own place for a program's files.
+fn root_from(platform: &Platform, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    let var = |name| var(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(home) = var("SPAWNPOINT_PORTAL_HOME") {
+        return Some(home);
+    }
+    if platform.os == "windows" {
+        return Some(var("APPDATA")?.join("SpawnpointPortal"));
+    }
+    // The XDG rules ignore a data folder that is not a full path.
+    let data = var("XDG_DATA_HOME").filter(|d| d.has_root()).or_else(|| Some(var("HOME")?.join(".local").join("share")))?;
+    Some(data.join("spawnpoint-portal"))
+}
+
 // For anything from the caller that ends up in a URL or one of our own file names.
 pub(crate) fn check_id(id: &str) -> Result<()> {
     if id.is_empty() || id.bytes().all(|b| b == b'.') || !id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.')) {
@@ -98,11 +106,19 @@ mod tests {
         unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", r"relative\home") };
         let root = Paths::new().unwrap().root;
         assert!(root.is_absolute() && root.ends_with(r"relative\home"), "{root:?}");
-        // Elsewhere there is no default folder yet.
-        if cfg!(windows) {
-            unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", "") };
-            let root = Paths::new().unwrap().root;
-            assert!(root.is_absolute() && root.ends_with("SpawnpointPortal"), "{root:?}");
+    }
+
+    #[test]
+    fn each_system_has_its_own_folder_and_the_override_wins() {
+        use crate::platform::{LINUX, WINDOWS};
+        let root = |platform, vars: &[(&str, &str)]| root_from(platform, |name| vars.iter().find(|(k, _)| *k == name).map(|(_, v)| OsString::from(v)));
+        assert_eq!(root(&WINDOWS, &[("APPDATA", "A"), ("SPAWNPOINT_PORTAL_HOME", "")]), Some(Path::new("A").join("SpawnpointPortal")));
+        assert_eq!(root(&LINUX, &[("HOME", "/home/a"), ("APPDATA", "A")]), Some(PathBuf::from("/home/a/.local/share/spawnpoint-portal")));
+        assert_eq!(root(&LINUX, &[("HOME", "/home/a"), ("XDG_DATA_HOME", "/data")]), Some(PathBuf::from("/data/spawnpoint-portal")));
+        assert_eq!(root(&LINUX, &[("HOME", "/home/a"), ("XDG_DATA_HOME", "relative")]), Some(PathBuf::from("/home/a/.local/share/spawnpoint-portal")));
+        for platform in [&WINDOWS, &LINUX] {
+            assert_eq!(root(platform, &[("HOME", "/home/a"), ("APPDATA", "A"), ("SPAWNPOINT_PORTAL_HOME", "own")]), Some(PathBuf::from("own")));
+            assert_eq!(root(platform, &[]), None);
         }
     }
 

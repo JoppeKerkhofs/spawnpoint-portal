@@ -65,6 +65,11 @@ fn is_device_name(segment: &str) -> bool {
     RESERVED.contains(&stem.as_str()) || numbered("COM") || numbered("LPT")
 }
 
+// What two paths share when they name one file: a Linux disk tells case apart, the others do not.
+pub(crate) fn path_key(path: &str) -> String {
+    if cfg!(target_os = "linux") { path.to_string() } else { path.to_lowercase() }
+}
+
 pub fn safe_path(path: &str) -> Result<String> {
     let norm = path.replace('\\', "/");
     let norm = norm.strip_prefix("./").unwrap_or(&norm);
@@ -90,7 +95,7 @@ pub fn plan_with(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>, 
         if let (Origin::Bytes(bytes), None) = (&w.from, &w.hash) {
             w.hash = Some(Hash::Sha1(sha1_bytes(bytes)));
         }
-        if let Some(old) = slot_of.insert(w.path.to_lowercase(), slots.len()) {
+        if let Some(old) = slot_of.insert(path_key(&w.path), slots.len()) {
             slots[old] = None;
         }
         slots.push(Some(w));
@@ -98,9 +103,9 @@ pub fn plan_with(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>, 
     let list: Vec<Wanted> = slots.into_iter().flatten().collect();
     let mut managed_by_path: HashMap<String, &str> = HashMap::new();
     for m in managed {
-        managed_by_path.entry(m.path.to_lowercase()).or_insert(m.sha1.as_str());
+        managed_by_path.entry(path_key(&m.path)).or_insert(m.sha1.as_str());
     }
-    let managed_sha = |p: &str| managed_by_path.get(&p.to_lowercase()).copied();
+    let managed_sha = |p: &str| managed_by_path.get(&path_key(p)).copied();
     let mut out = SyncPlan {
         write: vec![],
         delete: vec![],
@@ -148,7 +153,7 @@ pub fn plan_with(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>, 
     for m in managed {
         let Ok(p) = safe_path(&m.path) else { continue };
         let full = game_dir.join(&p);
-        if !slot_of.contains_key(&p.to_lowercase())
+        if !slot_of.contains_key(&path_key(&p))
             && full.is_file()
             && sha1_file(&full)?.eq_ignore_ascii_case(&m.sha1)
         {
@@ -515,19 +520,23 @@ mod tests {
         expect(&p, &[], &[], &[], &[]);
     }
 
-    // ponytail: paths are compared without case everywhere, which is only right on a disk that
-    // ignores case. On Linux a path that changes case leaves the old file behind; see the Linux plan.
-    #[cfg(windows)]
     #[test]
-    fn paths_compare_without_case() {
+    fn paths_compare_the_way_the_disk_does() {
         let d = disk(&[("mods/a.jar", b"1")]);
         let upper = |b: &[u8]| w("Mods/A.jar", b);
-        let p = plan(&d, &[m("mods/a.jar", b"1")], vec![upper(b"1")]).unwrap();
-        expect(&p, &[], &[], &["Mods/A.jar"], &[]);
-        let p = plan(&d, &[m("mods/a.jar", b"1")], vec![upper(b"2")]).unwrap();
-        expect(&p, &["Mods/A.jar"], &[], &[], &[]);
-        let p = plan(&d, &[], vec![w("x", b"1"), w("X", b"1")]).unwrap();
-        expect(&p, &["X"], &[], &[], &[]);
+        let same = plan(&d, &[m("mods/a.jar", b"1")], vec![upper(b"1")]).unwrap();
+        let changed = plan(&d, &[m("mods/a.jar", b"1")], vec![upper(b"2")]).unwrap();
+        let twice = plan(&d, &[], vec![w("x", b"1"), w("X", b"1")]).unwrap();
+        if cfg!(target_os = "linux") {
+            // Another file: the new one is written and the old one goes.
+            expect(&same, &["Mods/A.jar"], &["mods/a.jar"], &[], &[]);
+            expect(&changed, &["Mods/A.jar"], &["mods/a.jar"], &[], &[]);
+            expect(&twice, &["x", "X"], &[], &[], &[]);
+        } else {
+            expect(&same, &[], &[], &["Mods/A.jar"], &[]);
+            expect(&changed, &["Mods/A.jar"], &[], &[], &[]);
+            expect(&twice, &["X"], &[], &[], &[]);
+        }
     }
 
     fn setup() -> (Tmp, Paths, Instance) {
