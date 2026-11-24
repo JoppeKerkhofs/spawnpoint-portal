@@ -30,7 +30,7 @@ The version is the `version` line in `package.json`; `tauri.conf.json` follows i
 1. Run `npm version <x.y.z> --no-git-tag-version` (it updates `package.json` and `package-lock.json` together; `tauri.conf.json` follows) and commit.
 2. Get that commit onto `main`.
 
-Every push to `main` runs `.github/workflows/release.yml`. When the version in `package.json` has no tag `v<version>` yet, it runs the tests, builds and signs the installer, keeps it as a workflow artifact for 30 days, uploads it to the panel, and then creates the tag on the released commit. When the tag exists, it does nothing: a push that does not change the version releases nothing. A run that failed can be run again; if the panel already has the version (409), the run only adds the missing tag.
+Every push to `main` runs `.github/workflows/release.yml`. When the version in `package.json` has no tag `v<version>` yet, it builds one installer per system, each in a job of its own: the Windows installer and the Linux AppImage. Each job runs the tests, builds and signs its installer, keeps it as a workflow artifact for 30 days and uploads it to the panel with its platform. A last job creates the tag on the released commit, and only when every system was uploaded. When the tag exists, the workflow does nothing: a push that does not change the version releases nothing. A run that failed can be run again; a system the panel already has the version for (409) is skipped, so the run adds what is missing and then the tag.
 
 It needs two secrets, kept in a GitHub environment named `release` (Settings, Environments):
 
@@ -39,7 +39,7 @@ It needs two secrets, kept in a GitHub environment named `release` (Settings, En
 
 Adding required reviewers to that environment makes every release wait for approval; without them a merge to `main` with a new version releases to every player by itself. Protecting `main` (Settings, Rules) limits who can start a release.
 
-Addresses: the app checks `https://spawnpoint.joppek.be/portal/latest.json`, releases are uploaded with `PUT https://spawnpoint.joppek.be/api/v1/portal/releases/<version>`, and players download from `https://spawnpoint.joppek.be/portal/download`.
+Addresses: the app checks `https://spawnpoint.joppek.be/portal/latest.json`, releases are uploaded with `PUT https://spawnpoint.joppek.be/api/v1/portal/releases/<version>?platform=<windows-x86_64 or linux-x86_64>`, and players download from `https://spawnpoint.joppek.be/portal/download`.
 
 Windows shows an "unknown publisher" warning on the installer because it is not code-signed. The update itself is checked against the signing key.
 
