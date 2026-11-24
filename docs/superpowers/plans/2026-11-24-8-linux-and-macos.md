@@ -91,6 +91,7 @@ Check, in WSL from the command line, signed in with `portal login`:
 - **Device name** (`COMPUTERNAME`): the host name on Linux and macOS, and "this computer" instead of "this PC" when there is none.
 - **Discord** (`discord.rs`, a named pipe): a socket file on Linux and macOS, looked for in `$XDG_RUNTIME_DIR` and the folders Flatpak and Snap put it in. Only the connect and the link's type are per system; framing and activity are shared.
 - **Bedrock**: already Windows-only; the row does not show elsewhere.
+- **Syncing on a disk that tells case apart** (`sync.rs`): paths are compared without case, which matches Windows. On Linux a pack file whose path only changes case (`mods/a.jar` to `Mods/A.jar`) would be written beside the old one, and the old one never removed. Compare by exact path there, and let the test that is Windows-only now cover both.
 
 Check: sign in, link a panel, restart, and both are still there; presence shows in Discord for Linux.
 

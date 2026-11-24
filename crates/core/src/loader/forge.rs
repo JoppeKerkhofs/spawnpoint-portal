@@ -695,7 +695,7 @@ mod tests {
     #[test]
     fn binpatch_comes_from_the_installer() {
         let s = steps(&fixture("neoforge-install_profile.json"), &ctx()).unwrap();
-        assert!(s.iter().any(|x| x.args.iter().any(|a| a.ends_with(r"data\client.lzma"))));
+        assert!(s.iter().any(|x| x.args.iter().any(|a| Path::new(a).ends_with("data/client.lzma"))));
     }
 
     #[test]

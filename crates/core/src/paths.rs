@@ -98,16 +98,21 @@ mod tests {
         unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", r"relative\home") };
         let root = Paths::new().unwrap().root;
         assert!(root.is_absolute() && root.ends_with(r"relative\home"), "{root:?}");
-        unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", "") };
-        let root = Paths::new().unwrap().root;
-        assert!(root.is_absolute() && root.ends_with("SpawnpointPortal"), "{root:?}");
+        // Elsewhere there is no default folder yet.
+        if cfg!(windows) {
+            unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", "") };
+            let root = Paths::new().unwrap().root;
+            assert!(root.is_absolute() && root.ends_with("SpawnpointPortal"), "{root:?}");
+        }
     }
 
     #[test]
     fn check_relative_accepts_plain_paths_only() {
         assert!(check_relative("bin/javaw.exe").is_ok());
-        for bad in ["", "../x", "/x", r"C:\x", "C:x", r"a\b", "."] {
+        for bad in ["", "../x", "/x", r"C:\x", r"a\b", "."] {
             assert!(check_relative(bad).is_err(), "{bad}");
         }
+        // A drive prefix on Windows; anywhere else an ordinary file name.
+        assert_eq!(check_relative("C:x").is_err(), cfg!(windows));
     }
 }
