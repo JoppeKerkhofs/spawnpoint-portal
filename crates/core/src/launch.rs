@@ -357,7 +357,8 @@ mod tests {
         for id in ["1.0", "1.2.5", "1.5.2"] {
             let a = arguments(&paths(), &v(id), &opts(Some("mc.example.org"))).unwrap();
             let main = a.iter().position(|x| x == "net.minecraft.launchwrapper.Launch").unwrap();
-            let want = ["Steve", &format!("token:0:{uuid}"), "--gameDir", r"C:\games\my instance", "--assetsDir", r"C:\games\my instance\resources"];
+            let resources = Path::new(r"C:\games\my instance").join("resources").to_string_lossy().into_owned();
+            let want = ["Steve", &format!("token:0:{uuid}"), "--gameDir", r"C:\games\my instance", "--assetsDir", &resources];
             assert_eq!(a[main + 1..], want, "{id}");
         }
     }

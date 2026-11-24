@@ -806,7 +806,7 @@ Other: x
 
     #[test]
     fn processors_run_with_the_console_java() {
-        assert_eq!(console_java(Path::new(r"C:\j\bin\javaw.exe")), PathBuf::from(r"C:\j\bin\java.exe"));
+        assert_eq!(console_java(&Path::new("j").join("bin").join("javaw.exe")), Path::new("j").join("bin").join("java.exe"));
     }
 
     struct Tmp(PathBuf);
