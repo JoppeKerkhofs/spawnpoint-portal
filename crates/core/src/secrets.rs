@@ -2,26 +2,36 @@ use crate::{Error, Result};
 
 const SERVICE: &str = "SpawnpointPortal";
 
+// A Linux desktop without a secret service has nowhere to keep a secret: no file is used instead.
+fn failure(e: keyring::Error) -> Error {
+    Error::Secret(match &e {
+        _ if !cfg!(target_os = "linux") => e.to_string(),
+        keyring::Error::NoDefaultStore | keyring::Error::PlatformFailure(_) => format!("Portal needs a keyring to keep your sign-in; install GNOME Keyring or KWallet ({e})"),
+        keyring::Error::NoStorageAccess(_) => format!("Portal could not open your keyring; unlock it and try again ({e})"),
+        _ => e.to_string(),
+    })
+}
+
 fn entry(account: &str) -> Result<keyring::Entry> {
-    keyring::Entry::new(SERVICE, account).map_err(|e| Error::Secret(e.to_string()))
+    keyring::Entry::new(SERVICE, account).map_err(failure)
 }
 
 fn real_set(account: &str, secret: &str) -> Result<()> {
-    entry(account)?.set_password(secret).map_err(|e| Error::Secret(e.to_string()))
+    entry(account)?.set_password(secret).map_err(failure)
 }
 
 fn real_get(account: &str) -> Result<Option<String>> {
     match entry(account)?.get_password() {
         Ok(s) => Ok(Some(s)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(Error::Secret(e.to_string())),
+        Err(e) => Err(failure(e)),
     }
 }
 
 fn real_delete(account: &str) -> Result<()> {
     match entry(account)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(Error::Secret(e.to_string())),
+        Err(e) => Err(failure(e)),
     }
 }
 
@@ -81,6 +91,13 @@ mod tests {
         delete(&account).unwrap();
         assert_eq!(get(&account).unwrap(), None);
         delete(&account).unwrap();
+    }
+
+    #[test]
+    fn a_linux_desktop_without_a_keyring_is_told_to_install_one() {
+        let said = failure(keyring::Error::NoDefaultStore).to_string();
+        assert_eq!(said.contains("install GNOME Keyring or KWallet"), cfg!(target_os = "linux"), "{said}");
+        assert!(!failure(keyring::Error::NoEntry).to_string().contains("install"));
     }
 
     #[test]

@@ -142,7 +142,7 @@ fn allow_http(rest: &[String]) -> Result<bool> {
 async fn panel_add(address: &str, allow_http: bool) -> Result<()> {
     let paths = Paths::new()?;
     let address = panel::normalize_address(address, allow_http)?;
-    let pairing = panel::pair_start(&address, &panel::device_name(std::env::var("COMPUTERNAME").ok())).await?;
+    let pairing = panel::pair_start(&address, &panel::device_name(panel::computer_name())).await?;
     match panel::approve_page(&address, &pairing) {
         (page, true) => println!("Open {}, sign in and allow the code {}", show(&page), show(&pairing.code)),
         (page, false) => println!("Approve the code {} at {}", show(&pairing.code), show(&page)),

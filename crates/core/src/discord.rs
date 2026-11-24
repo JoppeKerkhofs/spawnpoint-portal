@@ -1,8 +1,8 @@
 use crate::instance::Instance;
 use crate::loader::LoaderKind;
 use serde_json::{Value, json};
-use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
@@ -68,7 +68,7 @@ pub fn activity(instance: &Instance, started_at: u64) -> Value {
 
 #[derive(Default)]
 pub struct Presence {
-    pipe: Option<Timed<File>>,
+    pipe: Option<Timed<Ipc>>,
     nonce: u64,
 }
 
@@ -112,9 +112,14 @@ trait Link: Write {
     fn reader(&self) -> io::Result<Self::Reader>;
 }
 
-impl Link for File {
-    type Reader = File;
-    fn reader(&self) -> io::Result<File> {
+#[cfg(windows)]
+type Ipc = std::fs::File;
+#[cfg(unix)]
+type Ipc = std::os::unix::net::UnixStream;
+
+impl Link for Ipc {
+    type Reader = Ipc;
+    fn reader(&self) -> io::Result<Ipc> {
         self.try_clone()
     }
 }
@@ -158,17 +163,33 @@ impl<L: Link> Peer for Timed<L> {
     }
 }
 
-fn connect(client_id: &str) -> Option<Timed<File>> {
-    (0..10).find_map(|n| {
-        let pipe = OpenOptions::new().read(true).write(true).open(pipe_path(n)).ok()?;
-        let mut link = Timed { link: pipe, timeout: ANSWER_WITHIN };
+fn connect(client_id: &str) -> Option<Timed<Ipc>> {
+    places(cfg!(windows), |name| std::env::var(name).ok()).into_iter().find_map(|place| {
+        let mut link = Timed { link: open(&place).ok()?, timeout: ANSWER_WITHIN };
         handshake(&mut link, client_id).ok()?;
         Some(link)
     })
 }
 
-fn pipe_path(n: u32) -> String {
-    format!(r"\\.\pipe\discord-ipc-{n}")
+#[cfg(windows)]
+fn open(place: &Path) -> io::Result<Ipc> {
+    std::fs::OpenOptions::new().read(true).write(true).open(place)
+}
+
+#[cfg(unix)]
+fn open(place: &Path) -> io::Result<Ipc> {
+    Ipc::connect(place)
+}
+
+// Where Discord may listen: a named pipe on Windows, elsewhere a socket file in the runtime
+// folder, which a Flatpak or Snap Discord keeps in a folder of its own.
+fn places(windows: bool, var: impl Fn(&str) -> Option<String>) -> Vec<PathBuf> {
+    if windows {
+        return (0..10).map(|n| PathBuf::from(format!(r"\\.\pipe\discord-ipc-{n}"))).collect();
+    }
+    let runtime = PathBuf::from(var("XDG_RUNTIME_DIR").or_else(|| var("TMPDIR")).unwrap_or_else(|| "/tmp".into()));
+    let folders = [runtime.clone(), runtime.join("app/com.discordapp.Discord"), runtime.join("snap.discord")];
+    folders.iter().flat_map(|f| (0..10).map(move |n| f.join(format!("discord-ipc-{n}")))).collect()
 }
 
 fn handshake(pipe: &mut impl Peer, client_id: &str) -> io::Result<()> {
@@ -384,8 +405,35 @@ mod tests {
         assert!(!overlapped.load(Ordering::SeqCst));
     }
 
+    #[cfg(unix)]
     #[test]
-    fn the_pipe_is_a_device_path() {
-        assert_eq!(pipe_path(3), "\\\\.\\pipe\\discord-ipc-3");
+    fn a_socket_file_is_shaken_hands_with() {
+        let dir = crate::download::testing::tmp_dir();
+        let place = dir.join("discord-ipc-0");
+        let listener = std::os::unix::net::UnixListener::bind(&place).unwrap();
+        let discord = std::thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let hello = read_frame(&mut peer).unwrap();
+            peer.write_all(&frame(1, r#"{"cmd":"DISPATCH","evt":"READY"}"#)).unwrap();
+            hello
+        });
+        let mut link = Timed { link: open(&place).unwrap(), timeout: Duration::from_secs(5) };
+        handshake(&mut link, "123").unwrap();
+        let (opcode, body) = discord.join().unwrap();
+        assert_eq!((opcode, serde_json::from_slice::<Value>(&body).unwrap()), (0, json!({"v": 1, "client_id": "123"})));
+    }
+
+    #[test]
+    fn discord_is_looked_for_where_each_system_keeps_it() {
+        let none = |_: &str| None;
+        let pipes = places(true, none);
+        assert_eq!((pipes.len(), pipes[3].to_str()), (10, Some("\\\\.\\pipe\\discord-ipc-3")));
+        let run = |name: &str| (name == "XDG_RUNTIME_DIR").then(|| "/run/user/1000".to_string());
+        let sockets = places(false, run);
+        assert_eq!(sockets.len(), 30);
+        for (at, want) in [(0, "/run/user/1000/discord-ipc-0"), (13, "/run/user/1000/app/com.discordapp.Discord/discord-ipc-3"), (29, "/run/user/1000/snap.discord/discord-ipc-9")] {
+            assert_eq!(sockets[at], Path::new(want));
+        }
+        assert_eq!(places(false, none)[0], Path::new("/tmp/discord-ipc-0"));
     }
 }

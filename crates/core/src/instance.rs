@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::launch::DEFAULT_MEMORY_MB;
 use crate::loader::{Loader, LoaderKind};
 use crate::paths::{check_id, check_relative};
-use crate::sync::{Manual, safe_path};
+use crate::sync::{Manual, path_key, safe_path};
 use crate::{Error, Paths, Result};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -323,8 +323,8 @@ pub fn mods(paths: &Paths, instance: &Instance) -> Result<Vec<ModFile>> {
         let meta = entry.metadata()?;
         let Some(name) = entry.file_name().to_str().map(String::from) else { continue };
         if meta.is_file() && (has_ext(&name, ext) || has_ext(&name, &format!("{ext}.disabled"))) {
-            let rel = format!("{folder}/{name}").to_lowercase();
-            let managed = instance.managed.iter().any(|m| m.path.to_lowercase() == rel);
+            let rel = path_key(&format!("{folder}/{name}"));
+            let managed = instance.managed.iter().any(|m| path_key(&m.path) == rel);
             out.push(ModFile { name, size: meta.len(), managed });
         }
     }
@@ -495,7 +495,8 @@ mod tests {
         assert!(m.iter().any(|f| f.name == "own.jar" && !f.managed && f.size == 3));
         assert!(m.iter().any(|f| f.name == "off.jar.disabled" && f.managed));
         inst.managed.push(ManagedFile { path: "Mods/OWN.JAR".into(), sha1: "x".into() });
-        assert!(mods(&p, &inst).unwrap().iter().any(|f| f.name == "own.jar" && f.managed));
+        // One file where the disk ignores case, two on Linux.
+        assert_eq!(mods(&p, &inst).unwrap().iter().any(|f| f.name == "own.jar" && f.managed), cfg!(not(target_os = "linux")));
         inst.managed.pop();
         assert!(remove_mod(&p, &mut inst, r"..\instance.json").is_err());
         assert!(remove_mod(&p, &mut inst, "../instance.json").is_err());

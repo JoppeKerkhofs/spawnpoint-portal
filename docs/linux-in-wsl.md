@@ -51,7 +51,12 @@ cargo test -p portal-core
 glxinfo -B | grep -E "renderer|OpenGL version"
 ```
 
-The renderer line says what the game will draw with. `llvmpipe` is drawing on the processor: the game can open, slowly, and says nothing about how it runs on a real Linux machine. A name with `D3D12` is the graphics card.
+The renderer line says what the game will draw with. `llvmpipe` is drawing on the processor: the game can open, slowly, and says nothing about how it runs on a real Linux machine. A name with `D3D12` is the graphics card. When it says `llvmpipe`, ask for the card in the terminal the game is started from:
+
+```bash
+export GALLIUM_DRIVER=d3d12
+export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA   # only with more than one card
+```
 
 ## Try a branch
 
@@ -61,7 +66,7 @@ git fetch origin && git checkout <branch> && git pull
 cargo test -p portal-core
 ```
 
-The command-line tool keeps its data in a folder of its own, so a try leaves nothing else behind. Until Portal has a default folder on Linux, it must be given one:
+On Linux Portal keeps its files in `~/.local/share/spawnpoint-portal`. Give a try a folder of its own, so it leaves nothing else behind:
 
 ```bash
 export SPAWNPOINT_PORTAL_HOME=~/portal-try
@@ -71,6 +76,21 @@ cargo run -p portal-core -- files 1.21.1              # the game files of a vers
 ```
 
 Run the printed Java with `-version` to see that it starts. `~/portal-try` holds a few hundred megabytes and can be deleted at any time.
+
+## Sign in and start the game
+
+The sign-in is kept in the keyring, and WSL has no unlocked one. This gives one session a keyring of its own, kept in the try folder:
+
+```bash
+export XDG_DATA_HOME=~/portal-try/xdg
+dbus-run-session -- bash
+echo -n try | gnome-keyring-daemon --unlock --components=secrets
+cargo run -p portal-core -- login          # enter the code it prints at microsoft.com/link
+cargo run -p portal-core -- instance create Vanilla 1.21.1
+cargo run -p portal-core -- launch vanilla
+```
+
+A new instance started with `launch --server` first shows Minecraft's accessibility screen and joins after a click; `portal join` turns that screen off. Run `logout` when done: the keyring's password is the word in the line above.
 
 ## What WSL does not show
 

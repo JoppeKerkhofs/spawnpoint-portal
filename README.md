@@ -57,7 +57,7 @@ The core's tests also run on Linux in the checks. To try the Linux side on a Win
 
 ## Where data lives
 
-Instances, game files, Java runtimes and settings are under `%APPDATA%\SpawnpointPortal`. A panel's key is kept in the Windows Credential Manager, never in a file. The window and the command line share both.
+Instances, game files, Java runtimes and settings are under `%APPDATA%\SpawnpointPortal` (on Linux `~/.local/share/spawnpoint-portal`, or `$XDG_DATA_HOME/spawnpoint-portal`). A panel's key is kept in the Windows Credential Manager, never in a file. The window and the command line share both.
 
 ## The window
 
