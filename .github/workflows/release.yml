@@ -39,18 +39,30 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
-  release:
+  # One installer per system. Each is uploaded on its own; the tag comes last, in its own job.
+  build:
     needs: version
     if: needs.version.outputs.release == 'true'
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x86_64
+            installer: target/release/bundle/nsis/*-setup.exe
+          # The oldest Ubuntu there is a runner for: an AppImage runs on systems as old as the one it was built on.
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+            installer: target/release/bundle/appimage/*.AppImage
+    runs-on: ${{ matrix.os }}
     environment: release
-    permissions:
-      contents: write
     defaults:
       run:
         shell: bash
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      PLATFORM: ${{ matrix.platform }}
+      INSTALLER: ${{ matrix.installer }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,6 +76,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
+      - name: What Tauri builds the window with
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
+
       - run: npm ci
       - run: npm run build
       - run: cargo test --workspace
@@ -76,10 +94,21 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: npm run tauri build
 
+      - name: Find the installer
+        run: |
+          set -eu
+          shopt -s nullglob
+          files=($INSTALLER)
+          [ "${#files[@]}" -eq 1 ] || { echo "Expected one installer, found ${#files[@]}." >&2; exit 1; }
+          [ -f "${files[0]}.sig" ] || { echo "The installer has no signature beside it." >&2; exit 1; }
+          echo "INSTALLER_FILE=${files[0]}" >> "$GITHUB_ENV"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: installer
-          path: target/release/bundle/nsis/*-setup.exe*
+          name: installer-${{ matrix.platform }}
+          path: |
+            ${{ env.INSTALLER_FILE }}
+            ${{ env.INSTALLER_FILE }}.sig
           retention-days: 30
 
       - name: Upload the release to the panel
@@ -87,27 +116,33 @@ jobs:
           PANEL_RELEASE_TOKEN: ${{ secrets.PANEL_RELEASE_TOKEN }}
         run: |
           set -eu
-          files=(target/release/bundle/nsis/*-setup.exe)
-          [ "${#files[@]}" -eq 1 ] || { echo "Expected one installer, found ${#files[@]}." >&2; exit 1; }
-          installer="${files[0]}"
-          signature=$(tr -d '\r\n' < "$installer.sig")
-          sha256=$(sha256sum "$installer" | cut -d ' ' -f 1)
+          signature=$(tr -d '\r\n' < "$INSTALLER_FILE.sig")
+          sha256=$(sha256sum "$INSTALLER_FILE" | cut -d ' ' -f 1)
           code=$(curl --silent --show-error --request PUT \
             --header "Authorization: Bearer $PANEL_RELEASE_TOKEN" \
             --header "Accept: application/json" \
             --header "Content-Type: application/octet-stream" \
             --header "X-Signature: $signature" \
             --header "X-Sha256: $sha256" \
-            --data-binary "@$installer" \
+            --data-binary "@$INSTALLER_FILE" \
             --output response.txt --write-out '%{http_code}' \
-            "https://spawnpoint.joppek.be/api/v1/portal/releases/$VERSION")
-          # 409: the panel already has this version, from a run that failed before it could tag.
+            "https://spawnpoint.joppek.be/api/v1/portal/releases/$VERSION?platform=$PLATFORM")
+          # 409: the panel already has this installer, from a run that failed before it could tag.
           case "$code" in
             201) ;;
-            409) echo "The panel already has $VERSION or newer; tagging it."; cat response.txt ;;
+            409) echo "The panel already has $VERSION for $PLATFORM, or a newer version."; cat response.txt ;;
             *) echo "The panel answered $code." >&2; cat response.txt; exit 1 ;;
           esac
 
+  # Only when every system was built and uploaded: a half release is run again, not tagged.
+  tag:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
       - name: Tag the released commit
         env:
           GH_TOKEN: ${{ github.token }}
