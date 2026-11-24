@@ -695,7 +695,7 @@ mod tests {
     #[test]
     fn binpatch_comes_from_the_installer() {
         let s = steps(&fixture("neoforge-install_profile.json"), &ctx()).unwrap();
-        assert!(s.iter().any(|x| x.args.iter().any(|a| a.ends_with(r"data\client.lzma"))));
+        assert!(s.iter().any(|x| x.args.iter().any(|a| Path::new(a).ends_with("data/client.lzma"))));
     }
 
     #[test]
@@ -806,7 +806,7 @@ Other: x
 
     #[test]
     fn processors_run_with_the_console_java() {
-        assert_eq!(console_java(Path::new(r"C:\j\bin\javaw.exe")), PathBuf::from(r"C:\j\bin\java.exe"));
+        assert_eq!(console_java(&Path::new("j").join("bin").join("javaw.exe")), Path::new("j").join("bin").join("java.exe"));
     }
 
     struct Tmp(PathBuf);

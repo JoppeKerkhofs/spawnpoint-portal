@@ -515,6 +515,9 @@ mod tests {
         expect(&p, &[], &[], &[], &[]);
     }
 
+    // ponytail: paths are compared without case everywhere, which is only right on a disk that
+    // ignores case. On Linux a path that changes case leaves the old file behind; see the Linux plan.
+    #[cfg(windows)]
     #[test]
     fn paths_compare_without_case() {
         let d = disk(&[("mods/a.jar", b"1")]);

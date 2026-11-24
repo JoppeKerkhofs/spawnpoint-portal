@@ -259,7 +259,7 @@ mod tests {
         let main = a.iter().position(|x| x == "net.minecraft.client.main.Main").unwrap();
         let cp = a.iter().position(|x| x == "-cp").unwrap();
         assert!(cp < main);
-        assert!(a[cp + 1].ends_with(r"meta\versions\1.21.1\1.21.1.jar") && a[cp + 1].contains(';'));
+        assert!(Path::new(&a[cp + 1]).ends_with("meta/versions/1.21.1/1.21.1.jar") && a[cp + 1].contains(';'));
         assert_eq!(after(&a, "--username"), "Steve");
         assert_eq!(after(&a, "--gameDir"), r"C:\games\my instance");
         assert_eq!(after(&a, "--assetIndex"), v("1.21.1").assets.unwrap());
@@ -311,7 +311,7 @@ mod tests {
     fn legacy_1_12_2() {
         let a = arguments(&paths(), &v("1.12.2"), &opts(Some("mc.example.org"))).unwrap();
         assert_eq!(a[0], "-Xmx4096M");
-        assert!(a.iter().any(|x| x.starts_with("-Djava.library.path=") && x.ends_with(r"meta\natives\1.12.2")));
+        assert!(a.iter().any(|x| x.starts_with("-Djava.library.path=") && Path::new(x).ends_with("meta/natives/1.12.2")));
         assert!(a.iter().any(|x| x.starts_with("-Dlog4j.configurationFile=")));
         let main = a.iter().position(|x| x == "net.minecraft.client.main.Main").unwrap();
         assert!(a.iter().position(|x| x == "-cp").unwrap() < main);
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn legacy_1_6_4_uses_the_virtual_assets() {
         let a = arguments(&paths(), &v("1.6.4"), &opts(None)).unwrap();
-        assert!(after(&a, "--assetsDir").ends_with(r"meta\assets\virtual\legacy"));
+        assert!(Path::new(after(&a, "--assetsDir")).ends_with("meta/assets/virtual/legacy"));
         assert!(after(&a, "--session").starts_with("token:0:"));
         assert!(!a.iter().any(|x| x.contains("${")));
     }
@@ -357,7 +357,8 @@ mod tests {
         for id in ["1.0", "1.2.5", "1.5.2"] {
             let a = arguments(&paths(), &v(id), &opts(Some("mc.example.org"))).unwrap();
             let main = a.iter().position(|x| x == "net.minecraft.launchwrapper.Launch").unwrap();
-            let want = ["Steve", &format!("token:0:{uuid}"), "--gameDir", r"C:\games\my instance", "--assetsDir", r"C:\games\my instance\resources"];
+            let resources = Path::new(r"C:\games\my instance").join("resources").to_string_lossy().into_owned();
+            let want = ["Steve", &format!("token:0:{uuid}"), "--gameDir", r"C:\games\my instance", "--assetsDir", &resources];
             assert_eq!(a[main + 1..], want, "{id}");
         }
     }
@@ -375,7 +376,7 @@ mod tests {
         let a = arguments(&paths(), &v("1.6.2"), &opts(Some("mc.example.org"))).unwrap();
         assert_eq!(after(&a, "--username"), "Steve");
         assert_eq!(after(&a, "--server"), "mc.example.org");
-        assert!(after(&a, "--assetsDir").ends_with(r"meta\assets\virtual\legacy"));
+        assert!(Path::new(after(&a, "--assetsDir")).ends_with("meta/assets/virtual/legacy"));
         assert!(!a.iter().any(|x| x.contains("${")));
     }
 

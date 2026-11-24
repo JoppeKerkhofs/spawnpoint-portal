@@ -88,25 +88,31 @@ mod tests {
     #[test]
     fn paths_follow_the_override() {
         // SAFETY: the only test that touches this variable.
-        unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", r"C:\tmp\portal home") };
+        let home = Path::new(if cfg!(windows) { r"C:\tmp\portal home" } else { "/tmp/portal home" });
+        unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", home) };
         let p = Paths::new().unwrap();
-        assert_eq!(p.versions(), PathBuf::from(r"C:\tmp\portal home\meta\versions"));
-        assert_eq!(p.natives("1.16.5"), PathBuf::from(r"C:\tmp\portal home\meta\natives\1.16.5"));
-        assert_eq!(p.panels_file(), PathBuf::from(r"C:\tmp\portal home\panels.json"));
+        assert_eq!(p.versions(), home.join("meta").join("versions"));
+        assert_eq!(p.natives("1.16.5"), home.join("meta").join("natives").join("1.16.5"));
+        assert_eq!(p.panels_file(), home.join("panels.json"));
 
         unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", r"relative\home") };
         let root = Paths::new().unwrap().root;
         assert!(root.is_absolute() && root.ends_with(r"relative\home"), "{root:?}");
-        unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", "") };
-        let root = Paths::new().unwrap().root;
-        assert!(root.is_absolute() && root.ends_with("SpawnpointPortal"), "{root:?}");
+        // Elsewhere there is no default folder yet.
+        if cfg!(windows) {
+            unsafe { std::env::set_var("SPAWNPOINT_PORTAL_HOME", "") };
+            let root = Paths::new().unwrap().root;
+            assert!(root.is_absolute() && root.ends_with("SpawnpointPortal"), "{root:?}");
+        }
     }
 
     #[test]
     fn check_relative_accepts_plain_paths_only() {
         assert!(check_relative("bin/javaw.exe").is_ok());
-        for bad in ["", "../x", "/x", r"C:\x", "C:x", r"a\b", "."] {
+        for bad in ["", "../x", "/x", r"C:\x", r"a\b", "."] {
             assert!(check_relative(bad).is_err(), "{bad}");
         }
+        // A drive prefix on Windows; anywhere else an ordinary file name.
+        assert_eq!(check_relative("C:x").is_err(), cfg!(windows));
     }
 }
