@@ -426,7 +426,7 @@ fn console_java(javaw: &Path) -> PathBuf {
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 async fn run_step(java: &Path, step: &Step, cwd: &Path, loader: &str, number: usize) -> Result<()> {
-    let classpath = std::iter::once(&step.jar).chain(&step.classpath).map(|p| text(p)).collect::<Vec<_>>().join(";");
+    let classpath = std::iter::once(&step.jar).chain(&step.classpath).map(|p| text(p)).collect::<Vec<_>>().join(crate::platform::current().classpath_separator);
     let jar = step.jar.clone();
     let main = blocking(move || main_class(&jar)).await?;
     let mut command = tokio::process::Command::new(console_java(java));

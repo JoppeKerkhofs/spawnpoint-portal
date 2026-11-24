@@ -49,6 +49,8 @@ Windows shows an "unknown publisher" warning on the installer because it is not 
     npm test
     npx vue-tsc --noEmit
 
+The core's tests also run on Linux in the checks. To try the Linux side on a Windows machine, see `docs/linux-in-wsl.md`.
+
 ## Build the command-line tool
 
     cargo build

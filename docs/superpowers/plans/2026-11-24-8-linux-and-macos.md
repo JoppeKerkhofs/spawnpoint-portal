@@ -4,6 +4,24 @@
 
 **Where it stands:** Portal builds and runs on Windows only. Tauri, the sign-in and the panel client already work on all three systems. The Windows assumptions sit in a handful of places, listed per piece below.
 
+## Status
+
+Updated 24 November 2026. Change this table in the pull request that changes a piece.
+
+| Piece | State | Pull request | Still to check |
+|---|---|---|---|
+| 1. The tests on Linux | Merged | #11 | |
+| 2. Game files | Merged | #12 | |
+| 3. Java | Merged | #13 | |
+| 4. Starting the game | Open | #14 | Starting the game on Linux; the Forge and NeoForge installer steps on Linux |
+| 5. The rest of the core | Not started | | |
+| 6. The window | Not started | | |
+| 7. The panel serves more than one installer | Not started | | |
+| 8. Releasing | Not started | | |
+| macOS | Not started | | Everything; see "macOS, later" |
+
+Tried on real Linux so far (WSL, Ubuntu 24.04): the core's tests, downloading and running Java 21 and Java 8, downloading the game files of 1.21.1. Nothing has been tried on a Linux desktop or a Mac.
+
 **Scope**
 
 - Linux x86_64 only. Mojang publishes no natives and no Java for Linux on ARM.
