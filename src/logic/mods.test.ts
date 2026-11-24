@@ -75,10 +75,11 @@ test('which picture a row gets', () => {
 })
 test('which page a row opens', () => {
   const known = [im({ file: 'a.jar', project: 'AANobbMI' }), im({ file: 'b.jar', project: null })]
-  expect(modPage(m('a.jar', false), known)).toBe('https://modrinth.com/project/AANobbMI')
-  expect(modPage(m('b.jar', false), known)).toBeNull()
-  expect(modPage(m('c.jar', false), known)).toBeNull()
-  expect(modPage(m('a.jar', false), null)).toBeNull()
+  expect(modPage(m('a.jar', false), known, null)).toBe('https://modrinth.com/project/AANobbMI')
+  expect(modPage(m('a.jar', false), known, { kind: 'horizon', version: null })).toBe('https://playhorizon.dev/mods/AANobbMI')
+  expect(modPage(m('b.jar', false), known, null)).toBeNull()
+  expect(modPage(m('c.jar', false), known, null)).toBeNull()
+  expect(modPage(m('a.jar', false), null, null)).toBeNull()
 })
 test('what installing says', () => {
   expect(installedSentence({ installed: ['Sodium'], failed: [] })).toBe('Installed Sodium.')

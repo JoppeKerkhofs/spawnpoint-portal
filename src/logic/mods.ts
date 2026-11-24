@@ -1,6 +1,6 @@
 import type { Instance, InstalledMod, Loader, ModFile, ModInstall, Panel } from "../api";
 import { count, minecraftText } from "./format";
-import { loaderText, packText } from "./instances";
+import { isHorizon, loaderText, packText } from "./instances";
 import { loaderName } from "./servers";
 
 export type ModFilter = "all" | "pack" | "own";
@@ -68,12 +68,16 @@ export function resultControl(project: string, installed: InstalledMod[] | null)
 
 export const modIcon = (m: ModFile, known: InstalledMod[] | null): string | null => known?.find((x) => x.file === m.name)?.icon ?? null;
 
-// Modrinth sends this address on to the project's own page, whatever its kind.
-export const modrinthPage = (project: string) => `https://modrinth.com/project/${project}`;
+// Where an instance's mods come from: Horizon has its own registry.
+export const modSource = (l: Loader | null): string => (isHorizon(l) ? "Horizon" : "Modrinth");
 
-export function modPage(m: ModFile, known: InstalledMod[] | null): string | null {
+// Modrinth sends its address on to the project's own page, whatever its kind.
+export const projectPage = (l: Loader | null, project: string) =>
+  isHorizon(l) ? `https://playhorizon.dev/mods/${project}` : `https://modrinth.com/project/${project}`;
+
+export function modPage(m: ModFile, known: InstalledMod[] | null, l: Loader | null): string | null {
   const project = known?.find((x) => x.file === m.name)?.project;
-  return project ? modrinthPage(project) : null;
+  return project ? projectPage(l, project) : null;
 }
 
 export function updatableMod(m: ModFile, known: InstalledMod[] | null): InstalledMod | undefined {

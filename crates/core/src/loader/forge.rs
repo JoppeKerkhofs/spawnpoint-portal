@@ -79,7 +79,7 @@ pub async fn versions(client: &Client, kind: LoaderKind, minecraft: &str) -> Res
             forge_builds(&xml, minecraft)
         }
         LoaderKind::NeoForge => neoforge_builds(&get_ok(client, NEOFORGE_VERSIONS).await?.text().await?, minecraft),
-        LoaderKind::Fabric => Err(Error::Other("Fabric has no installer".into())),
+        kind => Err(Error::Other(format!("{} has no installer", kind.as_str()))),
     }
 }
 
@@ -110,7 +110,7 @@ pub async fn newest_version(client: &Client, kind: LoaderKind, minecraft: &str) 
     match kind {
         LoaderKind::Forge => newest_forge(&get_ok(client, FORGE_PROMOTIONS).await?.text().await?, minecraft),
         LoaderKind::NeoForge => newest_neoforge(&get_ok(client, NEOFORGE_VERSIONS).await?.text().await?, minecraft),
-        LoaderKind::Fabric => Err(Error::Other("Fabric has no installer".into())),
+        kind => Err(Error::Other(format!("{} has no installer", kind.as_str()))),
     }
 }
 
@@ -119,6 +119,7 @@ fn display_name(kind: LoaderKind) -> &'static str {
         LoaderKind::NeoForge => "NeoForge",
         LoaderKind::Forge => "Forge",
         LoaderKind::Fabric => "Fabric",
+        LoaderKind::Horizon => "Horizon",
     }
 }
 

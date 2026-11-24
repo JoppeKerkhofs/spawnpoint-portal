@@ -124,7 +124,7 @@ pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: St
     let paths = state.paths.clone();
     let added = tokio::task::spawn_blocking(move || -> portal_core::Result<bool> {
         let inst = instance::load(&paths, &id)?;
-        let Some(file) = app.dialog().file().add_filter("Mod", &["jar"]).blocking_pick_file() else { return Ok(false) };
+        let Some(file) = app.dialog().file().add_filter("Mod", &[&inst.mods_place().1[1..]]).blocking_pick_file() else { return Ok(false) };
         let file = file.into_path().map_err(|e| Error::Other(e.to_string()))?;
         instance::add_mod(&paths, &inst, &file)?;
         Ok(true)
@@ -252,7 +252,7 @@ pub fn open_folder(app: &AppHandle, path: &Path) -> CmdResult<()> {
 #[tauri::command]
 pub async fn open_mods_folder(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<()> {
     let inst = instance::load(&state.paths, &id)?;
-    let mods = instance::game_dir(&state.paths, &inst.id).join("mods");
+    let mods = instance::game_dir(&state.paths, &inst.id).join(inst.mods_place().0);
     std::fs::create_dir_all(&mods).map_err(Error::from)?;
     open_folder(&app, &mods)
 }

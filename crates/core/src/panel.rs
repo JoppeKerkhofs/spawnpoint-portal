@@ -172,7 +172,7 @@ fn clean_detail<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<O
     Ok(Option::<String>::deserialize(d)?.map(|s| cut(s, 300)))
 }
 
-const LOGO_HOSTS: [&str; 3] = ["https://cdn.modrinth.com/", "https://media.forgecdn.net/", "https://cdn.feed-the-beast.com/"];
+const LOGO_HOSTS: [&str; 4] = ["https://cdn.modrinth.com/", "https://media.forgecdn.net/", "https://cdn.feed-the-beast.com/", "https://horizon-rust.github.io/horizon-mods/"];
 const PNG_PREFIX: &str = "data:image/png;base64,";
 
 /// The one rule for a picture that reaches an `<img src>`: a small PNG data URI or a known logo address.

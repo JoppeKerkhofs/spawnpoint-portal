@@ -36,7 +36,7 @@ import Picture from "../components/Picture.vue";
 import Tile from "../components/Tile.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { errorText, lastPlayedText, megabytes, memoryLabel } from "../logic/format";
-import { dropInstance, playButton } from "../logic/instances";
+import { dropInstance, isHorizon, playButton } from "../logic/instances";
 import { look } from "../logic/look";
 import { pictureFromFile } from "../logic/picture";
 import {
@@ -55,6 +55,7 @@ import {
   skippedName,
   modIcon,
   modPage,
+  modSource,
   updatableMod,
   type ModFilter,
 } from "../logic/mods";
@@ -270,7 +271,7 @@ onUnmounted(() => {
       </label>
     </template>
     <template v-if="instance && play" #actions>
-      <div class="flex items-center gap-2">
+      <div v-if="!isHorizon(instance.loader)" class="flex items-center gap-2">
         <label for="instance-memory" class="text-[15px] text-(--muted)">Memory</label>
         <select id="instance-memory" class="select w-[92px]" :value="memory ?? ''" :disabled="memory === null" @change="setMemory">
           <option v-for="mb in memoryChoices" :key="mb" :value="mb">{{ memoryLabel(mb) }}</option>
@@ -366,13 +367,13 @@ onUnmounted(() => {
             <span class="w-[70px] shrink-0"><KindBadge :kind="m.managed ? 'pack' : 'own'">{{ m.managed ? "Pack" : "Own" }}</KindBadge></span>
             <span class="flex w-[14rem] shrink-0 items-center justify-end gap-1.5">
               <AppButton
-                v-if="modPage(m, known)"
+                v-if="modPage(m, known, instance.loader)"
                 variant="secondary"
                 size="small"
                 icon="external"
-                :aria-label="`Open the page of ${m.name} on Modrinth`"
-                title="Open its page on Modrinth"
-                @click="run(() => openPage(modPage(m, known)!))"
+                :aria-label="`Open the page of ${m.name} on ${modSource(instance.loader)}`"
+                :title="`Open its page on ${modSource(instance.loader)}`"
+                @click="run(() => openPage(modPage(m, known, instance!.loader)!))"
               />
               <AppButton
                 v-if="updatable(m)"

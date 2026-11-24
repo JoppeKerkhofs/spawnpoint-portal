@@ -58,6 +58,7 @@ const formOpen = ref(false);
 const name = ref("");
 const version = ref("");
 const loader = ref("none");
+const game = ref<"java" | "horizon">("java");
 const allVersions = ref<MinecraftVersion[] | null>(null);
 const snapshots = ref(false);
 const versions = computed(() => versionChoices(allVersions.value, snapshots.value));
@@ -112,11 +113,12 @@ function toggleForm() {
 }
 
 async function create() {
-  if (creating.value || !canCreate(name.value, versions.value)) return;
+  const horizon = game.value === "horizon";
+  if (creating.value || !canCreate(name.value, versions.value, horizon)) return;
   creating.value = true;
   createError.value = null;
   try {
-    await instanceCreate(name.value.trim(), version.value, loaderChoice(loader.value, loaderVersion.value));
+    await instanceCreate(name.value.trim(), horizon ? "" : version.value, horizon ? "horizon" : loaderChoice(loader.value, loaderVersion.value));
     closeForm();
     await load();
   } catch (e) {
@@ -182,7 +184,14 @@ onMounted(async () => {
           <label class="label" for="instance-name">Name</label>
           <input id="instance-name" ref="nameInput" v-model="name" class="input w-full" placeholder="My new world" />
         </div>
-        <div class="min-w-0 flex-[1_1_200px]">
+        <div class="min-w-0 flex-[1_1_140px]">
+          <label class="label" for="instance-game">Game</label>
+          <select id="instance-game" v-model="game" class="select w-full">
+            <option value="java">Java Edition</option>
+            <option value="horizon">Horizon</option>
+          </select>
+        </div>
+        <div v-if="game === 'java'" class="min-w-0 flex-[1_1_200px]">
           <div class="mb-1 flex items-center justify-between gap-3">
             <label class="label mb-0!" for="instance-version">Minecraft version</label>
             <label class="flex items-center gap-1.5 text-xs whitespace-nowrap">
@@ -195,7 +204,7 @@ onMounted(async () => {
             <option v-for="v in versions ?? []" :key="v" :value="v">{{ v }}</option>
           </select>
         </div>
-        <div class="min-w-0 flex-[1_1_140px]">
+        <div v-if="game === 'java'" class="min-w-0 flex-[1_1_140px]">
           <label class="label" for="instance-loader">Mod loader</label>
           <select id="instance-loader" v-model="loader" class="select w-full">
             <option value="none">None</option>
@@ -204,7 +213,7 @@ onMounted(async () => {
             <option value="forge">Forge</option>
           </select>
         </div>
-        <div class="min-w-0 flex-[1_1_160px]">
+        <div v-if="game === 'java'" class="min-w-0 flex-[1_1_160px]">
           <label class="label" for="instance-loader-version">Loader version</label>
           <select id="instance-loader-version" v-model="loaderVersion" class="select w-full" :disabled="!loaderList">
             <option value="">{{ loader !== "none" && !loaderList && !loaderError ? "Loading…" : "Newest for this version" }}</option>
@@ -213,7 +222,7 @@ onMounted(async () => {
         </div>
         <div class="flex gap-2">
           <AppButton variant="secondary" @click="closeForm">Cancel</AppButton>
-          <AppButton variant="primary" type="submit" :disabled="creating || !canCreate(name, versions)">Create</AppButton>
+          <AppButton variant="primary" type="submit" :disabled="creating || !canCreate(name, versions, game === 'horizon')">Create</AppButton>
         </div>
       </div>
       <div v-if="versionError" class="px-3.5 pb-3">
@@ -235,7 +244,10 @@ onMounted(async () => {
           <div>{{ errorText(createError) }}</div>
         </Note>
       </div>
-      <p class="m-0 px-3.5 pb-3 text-xs text-(--muted)">Minecraft alpha and beta versions aren’t supported.</p>
+      <p v-if="game === 'horizon'" class="m-0 px-3.5 pb-3 text-xs text-(--muted)">
+        Horizon is Minecraft: Java Edition rewritten in Rust. Portal downloads it on the first Play and prepares the game files, which takes a few minutes once.
+      </p>
+      <p v-else class="m-0 px-3.5 pb-3 text-xs text-(--muted)">Minecraft alpha and beta versions aren’t supported.</p>
     </form>
 
     <Note v-if="actionError" kind="err" role="alert">{{ errorText(actionError) }}</Note>

@@ -2,7 +2,7 @@ use crate::{Error, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
-use sha2::Sha512;
+use sha2::{Sha256, Sha512};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,6 +17,7 @@ pub const ATTEMPTS: u32 = 3;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Hash {
     Sha1(String),
+    Sha256(String),
     Sha512(String),
 }
 
@@ -96,6 +97,10 @@ pub fn sha1_bytes(bytes: &[u8]) -> String {
     hex(Sha1::digest(bytes))
 }
 
+pub fn sha256_file(path: &Path) -> Result<String> {
+    hash_with::<Sha256>(path)
+}
+
 pub fn sha512_file(path: &Path) -> Result<String> {
     hash_with::<Sha512>(path)
 }
@@ -103,6 +108,7 @@ pub fn sha512_file(path: &Path) -> Result<String> {
 pub fn file_matches(path: &Path, hash: &Hash) -> bool {
     let (expected, actual) = match hash {
         Hash::Sha1(h) => (h, sha1_file(path)),
+        Hash::Sha256(h) => (h, sha256_file(path)),
         Hash::Sha512(h) => (h, sha512_file(path)),
     };
     actual.is_ok_and(|a| a.eq_ignore_ascii_case(expected))
@@ -167,10 +173,11 @@ async fn fetch_once(client: &Client, item: &Download) -> Result<()> {
         let (owned, file) = (hash.clone(), part.clone());
         let actual = blocking(move || match owned {
             Hash::Sha1(_) => sha1_file(&file),
+            Hash::Sha256(_) => sha256_file(&file),
             Hash::Sha512(_) => sha512_file(&file),
         })
         .await?;
-        let (Hash::Sha1(expected) | Hash::Sha512(expected)) = hash;
+        let (Hash::Sha1(expected) | Hash::Sha256(expected) | Hash::Sha512(expected)) = hash;
         if !actual.eq_ignore_ascii_case(expected) {
             let _ = tokio::fs::remove_file(&part).await;
             return Err(Error::Hash { path: item.path.clone(), expected: expected.clone(), actual });
