@@ -419,7 +419,7 @@ fn main_class(jar: &Path) -> Result<String> {
 
 // javaw shows failures in a dialog instead of stderr.
 fn console_java(javaw: &Path) -> PathBuf {
-    javaw.with_file_name("java.exe")
+    javaw.with_file_name(crate::platform::current().console_java)
 }
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -806,7 +806,8 @@ Other: x
 
     #[test]
     fn processors_run_with_the_console_java() {
-        assert_eq!(console_java(&Path::new("j").join("bin").join("javaw.exe")), Path::new("j").join("bin").join("java.exe"));
+        let bin = Path::new("j").join("bin");
+        assert_eq!(console_java(&bin.join("javaw.exe")), bin.join(crate::platform::current().console_java));
     }
 
     struct Tmp(PathBuf);

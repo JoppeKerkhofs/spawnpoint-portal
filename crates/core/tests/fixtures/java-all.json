@@ -136,5 +136,24 @@
     }
    }
   ]
+ },
+ "linux": {
+  "java-runtime-delta": [
+   {
+    "availability": {
+     "group": 7419,
+     "progress": 100
+    },
+    "manifest": {
+     "sha1": "06a3884df3d9d4072b9b6df541495d81878ad2de",
+     "size": 82843,
+     "url": "https://piston-meta.mojang.com/v1/packages/06a3884df3d9d4072b9b6df541495d81878ad2de/manifest.json"
+    },
+    "version": {
+     "name": "21.0.7",
+     "released": "2025-05-19T08:30:12+00:00"
+    }
+   }
+  ]
  }
 }
