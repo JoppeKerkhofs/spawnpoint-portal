@@ -16,6 +16,7 @@ pub struct AppState {
     pub presence: Mutex<portal_core::discord::Presence>,
     pub pairing: Mutex<Option<Kept>>,
     pub pairings: AtomicU64,
+    pub sign_in: Mutex<Option<portal_core::auth::DeviceCode>>,
 }
 
 pub struct Kept {

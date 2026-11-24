@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod bedrock;
 pub mod discord;
 pub mod download;

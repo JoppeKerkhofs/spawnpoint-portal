@@ -1,65 +1,65 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { appVersion, settingsGet, settingsSet, type CommandError } from "../api";
+import { accountSignOut, appVersion, settingsGet, settingsSet, type CommandError } from "../api";
 import AppButton from "../components/AppButton.vue";
+import ConfirmDialog from "../components/ConfirmDialog.vue";
 import Note from "../components/Note.vue";
 import Spinner from "../components/Spinner.vue";
 import ViewHead from "../components/ViewHead.vue";
-import { nameHelp } from "../logic/account";
+import SignInView from "./SignInView.vue";
 import { errorText } from "../logic/format";
 import { look, setLook, type Appearance, type Theme } from "../logic/look";
 import { busy, playerName, playing } from "../logic/operation";
 import { availableVersion, canInstall, checkForUpdate, installBlock, installUpdate, update } from "../logic/update";
 
-const name = ref(playerName.value);
-const saved = ref(playerName.value);
 const discord = ref(true);
-const justSaved = ref(false);
-const saving = ref(false);
 const error = ref<CommandError | null>(null);
+
+const account = ref<string | null>(null);
+const signingIn = ref(false);
+const askSignOut = ref(false);
+const signOutError = ref<CommandError | null>(null);
 
 const version = ref("");
 const newVersion = computed(() => availableVersion(update.value));
 const block = computed(() => installBlock(busy.value, playing.value.length > 0));
 
-const help = computed(() => nameHelp(name.value, saved.value, justSaved.value));
-
 onMounted(async () => {
   appVersion().then((v) => (version.value = v), () => {});
   try {
     const s = await settingsGet();
-    if (name.value === saved.value) name.value = s.player_name;
-    saved.value = s.player_name;
     discord.value = s.discord;
-    playerName.value = s.player_name;
+    account.value = s.account_name;
+    playerName.value = s.account_name ?? "";
   } catch (e) {
     error.value = e as CommandError;
   }
 });
 
-async function save() {
-  if (!help.value.canSave || saving.value) return;
-  saving.value = true;
-  error.value = null;
-  try {
-    const s = await settingsSet(name.value, discord.value);
-    saved.value = s.player_name;
-    name.value = s.player_name;
-    playerName.value = s.player_name;
-    justSaved.value = true;
-  } catch (e) {
-    error.value = e as CommandError;
-  } finally {
-    saving.value = false;
-  }
-}
-
 async function setDiscord(on: boolean) {
   error.value = null;
   try {
-    discord.value = (await settingsSet(saved.value, on)).discord;
+    discord.value = (await settingsSet(on)).discord;
   } catch (e) {
     error.value = e as CommandError;
+  }
+}
+
+function signedIn(name: string) {
+  account.value = name;
+  playerName.value = name;
+}
+
+async function signOut() {
+  askSignOut.value = false;
+  signOutError.value = null;
+  try {
+    await accountSignOut();
+    account.value = null;
+    playerName.value = "";
+    signingIn.value = false;
+  } catch (e) {
+    signOutError.value = e as CommandError;
   }
 }
 
@@ -74,53 +74,28 @@ const appearance = computed({
 </script>
 
 <template>
-  <ViewHead title="Account" summary="Who you are when you join a server." />
-  <div class="content">
+  <SignInView v-if="signingIn" @back="signingIn = false" @signed-in="signedIn" @sign-out="askSignOut = true" />
+  <ViewHead v-if="!signingIn" title="Account" summary="Who you are when you join a server." />
+  <div v-if="!signingIn" class="content">
     <div class="flex max-w-[760px] flex-col gap-3">
-    <form class="card" aria-labelledby="name-title" @submit.prevent="save">
-      <div class="card-head">
-        <h2 id="name-title" class="card-title mc-name">Player name</h2>
-        <span class="badge" data-kind="pack">Offline</span>
-      </div>
-      <div class="card-body flex flex-col gap-2.5">
-        <div class="flex flex-wrap items-end gap-2.5">
-          <div class="min-w-0 flex-[1_1_260px]">
-            <label class="label" for="player-name">Name other players see</label>
-            <input
-              id="player-name"
-              v-model="name"
-              class="input w-full"
-              maxlength="16"
-              autocomplete="off"
-              spellcheck="false"
-              aria-describedby="player-name-help"
-              :aria-invalid="help.invalid"
-              @input="justSaved = false"
-            />
-          </div>
-          <AppButton variant="primary" type="submit" :disabled="!help.canSave || saving">{{ justSaved && name === saved ? "Saved" : "Save" }}</AppButton>
-        </div>
-        <div id="player-name-help" class="text-xs" :class="help.invalid ? 'text-(--destructive)' : ''">{{ help.text }}</div>
-        <Note v-if="error" kind="err" role="alert">{{ errorText(error) }}</Note>
-      </div>
-    </form>
-
-    <Note kind="warn" role="note">
-      <strong>Servers in online mode will refuse this name.</strong>
-      Without a Microsoft sign-in, you can only join servers that allow offline players. If a server turns you away with “Failed to verify username”, ask its owner to turn online mode off.
-    </Note>
-
     <section class="card" aria-labelledby="microsoft-title">
       <div class="card-head">
         <h2 id="microsoft-title" class="card-title mc-name">Microsoft account</h2>
-        <span class="badge" data-kind="hand">Coming later</span>
+        <span v-if="account" class="badge" data-kind="own">Signed in</span>
       </div>
-      <div class="card-body flex flex-wrap items-center gap-5">
-        <div class="flex min-w-0 flex-[1_1_380px] flex-col gap-1.5">
-          <p class="m-0">Sign in with the Microsoft account that owns Minecraft to join any server under your real name.</p>
-          <p class="m-0 text-(--muted)">It will work like linking a panel: Portal shows a code in large type, you enter it on Microsoft’s page, and Portal notices when you’re done. One account at a time.</p>
+      <div class="card-body flex flex-col gap-2.5">
+        <div v-if="account" class="flex flex-wrap items-center gap-5">
+          <p class="m-0 min-w-0 flex-[1_1_380px]">You play as <strong class="mc-name">{{ account }}</strong> on every server.</p>
+          <AppButton variant="danger" @click="askSignOut = true">Sign out</AppButton>
         </div>
-        <AppButton variant="secondary" disabled>Sign in with Microsoft</AppButton>
+        <div v-else class="flex flex-wrap items-center gap-5">
+          <div class="flex min-w-0 flex-[1_1_380px] flex-col gap-1.5">
+            <p class="m-0">Sign in with the Microsoft account that owns Minecraft. Starting a game needs it.</p>
+            <p class="m-0 text-(--muted)">Portal shows a code, you enter it on Microsoft’s page, and Portal notices when you’re done. One account at a time.</p>
+          </div>
+          <AppButton variant="primary" @click="signingIn = true">Sign in with Microsoft</AppButton>
+        </div>
+        <Note v-if="signOutError" kind="err" role="alert">{{ errorText(signOutError) }}</Note>
       </div>
     </section>
 
@@ -156,6 +131,7 @@ const appearance = computed({
           Show what I'm playing on Discord
         </label>
         <div class="text-xs text-(--muted)">Discord shows "In menu" while the launcher is open, and the instance's name and Minecraft version while a game runs. Never the server's address.</div>
+        <Note v-if="error" kind="err" role="alert">{{ errorText(error) }}</Note>
       </div>
     </section>
 
@@ -182,4 +158,7 @@ const appearance = computed({
     </section>
     </div>
   </div>
+  <ConfirmDialog :open="askSignOut" :title="`Sign out of ${account ?? ''}?`" action="Sign out" @cancel="askSignOut = false" @confirm="signOut">
+    Portal forgets your Microsoft sign-in. Your instances and worlds stay. You cannot start a game until you sign in again.
+  </ConfirmDialog>
 </template>
