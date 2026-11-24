@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::paths::check_relative;
+use crate::platform::{self, Platform};
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,14 +146,21 @@ impl VersionJson {
 pub type Features = BTreeSet<String>;
 
 pub fn allowed(rules: &[Rule], features: &Features) -> bool {
+    allowed_on(platform::current(), rules, features)
+}
+
+pub fn allowed_on(platform: &Platform, rules: &[Rule], features: &Features) -> bool {
     if rules.is_empty() {
         return true;
     }
     let mut result = false;
     for rule in rules {
         let os_ok = rule.os.as_ref().is_none_or(|os| {
-            os.name.as_deref().is_none_or(|n| n == "windows")
-                && os.arch.as_deref().is_none_or(|a| a == "x86_64")
+            os.name.as_deref().is_none_or(|n| n == platform.os)
+                && os.arch.as_deref().is_none_or(|a| a == platform.arch)
+                // Only Windows 10 and OS X 10.5 are ever asked for by version; the first is every
+                // Windows this runs on, the second no Mac it will.
+                && (os.version.is_none() || platform.os == "windows")
         });
         let features_ok = rule.features.as_ref().is_none_or(|f| {
             f.iter().all(|(name, want)| features.contains(name) == *want)
@@ -202,14 +210,19 @@ fn from_artifact(a: &Artifact, fallback_path: impl FnOnce() -> Result<String>, n
 }
 
 pub fn library_files(version: &VersionJson) -> Result<Vec<LibraryFile>> {
+    library_files_on(platform::current(), version)
+}
+
+pub fn library_files_on(platform: &Platform, version: &VersionJson) -> Result<Vec<LibraryFile>> {
     // Every caller builds paths from the ids and from these files, so one check here covers them all.
     version.check_ids()?;
     let no_features = Features::new();
     let mut files = Vec::new();
     for lib in &version.libraries {
-        // Mojang's windows arm64/x86 natives carry no arch rule, only the name tells.
-        let other_arch = lib.name.ends_with("-arm64") || lib.name.ends_with("-x86");
-        if other_arch || !allowed(lib.rules.as_deref().unwrap_or(&[]), &no_features) {
+        // Mojang's natives for another processor carry no arch rule, only the name tells.
+        let arm = lib.name.ends_with("-arm64") || lib.name.ends_with("-aarch_64");
+        let other_arch = lib.name.ends_with("-x86") || (arm && platform.arch != "arm64");
+        if other_arch || !allowed_on(platform, lib.rules.as_deref().unwrap_or(&[]), &no_features) {
             continue;
         }
         let Some(downloads) = &lib.downloads else {
@@ -227,7 +240,7 @@ pub fn library_files(version: &VersionJson) -> Result<Vec<LibraryFile>> {
         if let Some(a) = &downloads.artifact {
             files.push(from_artifact(a, || maven_path(&lib.name), false)?);
         }
-        if let Some(classifier) = lib.natives.as_ref().and_then(|n| n.get("windows")) {
+        if let Some(classifier) = lib.natives.as_ref().and_then(|n| n.get(platform.os)) {
             let classifier = classifier.replace("${arch}", "64");
             if let Some(a) = downloads.classifiers.as_ref().and_then(|c| c.get(&classifier)) {
                 files.push(from_artifact(a, || maven_path(&format!("{}:{classifier}", lib.name)), true)?);
@@ -278,6 +291,7 @@ pub fn merge(parent: VersionJson, child: VersionJson) -> VersionJson {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::{LINUX, WINDOWS};
 
     fn v(name: &str) -> VersionJson {
         let text = match name {
@@ -300,7 +314,7 @@ mod tests {
     fn old_versions_pick_only_the_windows_natives() {
         let natives = |text: &str| -> Vec<String> {
             let version: VersionJson = serde_json::from_str(text).unwrap();
-            library_files(&version).unwrap().into_iter().filter(|f| f.native).map(|f| f.path).collect()
+            library_files_on(&WINDOWS, &version).unwrap().into_iter().filter(|f| f.native).map(|f| f.path).collect()
         };
         let n = natives(include_str!("../tests/fixtures/version-1.7.10.json"));
         assert_eq!(n.len(), 4);
@@ -394,15 +408,49 @@ mod tests {
 
     #[test]
     fn libraries_for_windows_only() {
-        let files = library_files(&v("1.21.1")).unwrap();
+        let files = library_files_on(&WINDOWS, &v("1.21.1")).unwrap();
         assert!(files.iter().any(|f| f.path.contains("lwjgl") && f.path.ends_with("natives-windows.jar")));
         assert!(!files.iter().any(|f| f.path.contains("macos")
             || f.path.contains("linux")
             || f.path.contains("arm64")
             || f.path.contains("x86.jar")));
-        let old = library_files(&v("1.16.5")).unwrap();
+        let old = library_files_on(&WINDOWS, &v("1.16.5")).unwrap();
         assert!(old.iter().any(|f| f.native && f.path.ends_with("natives-windows.jar")));
         assert!(!old.iter().any(|f| f.path.contains("natives-macos") || f.path.contains("natives-osx")));
+    }
+
+    #[test]
+    fn linux_gets_its_own_libraries() {
+        let files = library_files_on(&LINUX, &v("1.21.1")).unwrap();
+        assert!(files.iter().any(|f| f.path.contains("lwjgl") && f.path.ends_with("natives-linux.jar")));
+        assert!(files.iter().any(|f| f.path.ends_with("linux-x86_64.jar")));
+        let foreign = ["windows", "macos", "osx", "aarch_64", "arm64"];
+        assert!(!files.iter().any(|f| foreign.iter().any(|x| f.path.contains(x))), "{files:?}");
+
+        let natives = |text: &str| -> Vec<String> {
+            let version: VersionJson = serde_json::from_str(text).unwrap();
+            library_files_on(&LINUX, &version).unwrap().into_iter().filter(|f| f.native).map(|f| f.path).collect()
+        };
+        // Twitch has nothing for Linux, and the lwjgl build for OS X 10.5 is nobody's.
+        for (old, count) in [(include_str!("../tests/fixtures/version-1.7.10.json"), 2), (include_str!("../tests/fixtures/version-1.6.4.json"), 2)] {
+            let n = natives(old);
+            assert_eq!(n.len(), count, "{n:?}");
+            assert!(n.iter().all(|p| p.ends_with("natives-linux.jar")), "{n:?}");
+        }
+        let n = natives(include_str!("../tests/fixtures/version-1.16.5.json"));
+        assert!(!n.is_empty() && n.iter().all(|p| p.ends_with("natives-linux.jar")), "{n:?}");
+    }
+
+    #[test]
+    fn rules_are_asked_of_the_platform_given() {
+        let none = Features::new();
+        let only = |os: &str| rules(&format!(r#"[{{"action":"allow","os":{{"name":"{os}"}}}}]"#));
+        assert!(allowed_on(&LINUX, &only("linux"), &none) && !allowed_on(&LINUX, &only("windows"), &none));
+        assert!(allowed_on(&WINDOWS, &only("windows"), &none) && !allowed_on(&WINDOWS, &only("linux"), &none));
+        let windows_10 = rules(r#"[{"action":"allow","os":{"name":"windows","version":"^10\\."}}]"#);
+        assert!(allowed_on(&WINDOWS, &windows_10, &none) && !allowed_on(&LINUX, &windows_10, &none));
+        let not_old_osx = rules(r#"[{"action":"allow"},{"action":"disallow","os":{"name":"osx","version":"^10\\.5\\.\\d$"}}]"#);
+        assert!(allowed_on(&LINUX, &not_old_osx, &none) && allowed_on(&WINDOWS, &not_old_osx, &none));
     }
 
     #[test]
