@@ -13,7 +13,7 @@ Updated 25 November 2026. Change this table in the pull request that changes a p
 | 1. Game log and crash view | Open | #24 | By hand: the log card in each look, a game that crashes, a Java that does not start, Copy |
 | 2. Install a pack from the window | Not started | | |
 | 3. Instance housekeeping | Not started | | |
-| 4. Java arguments per instance | Not started | | |
+| 4. Java arguments, the player's and the server's | Not started | | Needs a panel version first |
 | 5. Shaders and resource packs in the browser | Not started | | |
 | 6. Config files in a server sync | Not started | | |
 | 7. Total play time | Not started | | |
@@ -62,14 +62,6 @@ Wanted: rename; duplicate (a copy of the whole instance folder under a new id); 
 Where: `instance::update` for the changes, `instance::slug` for ids, `gamefiles::install` already checks every file against its hash, `sync::plan` knows the managed files.
 
 Open: whether the id (the folder name) follows a rename, or only the name does (the second is far less work and breaks nothing); whether version and loader may change on a server's or a pack's instance (they should not: the next sync decides them); what happens to mods that do not fit the new version.
-
-## 4. Java arguments per instance
-
-Only memory can be set (`Instance.memory_mb`, `-Xmx` in `launch::arguments_on`).
-
-Wanted: a text field on an instance for extra JVM arguments, added after `-Xmx` and before the version's own.
-
-Open: whether a wrong argument is caught before the start or left to the log of piece 1 (the second is simpler and piece 1 makes it visible); whether Horizon instances get it at all (they hide memory already, `isHorizon` in `InstanceView.vue`).
 
 ## 5. Shaders and resource packs in the browser
 
