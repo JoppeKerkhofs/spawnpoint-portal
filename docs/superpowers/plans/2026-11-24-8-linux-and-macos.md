@@ -2,11 +2,11 @@
 
 **Goal:** Portal runs on Linux (x86_64): the window, signing in, linking a panel, and starting the game. Every choice is made so that macOS is a later piece of the same shape, not a second rewrite.
 
-**Where it stands:** Portal builds and runs on Windows only. Tauri, the sign-in and the panel client already work on all three systems. The Windows assumptions sit in a handful of places, listed per piece below.
+**Where it stands:** Portal builds for Windows and Linux (x86_64); 0.4.0 is the first version built for both. All eight pieces are merged. What is left is trying it by hand, listed per piece in the table below, and macOS, which is not started.
 
 ## Status
 
-Updated 24 November 2026. Change this table in the pull request that changes a piece.
+Updated 25 November 2026. Change this table in the pull request that changes a piece.
 
 | Piece | State | Pull request | Still to check |
 |---|---|---|---|
@@ -17,7 +17,7 @@ Updated 24 November 2026. Change this table in the pull request that changes a p
 | 5. The rest of the core | Merged | #16 | Linking a panel on Linux and finding it after a restart; presence in a Discord on Linux |
 | 6. The window | Merged | #17 | By hand: moving the window by its title bar, resizing from the edges, double-click to maximise; the run-through in the blocky and dark looks; a real Linux desktop |
 | 7. The panel serves more than one installer | Merged | spawnpoint #14, panel 1.9.5 | |
-| 8. Releasing | Open | #19 | A release that reaches the panel with two platforms; an AppImage on the previous version offering and installing the update |
+| 8. Releasing | Merged | #19 | A release that reaches the panel with two platforms; an AppImage on the previous version offering and installing the update |
 | macOS | Not started | | Everything; see "macOS, later" |
 
 Tried on real Linux so far (WSL, Ubuntu 24.04): the core's tests, downloading and running Java 21 and Java 8, downloading the game files of 1.21.1, the default data folder, keeping a secret in GNOME Keyring (unlocked, locked and absent), and signing in with Microsoft. Started there until the log said the sound engine was up: vanilla, Fabric and NeoForge 1.21.1, Forge 1.20.1, 1.12.2 and 1.7.10. `portal launch --server` on 26.3 joined a real online-mode server, which listed the player. The window, built as an AppImage, opened there and showed the Servers, Instances, Panels and Account pages; its minimise, maximise and close buttons worked. Nothing has been tried on a Linux desktop or a Mac.
