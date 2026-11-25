@@ -19,9 +19,9 @@ Updated 25 November 2026. Change this table in the pull request that changes a p
 | 7. The panel serves more than one installer | Merged | spawnpoint #14, panel 1.9.5 | |
 | 8. Releasing | Merged | #19 | A release that reaches the panel with two platforms; an AppImage on the previous version offering and installing the update |
 | 9. The core on macOS | Open | #21 | On a Mac: the core's tests, Java 21, the game files of 1.21.1, starting the game |
-| 10. The window on macOS | Open, written without a Mac | | On a Mac: the run-through, the title bar, the Keychain, Discord |
-| 11. The panel takes a macOS installer | Open | spawnpoint #15, panel 1.9.6 | |
-| 12. Releasing for macOS | Open, written without a Mac, switched off | | The runner (`MACOS_RUNNER`), the signing secrets, a first release; an update offered and installed |
+| 10. The window on macOS | Open, written without a Mac | #22 | On a Mac: the run-through, the title bar, the Keychain, Discord |
+| 11. The panel takes a macOS installer | Merged | spawnpoint #15, panel 1.9.6 | The running panel updated to 1.9.6 |
+| 12. Releasing for macOS | Open, written without a Mac, switched off | #23 | The runner (`MACOS_RUNNER`), the signing secrets, a first release; an update offered and installed |
 
 Tried on real Linux so far (WSL, Ubuntu 24.04): the core's tests, downloading and running Java 21 and Java 8, downloading the game files of 1.21.1, the default data folder, keeping a secret in GNOME Keyring (unlocked, locked and absent), and signing in with Microsoft. Started there until the log said the sound engine was up: vanilla, Fabric and NeoForge 1.21.1, Forge 1.20.1, 1.12.2 and 1.7.10. `portal launch --server` on 26.3 joined a real online-mode server, which listed the player. The window, built as an AppImage, opened there and showed the Servers, Instances, Panels and Account pages; its minimise, maximise and close buttons worked. Nothing has been tried on a Linux desktop or a Mac.
 
