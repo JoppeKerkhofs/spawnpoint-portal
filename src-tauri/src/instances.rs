@@ -3,7 +3,7 @@ use portal_core::download::numbered;
 use portal_core::instance::{self, Instance, Listing, ModFile};
 use portal_core::launch::DEFAULT_MEMORY_MB;
 use portal_core::loader::{self, Loader};
-use portal_core::{Error, Paths, auth, discord, gamefiles, join as core_join, mods, panel, play, settings};
+use portal_core::{Error, Paths, auth, discord, gamefiles, gamelog, join as core_join, mods, panel, play, settings};
 use serde::Serialize;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -174,6 +174,15 @@ pub async fn instance_set_memory(state: State<'_, AppState>, id: String, mb: u32
 #[tauri::command]
 pub async fn instance_check_manual(state: State<'_, AppState>, id: String) -> CmdResult<Instance> {
     Ok(instance::check_manual(&state.paths, &id)?)
+}
+
+#[tauri::command]
+pub async fn instance_log(state: State<'_, AppState>, id: String) -> CmdResult<Vec<gamelog::Section>> {
+    let inst = instance::load(&state.paths, &id)?;
+    let running = state.running.lock().unwrap_or_else(|e| e.into_inner()).get(&inst.id).copied();
+    let since = running.or(inst.last_played.as_ref().map(|p| p.started_at)).unwrap_or(0);
+    let dir = instance::game_dir(&state.paths, &inst.id);
+    Ok(tokio::task::spawn_blocking(move || gamelog::read(&dir, since)).await.map_err(|e| Error::Other(e.to_string()))?)
 }
 
 #[tauri::command]

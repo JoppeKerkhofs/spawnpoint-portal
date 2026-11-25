@@ -28,6 +28,7 @@ pub fn run() {
             instances::mods_installed,
             instances::mods_install,
             instances::instance_check_manual,
+            instances::instance_log,
             instances::instance_launch,
             instances::join,
             instances::running,

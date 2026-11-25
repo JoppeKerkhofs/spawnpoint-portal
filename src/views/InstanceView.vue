@@ -26,6 +26,7 @@ import {
 import AppButton from "../components/AppButton.vue";
 import BlockCube from "../components/BlockCube.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import GameLog from "../components/GameLog.vue";
 import Icon from "../components/Icon.vue";
 import KindBadge from "../components/KindBadge.vue";
 import ModBrowser from "../components/ModBrowser.vue";
@@ -60,7 +61,7 @@ import {
   type ModFilter,
 } from "../logic/mods";
 import { instanceRowKey, leave } from "../logic/focus";
-import { afterJoin, busy, lastPlayed, markPlaying, op, openInstanceId, playing, withProgress } from "../logic/operation";
+import { afterJoin, busy, lastPlayed, markPlaying, op, openInstanceId, openLog, playing, withProgress } from "../logic/operation";
 import { instanceTexture } from "../logic/visuals";
 
 const id = openInstanceId.value ?? "";
@@ -249,6 +250,8 @@ onMounted(() => {
 onUnmounted(() => {
   lastPlayed.value = null;
   afterJoin.value = null;
+  // Another instance's log, asked for from the status bar, stays asked for.
+  if (openLog.value === id) openLog.value = null;
 });
 </script>
 
@@ -278,6 +281,7 @@ onUnmounted(() => {
         </select>
       </div>
       <AppButton v-if="instance.own_picture" variant="secondary" @click="removePicture">Remove picture</AppButton>
+      <AppButton variant="secondary" :aria-pressed="openLog === id" @click="openLog = openLog === id ? null : id">Log</AppButton>
       <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id))">Mods folder</AppButton>
       <AppButton variant="danger" icon="trash" :disabled="busy" @click="deleting = true">Delete</AppButton>
       <AppButton variant="primary" icon="play" :disabled="play.disabled" :aria-label="play.aria" @click="launch">{{ play.label }}</AppButton>
@@ -321,8 +325,9 @@ onUnmounted(() => {
         touches your files. Remove yours if you want the pack’s version.
       </Note>
 
+      <GameLog v-if="openLog === id" :id="id" @back="openLog = null" />
       <ModBrowser
-        v-if="browsing && instance.loader"
+        v-else-if="browsing && instance.loader"
         :id="id"
         :minecraft="instance.minecraft"
         :loader="instance.loader"

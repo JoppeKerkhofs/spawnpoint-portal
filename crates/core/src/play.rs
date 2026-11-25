@@ -73,7 +73,8 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
     let (root, extracting) = (paths.clone(), version.clone());
     blocking(move || extract_natives(&root, &extracting)).await?;
     std::fs::create_dir_all(&game_dir)?;
-    Ok((command(&javaw, &args, &game_dir).spawn()?, joined))
+    let plain_output = version.logging.as_ref().is_none_or(|l| l.client.is_none());
+    Ok((command(&javaw, &args, &game_dir, plain_output).spawn()?, joined))
 }
 
 pub async fn start_instance(

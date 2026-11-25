@@ -207,9 +207,11 @@ pub fn extract_natives(paths: &Paths, version: &VersionJson) -> Result<()> {
     Ok(())
 }
 
-pub fn command(java: &Path, args: &[String], game_dir: &Path) -> Command {
+// `plain_output` is false when the game was given a log config: its stdout then repeats latest.log as XML.
+pub fn command(java: &Path, args: &[String], game_dir: &Path, plain_output: bool) -> Command {
+    let (out, err) = crate::gamelog::capture(game_dir, plain_output);
     let mut c = Command::new(java);
-    c.args(args).current_dir(game_dir).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    c.args(args).current_dir(game_dir).stdin(Stdio::null()).stdout(out).stderr(err);
     c
 }
 

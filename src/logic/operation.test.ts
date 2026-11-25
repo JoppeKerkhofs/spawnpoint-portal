@@ -13,7 +13,7 @@ vi.mock("../api", () => ({
 }));
 
 import { defaults, instanceGet, running, type Instance } from "../api";
-import { busy, closeFailure, gameExited, liveText, loadPlaying, markPlaying, onProgress, op, playing, trailing, withProgress } from "./operation";
+import { busy, closeFailure, gameExited, liveText, loadPlaying, markPlaying, onProgress, op, openInstanceId, openLog, playing, showLog, stopped, trailing, view, withProgress } from "./operation";
 
 const inst = (id: string, extra: Partial<Instance> = {}): Instance => ({
   id, name: id.toUpperCase(), minecraft: "1.20.1", loader: null, source: { kind: "server", panel: "p", server: id, pack: null },
@@ -83,8 +83,20 @@ test("the screen reader hears states and stages, not counts", () => {
 
 test("a finished game leaves the list", () => {
   playing.value = [...p];
-  gameExited("homestead");
+  gameExited("homestead", 0);
   expect(playing.value).toEqual([]);
+  expect(stopped.value).toBeNull();
+});
+
+test("a game that did not close normally is named until its log is opened", () => {
+  playing.value = [...p];
+  gameExited("homestead", 1);
+  expect(stopped.value).toEqual({ instance: "homestead", name: "Homestead" });
+  const ctx = { playerName: "", lastPlayed: null, stopped: stopped.value!.name };
+  expect(trailing("servers", { phase: "idle" }, [], ctx).lead).toBe("Homestead stopped unexpectedly.");
+  expect(trailing("servers", { phase: "idle" }, p, ctx).lead).toBe("Playing Homestead");
+  showLog("homestead");
+  expect([stopped.value, openLog.value, openInstanceId.value, view.value]).toEqual([null, "homestead", "homestead", "instance"]);
 });
 
 test("progress events update op while an operation runs, with the key kept", async () => {

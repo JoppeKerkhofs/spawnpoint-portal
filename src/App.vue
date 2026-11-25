@@ -26,7 +26,7 @@ onMounted(async () => {
     () => {}, // The footer stays empty; the Account view reports a failing settings call itself.
   );
   try {
-    unlisten = await onGameExited((e) => gameExited(e.instance));
+    unlisten = await onGameExited((e) => gameExited(e.instance, e.code));
   } catch {
     // A game that exits then stays "Playing" until the window reloads.
   }

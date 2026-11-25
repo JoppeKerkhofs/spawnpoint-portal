@@ -65,11 +65,11 @@ Instances, game files, Java runtimes and settings are under `%APPDATA%\Spawnpoin
 
 - **Servers**: every linked panel's servers, with state, players and what they run. Join syncs the pack and starts the game.
 - **Instances**: your instances, and a form to create a plain one. Instances Portal cannot read are listed with a button to show their folder.
-- **An instance**: memory, the mods folder, adding and removing your own mods, files a pack's author does not allow launchers to download (to fetch by hand), and delete.
+- **An instance**: memory, the mods folder, adding and removing your own mods, files a pack's author does not allow launchers to download (to fetch by hand), the log of its last start (the newest crash report, what the game printed and `latest.log`, with any sign-in token left out), and delete.
 - **Panels**: link a panel by approving a code on its page, or remove one.
 - **Account**: signing in with Microsoft, which starting a game needs (one account; only its sign-in is kept, in the Windows Credential Manager), and the appearance (standard light, dark or following Windows, or blocky).
 
-The status bar shows the steps of a join and whether the game is running.
+The status bar shows the steps of a join and whether the game is running, and offers the log when a game stops without being closed.
 
 ## Command line
 

@@ -130,7 +130,13 @@ export const modsInstalled = (id: string) => invoke<InstalledMod[]>("mods_instal
 export const modsInstall = (id: string, project: string) => invoke<ModInstall>("mods_install", { id, project });
 export const instanceSetPicture = (id: string, picture: string | null) => invoke<Instance>("instance_set_picture", { id, picture });
 export const instanceCheckManual = (id: string) => invoke<Instance>("instance_check_manual", { id });
-export const instanceLaunch = (id: string) => invoke<Instance>("instance_launch", { id });
+export interface LogSection {
+  name: string;
+  text: string;
+}
+
+export const instanceLog = (id: string) => invoke<LogSection[]>("instance_log", { id });
+export const instanceLaunch =(id: string) => invoke<Instance>("instance_launch", { id });
 export interface Joined {
   instance: Instance;
   joined: boolean;
