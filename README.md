@@ -37,9 +37,11 @@ It needs two secrets, kept in a GitHub environment named `release` (Settings, En
 - `TAURI_SIGNING_PRIVATE_KEY`: the content of the update signing key, `C:\Users\joppe\.tauri\spawnpoint-portal.key` on the owner's PC. It has no password. Never commit it; the matching public key is in `src-tauri/tauri.conf.json`.
 - `PANEL_RELEASE_TOKEN`: a panel API token with the ability `portal:release`.
 
+macOS is built only when the repository variable `MACOS_RUNNER` (Settings, Secrets and variables, Actions, Variables) names a runner with an Apple chip: `macos-latest` for GitHub's own, which costs ten times the minutes on a private repository, or the label of someone's Mac. The same variable turns on the macOS job of the checks. The panel must be 1.9.6 or newer first, or it refuses the upload. The app is signed and notarised when the `release` environment also holds `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, and on GitHub's runners `APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD`; `docs/macos.md` says where each comes from. Without them the app is signed for the build machine only, and other Macs refuse it until their owner allows it.
+
 Adding required reviewers to that environment makes every release wait for approval; without them a merge to `main` with a new version releases to every player by itself. Protecting `main` (Settings, Rules) limits who can start a release.
 
-Addresses: the app checks `https://spawnpoint.joppek.be/portal/latest.json`, releases are uploaded with `PUT https://spawnpoint.joppek.be/api/v1/portal/releases/<version>?platform=<windows-x86_64 or linux-x86_64>`, and players download from `https://spawnpoint.joppek.be/portal/download`.
+Addresses: the app checks `https://spawnpoint.joppek.be/portal/latest.json`, releases are uploaded with `PUT https://spawnpoint.joppek.be/api/v1/portal/releases/<version>?platform=<windows-x86_64, linux-x86_64 or darwin-aarch64>`, and players download from `https://spawnpoint.joppek.be/portal/download`.
 
 Windows shows an "unknown publisher" warning on the installer because it is not code-signed. The update itself is checked against the signing key.
 

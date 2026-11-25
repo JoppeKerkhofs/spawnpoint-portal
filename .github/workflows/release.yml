@@ -17,7 +17,26 @@ jobs:
     outputs:
       version: ${{ steps.read.outputs.version }}
       release: ${{ steps.read.outputs.release }}
+      systems: ${{ steps.systems.outputs.systems }}
     steps:
+      # macOS only once there is a runner for it: the repository variable MACOS_RUNNER names it,
+      # `macos-latest` for GitHub's own or the label of a Mac with an Apple chip.
+      - name: The systems to build for
+        id: systems
+        env:
+          MACOS_RUNNER: ${{ vars.MACOS_RUNNER }}
+        run: |
+          set -eu
+          # ubuntu-22.04 is the oldest Ubuntu there is a runner for: an AppImage runs on systems as old as the one it was built on.
+          systems='[
+            {"os": "windows-latest", "platform": "windows-x86_64", "installer": "target/release/bundle/nsis/*-setup.exe"},
+            {"os": "ubuntu-22.04", "platform": "linux-x86_64", "installer": "target/release/bundle/appimage/*.AppImage"}
+          ]'
+          if [ -n "$MACOS_RUNNER" ]; then
+            systems=$(jq --arg os "$MACOS_RUNNER" '. + [{os: $os, platform: "darwin-aarch64", installer: "target/release/bundle/macos/*.app.tar.gz"}]' <<< "$systems")
+          fi
+          echo "systems=$(jq -c . <<< "$systems")" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -46,14 +65,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            platform: windows-x86_64
-            installer: target/release/bundle/nsis/*-setup.exe
-          # The oldest Ubuntu there is a runner for: an AppImage runs on systems as old as the one it was built on.
-          - os: ubuntu-22.04
-            platform: linux-x86_64
-            installer: target/release/bundle/appimage/*.AppImage
+        include: ${{ fromJSON(needs.version.outputs.systems) }}
     runs-on: ${{ matrix.os }}
     environment: release
     defaults:
@@ -89,18 +101,41 @@ jobs:
       - run: npm test
 
       - name: Build the installer
+        if: runner.os != 'macOS'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: npm run tauri build
 
+      # Tauri signs with the certificate and has Apple notarise the app when these are set. Without
+      # them the app is signed for the build machine only, and other Macs refuse it until allowed.
+      - name: Build the app for macOS, signed and notarised when the secrets are there
+        if: runner.os == 'macOS'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -eu
+          # A secret that is not there arrives empty, which Tauri would take for a value.
+          for name in APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!name}" ] || unset "$name"
+          done
+          npm run tauri build
+
+      # Without `mapfile`: the bash of macOS is too old for it.
       - name: Find the installer
         run: |
           set -eu
-          mapfile -t files < <(compgen -G "$INSTALLER")
-          [ "${#files[@]}" -eq 1 ] || { echo "Expected one installer, found ${#files[@]}." >&2; exit 1; }
-          [ -f "${files[0]}.sig" ] || { echo "The installer has no signature beside it." >&2; exit 1; }
-          echo "INSTALLER_FILE=${files[0]}" >> "$GITHUB_ENV"
+          found=$(compgen -G "$INSTALLER" || true)
+          [ -n "$found" ] && [ "$(wc -l <<< "$found")" -eq 1 ] || { echo "Expected one installer, found: ${found:-none}" >&2; exit 1; }
+          [ -f "$found.sig" ] || { echo "The installer has no signature beside it." >&2; exit 1; }
+          echo "INSTALLER_FILE=$found" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -116,7 +151,8 @@ jobs:
         run: |
           set -eu
           signature=$(tr -d '\r\n' < "$INSTALLER_FILE.sig")
-          sha256=$(sha256sum "$INSTALLER_FILE" | cut -d ' ' -f 1)
+          # macOS has no sha256sum.
+          sha256=$( (sha256sum "$INSTALLER_FILE" 2>/dev/null || shasum -a 256 "$INSTALLER_FILE") | cut -d ' ' -f 1)
           code=$(curl --silent --show-error --request PUT \
             --header "Authorization: Bearer $PANEL_RELEASE_TOKEN" \
             --header "Accept: application/json" \
