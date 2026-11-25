@@ -269,9 +269,15 @@ pub fn approve_page(address: &str, pairing: &Pairing) -> (String, bool) {
     }
 }
 
-// ponytail: Windows and Linux only; macOS has neither source and will need its own.
 pub fn computer_name() -> Option<String> {
-    let name = if cfg!(windows) { std::env::var("COMPUTERNAME").ok() } else { std::fs::read_to_string("/proc/sys/kernel/hostname").ok() };
+    let name = if cfg!(windows) {
+        std::env::var("COMPUTERNAME").ok()
+    } else if cfg!(target_os = "macos") {
+        // The name from System Settings, which the host name only resembles.
+        std::process::Command::new("scutil").args(["--get", "ComputerName"]).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    } else {
+        std::fs::read_to_string("/proc/sys/kernel/hostname").ok()
+    };
     name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty())
 }
 

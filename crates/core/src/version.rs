@@ -293,7 +293,7 @@ pub fn merge(parent: VersionJson, child: VersionJson) -> VersionJson {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::{LINUX, WINDOWS};
+    use crate::platform::{LINUX, MACOS, WINDOWS};
 
     fn v(name: &str) -> VersionJson {
         let text = match name {
@@ -441,6 +441,14 @@ mod tests {
         }
         let n = natives(include_str!("../tests/fixtures/version-1.16.5.json"));
         assert!(!n.is_empty() && n.iter().all(|p| p.ends_with("natives-linux.jar")), "{n:?}");
+    }
+
+    #[test]
+    fn a_mac_gets_the_libraries_for_its_chip() {
+        let files = library_files_on(&MACOS, &v("1.21.1")).unwrap();
+        assert!(files.iter().any(|f| f.path.contains("lwjgl") && f.path.ends_with("natives-macos-arm64.jar")));
+        let foreign = ["windows", "linux"];
+        assert!(!files.iter().any(|f| foreign.iter().any(|x| f.path.contains(x))), "{files:?}");
     }
 
     #[test]
