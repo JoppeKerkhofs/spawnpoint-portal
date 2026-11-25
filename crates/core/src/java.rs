@@ -13,6 +13,8 @@ pub fn runtime_manifest(platform: &Platform, all_json: &str, component: &str) ->
     let manifest = &all[platform.java_runtime][component][0]["manifest"];
     match (manifest["url"].as_str(), manifest["sha1"].as_str()) {
         (Some(url), Some(sha1)) => Ok((url.into(), sha1.into())),
+        // Mojang has Java 17 and newer for Apple chips, and game libraries for them from 1.19 on.
+        _ if platform.os == "osx" => Err(Error::Unsupported("Minecraft before 1.19 does not run on Apple chips yet".into())),
         _ => Err(Error::Other(format!("no Java runtime {component} for {}", platform.os))),
     }
 }
@@ -63,14 +65,18 @@ pub async fn ensure(client: &Client, paths: &Paths, component: &str, progress: &
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o755))?;
     }
-    Ok(dir.join("bin").join(platform.java))
+    Ok(binary(platform, &dir))
+}
+
+fn binary(platform: &Platform, runtime: &Path) -> PathBuf {
+    runtime.join(platform.java_home).join("bin").join(platform.java)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::download::Hash;
-    use crate::platform::{LINUX, WINDOWS};
+    use crate::platform::{LINUX, MACOS, WINDOWS};
     use std::path::Path;
 
     #[test]
@@ -83,6 +89,19 @@ mod tests {
         let (linux, _) = runtime_manifest(&LINUX, all, "java-runtime-delta").unwrap();
         assert!(linux.starts_with("https://piston-meta.mojang.com/v1/packages/") && linux != url);
         assert!(runtime_manifest(&LINUX, all, "jre-legacy").unwrap_err().to_string().ends_with("for linux"));
+    }
+
+    #[test]
+    fn a_mac_gets_java_for_1_19_and_newer_and_a_sentence_for_older() {
+        let all = include_str!("../tests/fixtures/java-all.json");
+        assert!(runtime_manifest(&MACOS, all, "java-runtime-delta").is_ok());
+        // What 1.18.2 and 1.16.5 ask for: listed for Apple chips, and empty.
+        for older in ["java-runtime-beta", "jre-legacy"] {
+            let err = runtime_manifest(&MACOS, all, older).unwrap_err();
+            assert!(matches!(&err, Error::Unsupported(m) if m == "Minecraft before 1.19 does not run on Apple chips yet"), "{err}");
+        }
+        assert_eq!(binary(&MACOS, Path::new("J")), Path::new("J/jre.bundle/Contents/Home/bin/java"));
+        assert_eq!(binary(&WINDOWS, Path::new("J")), Path::new("J").join("bin").join("javaw.exe"));
     }
 
     #[test]

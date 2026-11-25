@@ -68,6 +68,9 @@ fn root_from(platform: &Platform, var: impl Fn(&str) -> Option<OsString>) -> Opt
     if platform.os == "windows" {
         return Some(var("APPDATA")?.join("SpawnpointPortal"));
     }
+    if platform.os == "osx" {
+        return Some(var("HOME")?.join("Library").join("Application Support").join("SpawnpointPortal"));
+    }
     // The XDG rules ignore a data folder that is not a full path.
     let data = var("XDG_DATA_HOME").filter(|d| d.has_root()).or_else(|| Some(var("HOME")?.join(".local").join("share")))?;
     Some(data.join("spawnpoint-portal"))
@@ -110,13 +113,14 @@ mod tests {
 
     #[test]
     fn each_system_has_its_own_folder_and_the_override_wins() {
-        use crate::platform::{LINUX, WINDOWS};
+        use crate::platform::{LINUX, MACOS, WINDOWS};
         let root = |platform, vars: &[(&str, &str)]| root_from(platform, |name| vars.iter().find(|(k, _)| *k == name).map(|(_, v)| OsString::from(v)));
+        assert_eq!(root(&MACOS, &[("HOME", "/Users/a"), ("XDG_DATA_HOME", "/data")]), Some(PathBuf::from("/Users/a/Library/Application Support/SpawnpointPortal")));
         assert_eq!(root(&WINDOWS, &[("APPDATA", "A"), ("SPAWNPOINT_PORTAL_HOME", "")]), Some(Path::new("A").join("SpawnpointPortal")));
         assert_eq!(root(&LINUX, &[("HOME", "/home/a"), ("APPDATA", "A")]), Some(PathBuf::from("/home/a/.local/share/spawnpoint-portal")));
         assert_eq!(root(&LINUX, &[("HOME", "/home/a"), ("XDG_DATA_HOME", "/data")]), Some(PathBuf::from("/data/spawnpoint-portal")));
         assert_eq!(root(&LINUX, &[("HOME", "/home/a"), ("XDG_DATA_HOME", "relative")]), Some(PathBuf::from("/home/a/.local/share/spawnpoint-portal")));
-        for platform in [&WINDOWS, &LINUX] {
+        for platform in [&WINDOWS, &LINUX, &MACOS] {
             assert_eq!(root(platform, &[("HOME", "/home/a"), ("APPDATA", "A"), ("SPAWNPOINT_PORTAL_HOME", "own")]), Some(PathBuf::from("own")));
             assert_eq!(root(platform, &[]), None);
         }

@@ -296,6 +296,15 @@ mod tests {
     }
 
     #[test]
+    fn a_mac_starts_the_game_on_the_first_thread() {
+        let a = arguments_on(&crate::platform::MACOS, &paths(), &v("1.21.1"), &opts(None)).unwrap().0;
+        assert!(a.iter().any(|x| x == "-XstartOnFirstThread"));
+        let cp = &a[a.iter().position(|x| x == "-cp").unwrap() + 1];
+        assert!(cp.contains("natives-macos-arm64.jar:") && !cp.contains(';') && !cp.contains("natives-windows"), "{cp}");
+        assert!(!a.iter().any(|x| x.contains("${") || x == "-Dos.name=Windows 10"));
+    }
+
+    #[test]
     fn version_name_is_the_name_of_the_client_jar() {
         let mut version = v("1.21.1");
         version.id = "neoforge-1".into();
