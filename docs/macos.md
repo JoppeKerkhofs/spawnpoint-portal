@@ -6,7 +6,7 @@ It is for a Mac with an Apple chip (M1 or newer). There is no build for Intel Ma
 
 ## Where it stands
 
-Nothing for macOS is merged yet. Each piece comes as a branch you are asked to try:
+All of it is written, on a Windows machine, and none of it has been compiled or started on a Mac. Expect the first build to need fixes; what you find goes back to Joppe. Per piece:
 
 | Piece | What you do |
 |---|---|
@@ -167,7 +167,7 @@ The check that counts: put the `.dmg` somewhere on the internet, download it wit
 
 Then try what signing can break: sign in (the Keychain), start a game (Portal starts Mojang's Java, a program of its own), and Discord.
 
-**5. For the release workflow.** A release is built by GitHub's workflow, not by hand, so the same four values plus the certificate end up as secrets of the repository's `release` environment. Joppe adds the workflow's side; you add the secrets yourself in GitHub (Settings, Environments, release), where nobody can read them back:
+**5. For the release workflow.** A release is built by GitHub's workflow, not by hand, so the same four values plus the certificate end up as secrets of the repository's `release` environment. The workflow already reads them, and builds for macOS once the repository variable `MACOS_RUNNER` names a runner. You add the secrets yourself in GitHub (Settings, Environments, release), where nobody can read them back:
 
 - `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` as above.
 - `APPLE_CERTIFICATE`: the certificate with its private key, exported from Keychain Access as a `.p12` file with a password, then `base64 -i certificate.p12 | pbcopy`.
