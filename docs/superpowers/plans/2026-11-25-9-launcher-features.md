@@ -63,6 +63,36 @@ Where: `instance::update` for the changes, `instance::slug` for ids, `gamefiles:
 
 Open: whether the id (the folder name) follows a rename, or only the name does (the second is far less work and breaks nothing); whether version and loader may change on a server's or a pack's instance (they should not: the next sync decides them); what happens to mods that do not fit the new version.
 
+## 4. Java arguments, the player's and the server's
+
+Only memory can be set (`Instance.memory_mb`, `-Xmx` in `launch::arguments_on`).
+
+Wanted, in two halves:
+
+- **The player's.** A text field on an instance for extra JVM arguments.
+- **The server's.** A server's owner sets Java arguments for the players' game in the panel. The launcher reads them and applies them to that server's instance on every sync, without the player doing anything. The owner extended the piece with this on 25 November 2026.
+
+The two are kept apart in `instance.json` (a field for each), as pack mods and own mods are: a sync replaces the server's arguments and never touches the player's. The order at the start is `-Xmx`, then the server's, then the player's, so the player's own choice wins where both name the same flag.
+
+**The panel first** (the spawnpoint repository, a version of its own, before the launcher half that reads it):
+
+- A new setting beside the existing `jvm_opts`, which is for the server's own Java and must not be reused: a server tuned with `-Xms` and garbage collector flags for a 12 GB server process is not what a player's game wants. The existing one is validated in `panel/app/Concerns/ServerValidationRules.php`, stored by `panel/app/Actions/Servers/UpdateServer.php` and edited in `panel/resources/js/components/ServerFields.vue` ("Extra JVM flags"); the new one follows it, with a label that says it is for players who join with Portal.
+- `GET /servers` and `GET /servers/{server}` answer it beside `game_version` (`panel/app/Http/Controllers/Api/V1/ServerController.php`), null or absent when nothing is set, and `panel/resources/api/openapi.json` describes it.
+
+**The launcher:**
+
+- `panel::Server` gets the field with `#[serde(default)]`, so an older panel still reads. The sync (`join::sync_numbered`) stores it on the instance; a server that stops sending it clears it.
+- The instance page shows the server's arguments as read-only, marked as coming from the server, above the player's own field.
+- The launcher checks the server's arguments itself, whatever the panel checked: the panel is another machine, and these become part of a command line on the player's PC.
+
+Open:
+
+- **Which arguments a server may send.** A server's owner already decides which mods run on a player's machine, so this adds no new trust, but arguments can do things a mod list does not show. The proposal: refuse anything that loads code or runs a command (`-javaagent`, `-agentlib`, `-agentpath`, `-cp`, `-classpath`, `-jar`, `-XX:OnError`, `-XX:OnOutOfMemoryError`, an `@file`), and `-Xmx` and `-Xms`, because memory is the player's choice and their machine's limit. A refused argument is left out and named on the instance page, and the game still starts.
+- How the text becomes arguments: split on spaces, or with quotes for a value that holds a space.
+- Whether a wrong argument of the player's own is caught before the start or left to the log of piece 1 (the second is simpler, and piece 1 makes it visible).
+- Whether the player may switch the server's arguments off for their instance.
+- Horizon instances have no Java (they hide memory already, `isHorizon` in `InstanceView.vue`); the proposal is that they get neither half.
+
 ## 5. Shaders and resource packs in the browser
 
 `mods::search` is fixed to `project_type:mod` and `mods::install` puts files in the mods folder (`Instance::mods_place`).
