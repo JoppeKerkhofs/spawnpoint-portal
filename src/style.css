@@ -522,6 +522,9 @@ html[data-theme="blocky"] .progress progress::-webkit-progress-value {
 .titlebar-btn:hover { background: color-mix(in srgb, var(--titlebar-fg) 12%, transparent); }
 .titlebar-btn.is-close:hover { background: var(--titlebar-close); }
 html[data-theme="blocky"] .titlebar-btn:not(.is-close):hover { background: color-mix(in srgb, var(--titlebar-fg) 14%, transparent); }
+/* macOS lays its own three buttons over the bar's left end (tauri.macos.conf.json). */
+html[data-os="macos"] .titlebar { padding-left: 78px; }
+html[data-os="macos"] .titlebar-btn { display: none; }
 
 .side {
   display: flex; flex: 0 0 auto; flex-direction: column; gap: 4px; width: 212px; padding: 14px 10px;
