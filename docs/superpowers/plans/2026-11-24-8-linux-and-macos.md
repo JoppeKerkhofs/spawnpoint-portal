@@ -18,7 +18,10 @@ Updated 25 November 2026. Change this table in the pull request that changes a p
 | 6. The window | Merged | #17 | By hand: moving the window by its title bar, resizing from the edges, double-click to maximise; the run-through in the blocky and dark looks; a real Linux desktop |
 | 7. The panel serves more than one installer | Merged | spawnpoint #14, panel 1.9.5 | |
 | 8. Releasing | Merged | #19 | A release that reaches the panel with two platforms; an AppImage on the previous version offering and installing the update |
-| macOS | Not started | | Everything; see "macOS, later" |
+| 9. The core on macOS | Open | | On a Mac: the core's tests, Java 21, the game files of 1.21.1, starting the game |
+| 10. The window on macOS | Not started | | On a Mac: the run-through, the title bar, the Keychain, Discord |
+| 11. The panel takes a macOS installer | Not started | | |
+| 12. Releasing for macOS | Not started | | Signing, notarising, the runner; an update offered and installed |
 
 Tried on real Linux so far (WSL, Ubuntu 24.04): the core's tests, downloading and running Java 21 and Java 8, downloading the game files of 1.21.1, the default data folder, keeping a secret in GNOME Keyring (unlocked, locked and absent), and signing in with Microsoft. Started there until the log said the sound engine was up: vanilla, Fabric and NeoForge 1.21.1, Forge 1.20.1, 1.12.2 and 1.7.10. `portal launch --server` on 26.3 joined a real online-mode server, which listed the player. The window, built as an AppImage, opened there and showed the Servers, Instances, Panels and Account pages; its minimise, maximise and close buttons worked. Nothing has been tried on a Linux desktop or a Mac.
 
@@ -26,7 +29,7 @@ Tried on real Linux so far (WSL, Ubuntu 24.04): the core's tests, downloading an
 
 - Linux x86_64 only. Mojang publishes no natives and no Java for Linux on ARM.
 - One package: an AppImage. It is the only Linux format Tauri's updater can replace, and it runs on every distribution. A `.deb` can follow if someone asks.
-- macOS: prepared for, not built. The last section says what is left.
+- macOS: Apple chips only, and Minecraft 1.19 and newer. Pieces 9 to 12 below; `docs/macos.md` is for whoever builds and tries it on a Mac.
 
 ## How the code is shaped for three systems
 
@@ -143,15 +146,57 @@ Check: Pest, and upload a Linux file to a local panel and read `latest.json`.
 
 Check: a release reaches the panel with two platforms, and a Linux install on the previous version offers and installs the update.
 
-## macOS, later
+## macOS
 
-Prepared by the pieces above: the platform struct, rules and natives by system and arch, the Java layout, the data folder, the keyring, the Discord socket, releases per platform. Left to do:
+Apple chips only (`darwin-aarch64`); no build for Intel Macs. Prepared by the pieces above: the platform struct, rules and natives by system and arch, the keyring (the Keychain store is already built in), the Discord socket (looked for in `$TMPDIR`, where Discord on macOS keeps it), releases per platform. Nothing here can be tried on the Windows machine beyond the tests on saved Mojang answers; every check is done by a friend on a Mac, following `docs/macos.md`.
 
-- `Platform::MACOS` for both chips, and the `-XstartOnFirstThread` flag for old versions.
-- Minecraft before 1.19 has no natives for Apple chips. Either those versions run the Intel Java through Rosetta, or they are not offered on Apple chips. To decide then.
-- The title bar: the system's own buttons on the left instead of ours.
-- Signing and notarising with the friend's developer account, on the friend's runner. The certificate and the notarisation credentials go in as secrets of that runner's environment, not in the repository.
-- Every check of pieces 4 and 6 again, on a real Mac.
+Checked against Mojang's live list on 25 November 2026: the key is `mac-os-arm64`, it holds Java 17 (`java-runtime-gamma`), 21 (`java-runtime-delta`) and 25 (`java-runtime-epsilon`), and nothing for `jre-legacy`, `java-runtime-alpha` and `java-runtime-beta`. The binary is `jre.bundle/Contents/Home/bin/java`. The links in the Java 21 list are licence texts only.
+
+### 9. The core on macOS
+
+- `platform::MACOS`: `osx`, `arm64`, `mac-os-arm64`, `:`; `current()` gets its third branch. The platform gains where the runtime's home is, since `java.rs` joins `bin` straight onto the runtime's folder.
+- **Before 1.19**: a version whose Java the list does not hold for Apple chips is refused with "Minecraft before 1.19 does not run on Apple chips yet", before any game file is downloaded. Join and Play show that sentence; the servers page does not mark such a server beforehand.
+- **Data folder** (`paths.rs`): `~/Library/Application Support/SpawnpointPortal`. Today macOS falls into the Linux branch.
+- **Device name** (`panel.rs`): `/proc` does not exist there; ask `scutil --get ComputerName`.
+- **Game files**: `version.rs` already keeps `-arm64` natives when the platform is `arm64`. A test on the saved 1.21.1 file asserts what macOS gets.
+- Sync keeps comparing without case, which matches a Mac's disk as it comes.
+
+Check, on a Mac from the command line: the core's tests; `portal java java-runtime-delta` and run it; vanilla, Fabric and NeoForge 1.21.1 and Forge 1.20.1 reach the title screen; 1.18.2 gives the sentence; `portal join` on a real server.
+
+### 10. The window on macOS
+
+- `tauri.macos.conf.json`: the system's title bar laid over the page (its three buttons on the left, no title), bundle targets `app` and `dmg`. Our own buttons are hidden through `data-os`, and the bar keeps room on the left.
+- The texts already know macOS (`src/logic/os.ts`).
+- The run-through in Safari's engine, the third one.
+
+Check, on a Mac: the run-through; moving, resizing and the three buttons; sign in, link a panel, restart and both are still there; presence in Discord.
+
+### 11. The panel takes a macOS installer (spawnpoint repository)
+
+- The updater on macOS installs an `.app.tar.gz`, not a `.dmg`. `PortalReleases::PLATFORMS` gains `darwin-aarch64` with that file, and the download page offers the same file: opening it gives the app, to drag to Applications. A `.dmg` beside it means two files per system and waits until someone asks.
+- `platformOf` learns the Mac. A browser does not tell an Apple chip from an Intel one, so the page says the build is for Apple chips.
+
+### 12. Releasing for macOS
+
+Last, and it needs the friend's Apple developer account.
+
+- A third row in the release workflow, on a runner with an Apple chip: GitHub's own (ten times the minutes on a private repository) or the friend's Mac. To decide then.
+- Signing with a Developer ID certificate and notarising. The certificate and the notarisation credentials are secrets of the `release` environment, never in the repository.
+- A macOS job in the checks, on the same runner.
+
+Until then a build is signed only for the Mac it was made on: another Mac refuses it until its owner allows it in System Settings, and the Keychain asks again after every new build.
+
+### Later
+
+- Minecraft before 1.19 on Apple chips: the Intel Java (`mac-os`) through Rosetta, chosen per version, with `-XstartOnFirstThread` added to the old one-line arguments (`launch.rs`).
+- Intel Macs.
+
+## Settled on 25 November 2026
+
+1. macOS is built for Apple chips only.
+2. Minecraft 1.19 and newer there; older versions get a clear sentence. Rosetta is later.
+3. Signing and the runner come last, in piece 12.
+4. A friend with a Mac does the checks.
 
 ## Settled on 24 November 2026
 
