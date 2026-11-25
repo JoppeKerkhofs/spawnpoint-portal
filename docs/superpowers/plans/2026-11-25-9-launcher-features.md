@@ -10,7 +10,7 @@ Updated 25 November 2026. Change this table in the pull request that changes a p
 
 | Piece | State | Pull request | Still to check |
 |---|---|---|---|
-| 1. Game log and crash view | Open | `feature/JKER_game_log` | By hand: the log card in each look, a game that crashes, a Java that does not start, Copy |
+| 1. Game log and crash view | Open | #24 | By hand: the log card in each look, a game that crashes, a Java that does not start, Copy |
 | 2. Install a pack from the window | Not started | | |
 | 3. Instance housekeeping | Not started | | |
 | 4. Java arguments per instance | Not started | | |
