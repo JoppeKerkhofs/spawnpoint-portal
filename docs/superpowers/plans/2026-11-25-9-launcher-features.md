@@ -85,13 +85,16 @@ The two are kept apart in `instance.json` (a field for each), as pack mods and o
 - The instance page shows the server's arguments as read-only, marked as coming from the server, above the player's own field.
 - The launcher checks the server's arguments itself, whatever the panel checked: the panel is another machine, and these become part of a command line on the player's PC.
 
+Decided by the owner on 25 November 2026:
+
+- **Which arguments a server may send.** A server's owner already decides which mods run on a player's machine, so this adds no new trust, but arguments can do things a mod list does not show. The launcher refuses anything that loads code or runs a command (`-javaagent`, `-agentlib`, `-agentpath`, `-cp`, `-classpath`, `-jar`, `-XX:OnError`, `-XX:OnOutOfMemoryError`, an `@file`), and `-Xmx` and `-Xms`, because memory is the player's choice and their machine's limit. A refused argument is left out and named on the instance page, and the game still starts.
+- **Horizon** instances have no Java (they hide memory already, `isHorizon` in `InstanceView.vue`) and get neither half.
+
 Open:
 
-- **Which arguments a server may send.** A server's owner already decides which mods run on a player's machine, so this adds no new trust, but arguments can do things a mod list does not show. The proposal: refuse anything that loads code or runs a command (`-javaagent`, `-agentlib`, `-agentpath`, `-cp`, `-classpath`, `-jar`, `-XX:OnError`, `-XX:OnOutOfMemoryError`, an `@file`), and `-Xmx` and `-Xms`, because memory is the player's choice and their machine's limit. A refused argument is left out and named on the instance page, and the game still starts.
 - How the text becomes arguments: split on spaces, or with quotes for a value that holds a space.
 - Whether a wrong argument of the player's own is caught before the start or left to the log of piece 1 (the second is simpler, and piece 1 makes it visible).
 - Whether the player may switch the server's arguments off for their instance.
-- Horizon instances have no Java (they hide memory already, `isHorizon` in `InstanceView.vue`); the proposal is that they get neither half.
 
 ## 5. Shaders and resource packs in the browser
 
