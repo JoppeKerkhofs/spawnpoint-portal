@@ -18,7 +18,7 @@ Updated 25 November 2026. Change this table in the pull request that changes a p
 | 6. The window | Merged | #17 | By hand: moving the window by its title bar, resizing from the edges, double-click to maximise; the run-through in the blocky and dark looks; a real Linux desktop |
 | 7. The panel serves more than one installer | Merged | spawnpoint #14, panel 1.9.5 | |
 | 8. Releasing | Merged | #19 | A release that reaches the panel with two platforms; an AppImage on the previous version offering and installing the update |
-| 9. The core on macOS | Open | | On a Mac: the core's tests, Java 21, the game files of 1.21.1, starting the game |
+| 9. The core on macOS | Open | #21 | On a Mac: the core's tests, Java 21, the game files of 1.21.1, starting the game |
 | 10. The window on macOS | Not started | | On a Mac: the run-through, the title bar, the Keychain, Discord |
 | 11. The panel takes a macOS installer | Not started | | |
 | 12. Releasing for macOS | Not started | | Signing, notarising, the runner; an update offered and installed |
