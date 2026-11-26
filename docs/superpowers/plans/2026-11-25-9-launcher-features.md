@@ -20,7 +20,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | 8. Start in a singleplayer world | Left out | | The owner left it out on 26 November 2026: not something anyone would really use |
 | 9. Screenshots | Open | #31 | By hand: the Screenshots button on an instance's page |
 | 10. World backup before a pack update | Open | #32 | By hand: a world in a pack's instance, another version of the pack, the copy in `world-backups` |
-| 11. Export and import an instance | Open | #PR | By hand: Export on an instance's page, Import a file on the Instances page, the file opened in another launcher |
+| 11. Export and import an instance | Open | #33 | By hand: Export on an instance's page, Import a file on the Instances page, the file opened in another launcher |
 | 12. A second Microsoft account | Left out | | The owner left it out on 26 November 2026 |
 | 13. Changing the skin | Not started | | |
 
