@@ -17,7 +17,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | 5. Shaders and resource packs in the browser | Open | #28 | The owner tried it on 26 November 2026: a resource pack and a shader both show in the game |
 | 6. Config files in a server sync | Open | #29 | By hand, all of it: ticking a file and a folder in the panel (needs its version 1.9.8, node too), a sync that brings them, a changed copy that is replaced and kept as `.portal-backup`, unticking |
 | 7. Total play time | Open | #30 | By hand: play twice and read the line at the bottom of the instance's page |
-| 8. Start in a singleplayer world | Not started | | |
+| 8. Start in a singleplayer world | Left out | | The owner left it out on 26 November 2026: not something anyone would really use |
 | 9. Screenshots | Not started | | |
 | 10. World backup before a pack update | Not started | | |
 | 11. Export and import an instance | Not started | | |
@@ -135,6 +135,8 @@ Written. `Instance.played_seconds` holds the total, and `instance::record_played
 An instance from before this starts its total with the one session it remembers. A duplicate starts at nothing. The command line does not show it.
 
 ## 8. Start in a singleplayer world
+
+Left out by the owner on 26 November 2026. What was wanted, for whoever takes it up again:
 
 Wanted: the worlds of an instance listed (the folders of `saves/`), each with a button that starts the game in it.
 
