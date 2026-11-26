@@ -12,7 +12,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 |---|---|---|---|
 | 1. Game log and crash view | Open | #24 | By hand: the log card in each look, a game that crashes, a Java that does not start, Copy |
 | 2. Install a pack from the window | Open | #25 | By hand, all of the window: the pack search, the version list, an install with its progress, Change version on the instance page. FTB is not in it |
-| 3. Instance housekeeping | Open | | By hand, all of the window: the Manage card (rename, duplicate, change version), Check files again on a pack |
+| 3. Instance housekeeping | Open | #26 | By hand, all of the window: the Manage card (rename, duplicate, change version), Check files again on a pack |
 | 4. Java arguments, the player's and the server's | Not started | | Needs a panel version first |
 | 5. Shaders and resource packs in the browser | Not started | | |
 | 6. Config files in a server sync | Not started | | |
