@@ -14,7 +14,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | 2. Install a pack from the window | Open | #25 | The owner tried it on 26 November 2026 and it works. FTB is not in it |
 | 3. Instance housekeeping | Open | #26 | The owner tried it on 26 November 2026, the reworked page too |
 | 4. Java arguments, the player's and the server's | Open | #27 | By hand: the Java arguments card, a start with an argument, a wrong argument in the Log, a sync with a panel that sends arguments (needs the panel's version with the setting) |
-| 5. Shaders and resource packs in the browser | Open | #28 | By hand, all of the window: the switch on the files card, a search, an install, the list, Remove, a zip of your own, the folder button |
+| 5. Shaders and resource packs in the browser | Open | #28 | The owner tried it on 26 November 2026: a resource pack and a shader both show in the game |
 | 6. Config files in a server sync | Not started | | |
 | 7. Total play time | Not started | | |
 | 8. Start in a singleplayer world | Not started | | |
