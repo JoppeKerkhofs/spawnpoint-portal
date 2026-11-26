@@ -2,7 +2,7 @@
 
 **Goal:** the things a player expects from a Minecraft launcher that Portal does not do yet. Each piece below stands on its own, gets a branch and a pull request of its own, and ends with something that runs.
 
-**Where it stands:** pieces 1 to 4 are written (of piece 4 the launcher side; the panel has its own pull request). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
+**Where it stands:** pieces 1 to 4 are written (of piece 4 the launcher side; the panel side is pull request 16 of the spawnpoint repository, version 1.9.7). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
 
 ## Status
 
