@@ -23,6 +23,8 @@ pub struct Instance {
     #[serde(default)]
     pub last_played: Option<LastPlayed>,
     #[serde(default)]
+    pub played_seconds: u64,
+    #[serde(default)]
     pub manual: Vec<Manual>,
     #[serde(default)]
     pub skipped: Vec<String>,
@@ -165,6 +167,7 @@ pub fn create(
                     managed: Vec::new(),
                     memory_mb: None,
                     last_played: None,
+                    played_seconds: 0,
                     manual: Vec::new(),
                     skipped: Vec::new(),
                     picture: None,
@@ -303,7 +306,12 @@ pub fn duplicate(paths: &Paths, id: &str, name: &str) -> Result<Instance> {
 }
 
 pub fn record_played(paths: &Paths, id: &str, started_at: u64, seconds: u64) -> Result<Instance> {
-    update(paths, id, |i| i.last_played = Some(LastPlayed { started_at, seconds }))
+    update(paths, id, |i| {
+        // An instance from before the total was kept starts it with the one session it remembers.
+        let before = if i.played_seconds == 0 { i.last_played.as_ref().map_or(0, |l| l.seconds) } else { i.played_seconds };
+        i.played_seconds = before.saturating_add(seconds);
+        i.last_played = Some(LastPlayed { started_at, seconds });
+    })
 }
 
 pub fn check_manual(paths: &Paths, id: &str) -> Result<Instance> {
@@ -337,6 +345,7 @@ pub fn save_synced(paths: &Paths, instance: &mut Instance) -> Result<()> {
         instance.memory_mb = disk.memory_mb;
         instance.java_args = disk.java_args;
         instance.last_played = disk.last_played;
+        instance.played_seconds = disk.played_seconds;
         if disk.own_picture || instance.own_picture {
             instance.picture = disk.picture;
         }
@@ -686,6 +695,12 @@ mod tests {
         create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
         record_played(&p, "m", 1_763_640_000, 4320).unwrap();
         assert_eq!(load(&p, "m").unwrap().last_played, Some(LastPlayed { started_at: 1_763_640_000, seconds: 4320 }));
+        let again = record_played(&p, "m", 1_763_650_000, 80).unwrap();
+        assert_eq!((again.played_seconds, again.last_played.map(|l| l.seconds)), (4400, Some(80)));
+
+        // Written before the total existed: the session it remembers counts.
+        update(&p, "m", |i| i.played_seconds = 0).unwrap();
+        assert_eq!(record_played(&p, "m", 1_763_660_000, 20).unwrap().played_seconds, 100);
     }
 
     #[test]

@@ -52,6 +52,7 @@ export interface Instance {
   managed: ManagedFile[];
   memory_mb: number | null;
   last_played: LastPlayed | null;
+  played_seconds: number;
   manual: Manual[];
   skipped: string[];
   picture: string | null;

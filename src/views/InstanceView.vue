@@ -341,7 +341,7 @@ const run = (action: () => Promise<void>) => {
 
 // "Last played" changes when the game closes.
 watch(isPlaying, (now, before) => before && !now && loadInstance());
-watch(instance, (i) => (lastPlayed.value = i ? lastPlayedText(i.name, i.last_played, new Date()) : null));
+watch(instance, (i) => (lastPlayed.value = i ? lastPlayedText(i.name, i.last_played, new Date(), i.played_seconds) : null));
 
 onMounted(() => {
   loadInstance().then(loadPackVersions);

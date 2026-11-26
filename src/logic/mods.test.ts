@@ -6,7 +6,7 @@ import { browseNote, deleteBody, downloadsText, filterMods, handHeading, instanc
 const m = (name: string, managed: boolean): ModFile => ({ name, size: 1, managed });
 const inst = (extra: Partial<Instance> = {}): Instance => ({
   id: 'i', name: 'N', minecraft: '1.20.1', loader: null, source: { kind: 'manual' } as Source, managed: [], memory_mb: null,
-  last_played: null, manual: [], skipped: [], picture: null, own_picture: false, java_args: "", server_java_args: [], refused_java_args: [], ...extra,
+  last_played: null, played_seconds: 0, manual: [], skipped: [], picture: null, own_picture: false, java_args: "", server_java_args: [], refused_java_args: [], ...extra,
 });
 const panels = [{ id: 'panel-joppek-be', address: 'https://panel.joppek.be', name: 'Joppe’s Spawnpoint' }]
 const homestead = () => inst({

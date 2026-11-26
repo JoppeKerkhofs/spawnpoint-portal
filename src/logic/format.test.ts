@@ -24,6 +24,9 @@ test("last played", () => {
   expect(lastPlayedText("Homestead", { started_at: at(new Date(2026, 10, 3, 9, 0)), seconds: 7200 }, now)).toBe("Last played Homestead on 3 November, for 2 h.");
   expect(lastPlayedText("Homestead", { started_at: at(new Date(2026, 10, 3, 9, 0)), seconds: 600 }, now)).toBe("Last played Homestead on 3 November, for 10 min.");
   expect(lastPlayedText("Homestead", null, now)).toBeNull();
+  const today = { started_at: at(new Date(2026, 10, 20, 14, 6)), seconds: 4320 };
+  expect(lastPlayedText("Homestead", today, now, 4320)).toBe("Last played Homestead today, for 1 h 12 min.");
+  expect(lastPlayedText("Homestead", today, now, 50_400)).toBe("Last played Homestead today, for 1 h 12 min. 14 h in total.");
 });
 
 test("errors in words", () => {
