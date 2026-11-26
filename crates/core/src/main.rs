@@ -21,6 +21,10 @@ const USAGE: &str = "usage:
   portal instance list                     id, name, version, loader and source of each instance
   portal instance create <name> <version> [--loader <fabric|neoforge|forge>[:<version>]]
   portal instance delete <id>
+  portal instance rename <id> <name>       the id stays
+  portal instance duplicate <id> <name>    a copy of the whole instance, worlds included
+  portal instance set-version <id> <version> [--loader <fabric|neoforge|forge>[:<version>]]
+                                           for an instance you made yourself
   portal instance mods <id>                name, size, pack or own
   portal instance add-mod <id> <jar>
   portal instance remove-mod <id> <file name>
@@ -270,6 +274,20 @@ async fn run(args: &[String]) -> Result<()> {
             println!("{}", instance::create(&paths, name, version, loader, Source::Manual)?.id);
         }
         [cmd, sub, id] if cmd == "instance" && sub == "delete" => instance::delete(&Paths::new()?, id)?,
+        [cmd, sub, id, name] if cmd == "instance" && sub == "rename" => {
+            instance::rename(&Paths::new()?, id, name)?;
+        }
+        [cmd, sub, id, name] if cmd == "instance" && sub == "duplicate" => {
+            println!("{}", instance::duplicate(&Paths::new()?, id, name)?.id);
+        }
+        [cmd, sub, id, version, rest @ ..] if cmd == "instance" && sub == "set-version" => {
+            let (client, paths) = (http_client(), Paths::new()?);
+            let loader = match loader_option(rest)? {
+                Some(l) => Some(loader::resolve_new(&client, version, &l).await?),
+                None => None,
+            };
+            instance::set_version(&paths, id, version, loader)?;
+        }
         [cmd, sub, id] if cmd == "instance" && sub == "mods" => {
             let paths = Paths::new()?;
             for m in instance::mods(&paths, &instance::load(&paths, id)?)? {

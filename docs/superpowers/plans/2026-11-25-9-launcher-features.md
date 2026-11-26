@@ -2,7 +2,7 @@
 
 **Goal:** the things a player expects from a Minecraft launcher that Portal does not do yet. Each piece below stands on its own, gets a branch and a pull request of its own, and ends with something that runs.
 
-**Where it stands:** pieces 1 and 2 are written. The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
+**Where it stands:** pieces 1 to 3 are written. The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
 
 ## Status
 
@@ -12,7 +12,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 |---|---|---|---|
 | 1. Game log and crash view | Open | #24 | By hand: the log card in each look, a game that crashes, a Java that does not start, Copy |
 | 2. Install a pack from the window | Open | #25 | By hand, all of the window: the pack search, the version list, an install with its progress, Change version on the instance page. FTB is not in it |
-| 3. Instance housekeeping | Not started | | |
+| 3. Instance housekeeping | Open | | By hand, all of the window: the Manage card (rename, duplicate, change version), Check files again on a pack |
 | 4. Java arguments, the player's and the server's | Not started | | Needs a panel version first |
 | 5. Shaders and resource packs in the browser | Not started | | |
 | 6. Config files in a server sync | Not started | | |
@@ -55,13 +55,16 @@ Not done: FTB in the window. Its public API has a search and a pack listing; che
 
 ## 3. Instance housekeeping
 
-`crates/core/src/instance.rs` has create and delete only.
+Written. An instance page has **Manage**, a card with three forms; the command line has `portal instance rename`, `duplicate` and `set-version`.
 
-Wanted: rename; duplicate (a copy of the whole instance folder under a new id); change the Minecraft version or the loader and its version of an instance the player made; repair (check the game files and the managed files again and fetch what is wrong).
+- **Rename** (`instance::rename`) changes the name only. The id, and so the folder, stays: nothing that points at the instance breaks.
+- **Duplicate** (`instance::duplicate`) copies the whole game folder under a new id. A copy of a pack's instance stays that pack's. A copy of a server's instance becomes the player's own, with every mod as an own mod: a sync finds a server's instance by its source, so a server has one.
+- **Change version** (`instance::set_version`) sets the Minecraft version, the loader and its version, for an instance the player made and not for Horizon. A server's or a pack's is refused: the next sync decides it. Mods are left as they are, and the form says one made for another version can stop the game. The fields are `VersionFields.vue`, which the New instance form uses too.
+- **Repair** needed almost nothing new. Every Play already checks each game file against its hash (`download::fetch`), and a join does the same for a server's files. What was missing is a pack without a server: its Pack version card now says **Check files again** when the version is the current one, which installs that version over the instance and brings back what is gone.
 
-Where: `instance::update` for the changes, `instance::slug` for ids, `gamefiles::install` already checks every file against its hash, `sync::plan` knows the managed files.
+Chosen without the owner: the three answers above (name only, no version change on a server's or pack's instance, mods left alone).
 
-Open: whether the id (the folder name) follows a rename, or only the name does (the second is far less work and breaks nothing); whether version and loader may change on a server's or a pack's instance (they should not: the next sync decides them); what happens to mods that do not fit the new version.
+Not done: a pack file the player changed is not put back by Check files again. The design keeps a changed managed file as the player's.
 
 ## 4. Java arguments, the player's and the server's
 

@@ -5,12 +5,15 @@ import {
   instanceAddMod,
   instanceCheckManual,
   instanceDelete,
+  instanceDuplicate,
   instanceGet,
   instanceLaunch,
   instanceMods,
   instanceRemoveMod,
+  instanceRename,
   instanceSetMemory,
   instanceSetPicture,
+  instanceSetVersion,
   modsInstall,
   modsInstalled,
   openModsFolder,
@@ -39,9 +42,10 @@ import SegFilter from "../components/SegFilter.vue";
 import Skeleton from "../components/Skeleton.vue";
 import Picture from "../components/Picture.vue";
 import Tile from "../components/Tile.vue";
+import VersionFields from "../components/VersionFields.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { errorText, lastPlayedText, megabytes, memoryLabel } from "../logic/format";
-import { dropInstance, isHorizon, playButton } from "../logic/instances";
+import { dropInstance, isHorizon, loaderChoice, playButton } from "../logic/instances";
 import { look } from "../logic/look";
 import { pictureFromFile } from "../logic/picture";
 import {
@@ -65,7 +69,7 @@ import {
   type ModFilter,
 } from "../logic/mods";
 import { instanceRowKey, leave } from "../logic/focus";
-import { afterJoin, busy, lastPlayed, markPlaying, op, openInstanceId, openLog, playing, withProgress } from "../logic/operation";
+import { afterJoin, busy, lastPlayed, markPlaying, op, openInstance, openInstanceId, openLog, playing, withProgress } from "../logic/operation";
 import { instanceTexture } from "../logic/visuals";
 
 const id = openInstanceId.value ?? "";
@@ -164,6 +168,35 @@ async function changePack() {
   else await loadInstance();
   await refresh();
 }
+
+const managing = ref(false);
+const newName = ref("");
+const copyName = ref("");
+const version = ref("");
+const loader = ref("none");
+const loaderVersion = ref("");
+const versionsReady = ref(false);
+// Only an instance the player made: a sync decides the version of a server's or a pack's.
+const ownVersion = computed(() => instance.value?.source.kind === "manual" && !isHorizon(instance.value.loader));
+
+function toggleManage() {
+  managing.value = !managing.value;
+  const i = instance.value;
+  if (!managing.value || !i) return;
+  newName.value = i.name;
+  copyName.value = `${i.name} copy`;
+  version.value = i.minecraft;
+  loader.value = i.loader?.kind ?? "none";
+  loaderVersion.value = i.loader?.version ?? "";
+}
+
+const rename = () => run(async () => void (instance.value = await instanceRename(id, newName.value)));
+const duplicate = () => run(async () => openInstance((await instanceDuplicate(id, copyName.value)).id));
+const setVersion = () =>
+  run(async () => {
+    instance.value = await instanceSetVersion(id, version.value, loaderChoice(loader.value, loaderVersion.value));
+    await loadKnown();
+  });
 
 async function closeBrowser() {
   browsing.value = false;
@@ -307,6 +340,7 @@ onUnmounted(() => {
         </select>
       </div>
       <AppButton v-if="instance.own_picture" variant="secondary" @click="removePicture">Remove picture</AppButton>
+      <AppButton variant="secondary" :aria-expanded="managing" @click="toggleManage">Manage</AppButton>
       <AppButton variant="secondary" :aria-pressed="openLog === id" @click="openLog = openLog === id ? null : id">Log</AppButton>
       <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id))">Mods folder</AppButton>
       <AppButton variant="danger" icon="trash" :disabled="busy" @click="deleting = true">Delete</AppButton>
@@ -351,6 +385,36 @@ onUnmounted(() => {
         touches your files. Remove yours if you want the pack’s version.
       </Note>
 
+      <section v-if="managing" class="card" aria-labelledby="manage-heading">
+        <div class="card-head">
+          <h2 id="manage-heading" class="card-title mc-name">Manage</h2>
+        </div>
+        <form class="row flex-wrap items-end gap-3" @submit.prevent="rename">
+          <div class="min-w-0 flex-[1_1_240px]">
+            <label class="label" for="manage-name">Name</label>
+            <input id="manage-name" v-model="newName" class="input w-full" />
+          </div>
+          <AppButton variant="secondary" type="submit" :disabled="!newName.trim() || newName.trim() === instance.name">Rename</AppButton>
+        </form>
+        <form class="row flex-wrap items-end gap-3" @submit.prevent="duplicate">
+          <div class="min-w-0 flex-[1_1_240px]">
+            <label class="label" for="manage-copy">Name of the copy</label>
+            <input id="manage-copy" v-model="copyName" class="input w-full" />
+          </div>
+          <AppButton variant="secondary" type="submit" :disabled="busy || isPlaying || !copyName.trim()">Duplicate</AppButton>
+          <p class="m-0 basis-full text-xs text-(--muted)">
+            A copy has everything: mods, configs and worlds.{{ instance.source.kind === "server" ? " It is yours alone: the server’s sync keeps to this instance." : "" }}
+          </p>
+        </form>
+        <form v-if="ownVersion" class="row flex-wrap items-end gap-3" @submit.prevent="setVersion">
+          <VersionFields v-model:version="version" v-model:loader="loader" v-model:loader-version="loaderVersion" v-model:ready="versionsReady" />
+          <AppButton variant="secondary" type="submit" :disabled="busy || isPlaying || !versionsReady">Change version</AppButton>
+          <p class="m-0 basis-full text-xs text-(--muted)">
+            Your mods stay as they are. One made for another version or loader can stop the game from starting: update or remove it.
+          </p>
+        </form>
+      </section>
+
       <section v-if="pack && packList" class="card" aria-label="Pack version">
         <div class="card-head flex-wrap">
           <label for="pack-version" class="card-title mc-name">Pack version</label>
@@ -359,7 +423,9 @@ onUnmounted(() => {
           <select id="pack-version" v-model="packChoice" class="select" style="max-width: 320px; height: 30px">
             <option v-for="v in packList" :key="v.id" :value="v.id">{{ packVersionText(v) }}</option>
           </select>
-          <AppButton variant="secondary" size="small" :disabled="busy || isPlaying || packChoice === pack.version" @click="changePack">Change version</AppButton>
+          <AppButton variant="secondary" size="small" :disabled="busy || isPlaying" @click="changePack">
+            {{ packChoice === pack.version ? "Check files again" : "Change version" }}
+          </AppButton>
         </div>
       </section>
 

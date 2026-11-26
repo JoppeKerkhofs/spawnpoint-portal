@@ -10,8 +10,8 @@ const loadError = ref<CommandError | null>(null);
 </script>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, watch } from "vue";
-import { bedrockInstalled, bedrockStart, instanceCreate, instanceLaunch, instances, loaderVersions, minecraftVersions, openInstanceFolder, openPage, panels, type Instance, type MinecraftVersion } from "../api";
+import { computed, nextTick, onMounted } from "vue";
+import { bedrockInstalled, bedrockStart, instanceCreate, instanceLaunch, instances, openInstanceFolder, openPage, panels, type Instance } from "../api";
 import AppButton from "../components/AppButton.vue";
 import BlockCube from "../components/BlockCube.vue";
 import Card from "../components/Card.vue";
@@ -24,9 +24,10 @@ import Skeleton from "../components/Skeleton.vue";
 import StatePill from "../components/StatePill.vue";
 import Picture from "../components/Picture.vue";
 import Tile from "../components/Tile.vue";
+import VersionFields from "../components/VersionFields.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { errorText, minecraftText } from "../logic/format";
-import { canCreate, loaderChoice, versionChoices, instancesState, instancesSummary, kindOf, kindTone, loaderText, playButton, sourceText } from "../logic/instances";
+import { canCreate, loaderChoice, instancesState, instancesSummary, kindOf, kindTone, loaderText, playButton, sourceText } from "../logic/instances";
 import { look } from "../logic/look";
 import { os } from "../logic/os";
 import { focusRow, instanceRowKey, takeReturn } from "../logic/focus";
@@ -61,44 +62,14 @@ const name = ref("");
 const version = ref("");
 const loader = ref("none");
 const game = ref<"java" | "horizon">("java");
-const allVersions = ref<MinecraftVersion[] | null>(null);
-const snapshots = ref(false);
-const versions = computed(() => versionChoices(allVersions.value, snapshots.value));
-watch(versions, (list) => {
-  if (list && !list.includes(version.value)) version.value = list[0] ?? "";
-});
 const loaderVersion = ref("");
-const loaderList = ref<string[] | null>(null);
-const loaderError = ref<CommandError | null>(null);
-// A slow answer for an earlier choice must not fill the list of the current one.
-let loaderAsk = 0;
-watch([version, loader], async ([minecraft, kind]) => {
-  const ask = ++loaderAsk;
-  loaderVersion.value = "";
-  loaderList.value = null;
-  loaderError.value = null;
-  if (kind === "none" || !minecraft) return;
-  try {
-    const list = await loaderVersions(minecraft, kind);
-    if (ask === loaderAsk) loaderList.value = list;
-  } catch (e) {
-    if (ask === loaderAsk) loaderError.value = e as CommandError;
-  }
-});
-const versionError = ref<CommandError | null>(null);
+// Set by the version fields once there is a version to choose.
+const versionsReady = ref(false);
+const ready = () => canCreate(name.value, versionsReady.value ? [version.value] : null, game.value === "horizon");
 const creating = ref(false);
 const createError = ref<CommandError | null>(null);
 const nameInput = ref<HTMLInputElement>();
 const newButton = ref<{ $el: HTMLElement }>();
-
-async function loadVersions() {
-  versionError.value = null;
-  try {
-    allVersions.value = await minecraftVersions();
-  } catch (e) {
-    versionError.value = e as CommandError;
-  }
-}
 
 function closeForm() {
   formOpen.value = false;
@@ -110,13 +81,12 @@ function toggleForm() {
   if (formOpen.value) return closeForm();
   formOpen.value = true;
   createError.value = null;
-  if (!versions.value) loadVersions();
   nextTick(() => nameInput.value?.focus());
 }
 
 async function create() {
   const horizon = game.value === "horizon";
-  if (creating.value || !canCreate(name.value, versions.value, horizon)) return;
+  if (creating.value || !ready()) return;
   creating.value = true;
   createError.value = null;
   try {
@@ -206,52 +176,11 @@ onMounted(async () => {
             <option v-if="os === 'windows'" value="horizon">Horizon</option>
           </select>
         </div>
-        <div v-if="game === 'java'" class="min-w-0 flex-[1_1_200px]">
-          <div class="mb-1 flex items-center justify-between gap-3">
-            <label class="label mb-0!" for="instance-version">Minecraft version</label>
-            <label class="flex items-center gap-1.5 text-xs whitespace-nowrap">
-              <input v-model="snapshots" type="checkbox" class="check" />
-              Snapshots
-            </label>
-          </div>
-          <select id="instance-version" v-model="version" class="select w-full" :disabled="!versions">
-            <option v-if="!versions" value="" disabled>{{ versionError ? "Unavailable" : "Loading…" }}</option>
-            <option v-for="v in versions ?? []" :key="v" :value="v">{{ v }}</option>
-          </select>
-        </div>
-        <div v-if="game === 'java'" class="min-w-0 flex-[1_1_140px]">
-          <label class="label" for="instance-loader">Mod loader</label>
-          <select id="instance-loader" v-model="loader" class="select w-full">
-            <option value="none">None</option>
-            <option value="fabric">Fabric</option>
-            <option value="neoforge">NeoForge</option>
-            <option value="forge">Forge</option>
-          </select>
-        </div>
-        <div v-if="game === 'java'" class="min-w-0 flex-[1_1_160px]">
-          <label class="label" for="instance-loader-version">Loader version</label>
-          <select id="instance-loader-version" v-model="loaderVersion" class="select w-full" :disabled="!loaderList">
-            <option value="">{{ loader !== "none" && !loaderList && !loaderError ? "Loading…" : "Newest for this version" }}</option>
-            <option v-for="v in loaderList ?? []" :key="v" :value="v">{{ v }}</option>
-          </select>
-        </div>
+        <VersionFields v-if="game === 'java'" v-model:version="version" v-model:loader="loader" v-model:loader-version="loaderVersion" v-model:ready="versionsReady" />
         <div class="flex gap-2">
           <AppButton variant="secondary" @click="closeForm">Cancel</AppButton>
-          <AppButton variant="primary" type="submit" :disabled="creating || !canCreate(name, versions, game === 'horizon')">Create</AppButton>
+          <AppButton variant="primary" type="submit" :disabled="creating || !ready()">Create</AppButton>
         </div>
-      </div>
-      <div v-if="versionError" class="px-3.5 pb-3">
-        <Note kind="err" role="alert">
-          <strong>Couldn’t load the Minecraft versions.</strong>
-          <div>{{ errorText(versionError) }}</div>
-          <AppButton variant="secondary" size="small" class="mt-2" @click="loadVersions">Try again</AppButton>
-        </Note>
-      </div>
-      <div v-if="loaderError" class="px-3.5 pb-3">
-        <Note kind="err" role="alert">
-          <strong>Couldn’t load the loader versions.</strong>
-          <div>{{ errorText(loaderError) }}</div>
-        </Note>
       </div>
       <div v-if="createError" class="px-3.5 pb-3">
         <Note kind="err" role="alert">

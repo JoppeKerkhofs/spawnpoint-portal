@@ -121,6 +121,10 @@ export const instanceGet = (id: string) => invoke<Instance>("instance_get", { id
 export const instanceMods = (id: string) => invoke<ModFile[]>("instance_mods", { id });
 export const instanceCreate = (name: string, minecraft: string, loader: string | null) =>
   invoke<Instance>("instance_create", { name, minecraft, loader });
+export const instanceRename = (id: string, name: string) => invoke<Instance>("instance_rename", { id, name });
+export const instanceDuplicate = (id: string, name: string) => invoke<Instance>("instance_duplicate", { id, name });
+export const instanceSetVersion = (id: string, minecraft: string, loader: string | null) =>
+  invoke<Instance>("instance_set_version", { id, minecraft, loader });
 export const instanceDelete = (id: string) => invoke<void>("instance_delete", { id });
 export const instanceAddMod = (id: string) => invoke<boolean>("instance_add_mod", { id });
 export const instanceRemoveMod = (id: string, name: string) => invoke<void>("instance_remove_mod", { id, name });

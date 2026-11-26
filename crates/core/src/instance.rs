@@ -205,6 +205,56 @@ pub fn set_picture(paths: &Paths, id: &str, picture: Option<String>) -> Result<I
     update(paths, id, |i| (i.own_picture, i.picture) = (picture.is_some(), picture))
 }
 
+pub fn rename(paths: &Paths, id: &str, name: &str) -> Result<Instance> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Error::Other("an instance needs a name".into()));
+    }
+    update(paths, id, |i| i.name = name.into())
+}
+
+// Only for an instance the player made: a sync decides the version of a server's or a pack's.
+pub fn set_version(paths: &Paths, id: &str, minecraft: &str, loader: Option<Loader>) -> Result<Instance> {
+    check_id(minecraft)?;
+    let horizon = matches!(loader, Some(Loader { kind: LoaderKind::Horizon, .. }));
+    let current = load(paths, id)?;
+    if current.source != Source::Manual || current.is_horizon() || horizon {
+        return Err(Error::Other("only an instance you made yourself can change its version".into()));
+    }
+    update(paths, id, |i| (i.minecraft, i.loader) = (minecraft.into(), loader))
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_dir(&entry.path(), &to.join(entry.file_name()))?;
+        } else if kind.is_file() {
+            std::fs::copy(entry.path(), to.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+// A copy of a server's instance belongs to the player: a server has one instance, and a sync finds it by its source.
+pub fn duplicate(paths: &Paths, id: &str, name: &str) -> Result<Instance> {
+    let from = load(paths, id)?;
+    let _lock = lock(id)?;
+    let own = matches!(from.source, Source::Server { .. });
+    let source = if own { Source::Manual } else { from.source.clone() };
+    let mut copy = create(paths, name.trim(), &from.minecraft, from.loader.clone(), source)?;
+    if let Err(e) = copy_dir(&game_dir(paths, id), &game_dir(paths, &copy.id)) {
+        let _ = std::fs::remove_dir_all(dir(paths, &copy.id));
+        return Err(e.into());
+    }
+    copy.managed = if own { Vec::new() } else { from.managed };
+    (copy.memory_mb, copy.manual, copy.skipped, copy.picture, copy.own_picture) = (from.memory_mb, from.manual, from.skipped, from.picture, from.own_picture);
+    save(paths, &copy)?;
+    Ok(copy)
+}
+
 pub fn record_played(paths: &Paths, id: &str, started_at: u64, seconds: u64) -> Result<Instance> {
     update(paths, id, |i| i.last_played = Some(LastPlayed { started_at, seconds }))
 }
@@ -397,6 +447,32 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let paths = Paths { root: dir.join("root") };
         (Tmp(dir), paths)
+    }
+
+    #[test]
+    fn rename_duplicate_and_change_version() {
+        let (_t, paths) = tmp();
+        let server = Source::Server { panel: "p".into(), server: "s".into(), pack: None };
+        let mut a = create(&paths, "Dup A", "1.21.1", None, server).unwrap();
+        a.managed.push(ManagedFile { path: "mods/a.jar".into(), sha1: "x".into() });
+        save(&paths, &a).unwrap();
+        std::fs::create_dir_all(game_dir(&paths, &a.id).join("saves/w")).unwrap();
+        std::fs::write(game_dir(&paths, &a.id).join("saves/w/level.dat"), b"world").unwrap();
+
+        assert!(rename(&paths, &a.id, "  ").is_err());
+        assert_eq!(rename(&paths, &a.id, " New ").unwrap().name, "New");
+        assert!(load(&paths, "dup-a").is_ok());
+
+        let copy = duplicate(&paths, &a.id, "Dup B").unwrap();
+        assert_eq!((copy.id.as_str(), &copy.source, copy.managed.len()), ("dup-b", &Source::Manual, 0));
+        assert_eq!(std::fs::read(game_dir(&paths, "dup-b").join("saves/w/level.dat")).unwrap(), b"world");
+        assert_eq!(load(&paths, "dup-b").unwrap(), copy);
+
+        assert!(set_version(&paths, &a.id, "1.20.1", None).is_err());
+        assert!(set_version(&paths, "dup-b", "../x", None).is_err());
+        let fabric = Loader::parse("fabric:0.1").unwrap();
+        let changed = set_version(&paths, "dup-b", "1.20.1", Some(fabric.clone())).unwrap();
+        assert_eq!((changed.minecraft.as_str(), changed.loader), ("1.20.1", Some(fabric)));
     }
 
     fn jar_named(t: &Tmp, name: &str) -> PathBuf {

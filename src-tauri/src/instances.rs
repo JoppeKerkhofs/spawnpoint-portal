@@ -120,6 +120,30 @@ pub async fn instance_delete(state: State<'_, AppState>, id: String) -> CmdResul
 }
 
 #[tauri::command]
+pub async fn instance_rename(state: State<'_, AppState>, id: String, name: String) -> CmdResult<Instance> {
+    Ok(instance::rename(&state.paths, &id, &name)?)
+}
+
+#[tauri::command]
+pub async fn instance_duplicate(state: State<'_, AppState>, id: String, name: String) -> CmdResult<Instance> {
+    let _claim = claim(&state.busy, &id)?;
+    refuse_if_running(&state.running, &id)?;
+    let paths = state.paths.clone();
+    Ok(tokio::task::spawn_blocking(move || instance::duplicate(&paths, &id, &name)).await.map_err(|e| Error::Other(e.to_string()))??)
+}
+
+#[tauri::command]
+pub async fn instance_set_version(state: State<'_, AppState>, id: String, minecraft: String, loader: Option<String>) -> CmdResult<Instance> {
+    let _claim = claim(&state.busy, &id)?;
+    refuse_if_running(&state.running, &id)?;
+    let loader = match loader {
+        Some(text) => Some(loader::resolve_new(&state.client, &minecraft, &Loader::parse(&text)?).await?),
+        None => None,
+    };
+    Ok(instance::set_version(&state.paths, &id, &minecraft, loader)?)
+}
+
+#[tauri::command]
 pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<bool> {
     refuse_if_running(&state.running, &id)?;
     let paths = state.paths.clone();
