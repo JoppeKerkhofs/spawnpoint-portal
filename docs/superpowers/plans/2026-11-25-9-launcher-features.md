@@ -19,7 +19,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | 7. Total play time | Open | #30 | By hand: play twice and read the line at the bottom of the instance's page |
 | 8. Start in a singleplayer world | Left out | | The owner left it out on 26 November 2026: not something anyone would really use |
 | 9. Screenshots | Open | #31 | By hand: the Screenshots button on an instance's page |
-| 10. World backup before a pack update | Open | #PR | By hand: a world in a pack's instance, another version of the pack, the copy in `world-backups` |
+| 10. World backup before a pack update | Open | #32 | By hand: a world in a pack's instance, another version of the pack, the copy in `world-backups` |
 | 11. Export and import an instance | Not started | | |
 | 12. A second Microsoft account | Not started | | |
 | 13. Changing the skin | Not started | | |
