@@ -2,7 +2,7 @@
 
 **Goal:** the things a player expects from a Minecraft launcher that Portal does not do yet. Each piece below stands on its own, gets a branch and a pull request of its own, and ends with something that runs.
 
-**Where it stands:** pieces 1 to 4 are written (of piece 4 the launcher side; the panel side is pull request 16 of the spawnpoint repository, version 1.9.7). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
+**Where it stands:** pieces 1 to 5 are written (of piece 4 the launcher side; the panel side is pull request 16 of the spawnpoint repository, version 1.9.7). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
 
 ## Status
 
@@ -14,7 +14,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | 2. Install a pack from the window | Open | #25 | The owner tried it on 26 November 2026 and it works. FTB is not in it |
 | 3. Instance housekeeping | Open | #26 | The owner tried it on 26 November 2026, the reworked page too |
 | 4. Java arguments, the player's and the server's | Open | #27 | By hand: the Java arguments card, a start with an argument, a wrong argument in the Log, a sync with a panel that sends arguments (needs the panel's version with the setting) |
-| 5. Shaders and resource packs in the browser | Not started | | |
+| 5. Shaders and resource packs in the browser | Open | | By hand, all of the window: the switch on the files card, a search, an install, the list, Remove, a zip of your own, the folder button |
 | 6. Config files in a server sync | Not started | | |
 | 7. Total play time | Not started | | |
 | 8. Start in a singleplayer world | Not started | | |
@@ -105,11 +105,13 @@ Beyond the owner's list the launcher also refuses, from a server: a word without
 
 ## 5. Shaders and resource packs in the browser
 
-`mods::search` is fixed to `project_type:mod` and `mods::install` puts files in the mods folder (`Instance::mods_place`).
+Written. The card that lists an instance's mods has a switch: **Mods**, **Resource packs**, **Shaders**. Each has the same list (pack or own, Remove), search, **Browse** on Modrinth and **Add a zip file**; the folder button opens the folder of the kind shown. In the core it is one `instance::Kind` passed to what already existed (`instance::files`, `add_file`, `remove_file`, `mods::search_of`, `installed_of`, `install_of`): a kind is a folder (`resourcepacks`, `shaderpacks`), a file ending (`.zip`) and a Modrinth project type. The command line takes `--kind` on `instance mods`, `add-mod` and `remove-mod`.
 
-Wanted: the same browser for resource packs (`resourcepacks/`) and shaders (`shaderpacks/`), with the installed ones listed and removable.
+What differs from a mod: a resource pack or a shader is tied to the Minecraft version alone, so an instance without a mod loader can have them; what it needs is not installed with it (that would be a mod, in the wrong folder); and no newer build is looked for. Horizon has neither.
 
-Open: whether shaders are offered only when a shader mod (Iris, or OptiFine by hand) is in the instance; whether updates are checked as for mods.
+The two open questions, answered without the owner: shaders are always offered, with a line that says they need a shader mod such as Iris, or OptiFine; updates are not checked.
+
+Not done: a resource pack that is a folder and not a zip is not listed.
 
 ## 6. Config files in a server sync
 

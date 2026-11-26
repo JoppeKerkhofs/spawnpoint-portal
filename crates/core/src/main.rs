@@ -1,7 +1,7 @@
 use portal_core::download::{numbered, Progress, ProgressTx};
 use portal_core::auth::{self, Poll};
 use portal_core::gamefiles::{install, manifest, version_json};
-use portal_core::instance::{self, Instance, PackRef, Source};
+use portal_core::instance::{self, Instance, Kind, PackRef, Source};
 use portal_core::java;
 use portal_core::join;
 use portal_core::panel;
@@ -27,9 +27,10 @@ const USAGE: &str = "usage:
                                            for an instance you made yourself
   portal instance java-args <id> [<arguments>]
                                            your own Java arguments, as one quoted text; none clears them
-  portal instance mods <id>                name, size, pack or own
-  portal instance add-mod <id> <jar>
-  portal instance remove-mod <id> <file name>
+  portal instance mods <id> [--kind <resourcepack|shader>]
+                                           name, size, pack or own
+  portal instance add-mod <id> <file> [--kind <resourcepack|shader>]
+  portal instance remove-mod <id> <file name> [--kind <resourcepack|shader>]
   portal pack install ftb <pack> <version> [--name <name>]
   portal pack install modrinth <version id> [--name <name>]
   portal pack update <id> <version>        install another version of the instance's pack
@@ -78,6 +79,15 @@ fn options(rest: &[String], known: &[&str]) -> Result<HashMap<String, String>> {
         out.insert(f.clone(), value.clone());
     }
     Ok(out)
+}
+
+fn kind_option(rest: &[String]) -> Result<Kind> {
+    match options(rest, &["--kind"])?.remove("--kind").as_deref() {
+        None | Some("mod") => Ok(Kind::Mod),
+        Some("resourcepack") => Ok(Kind::Resourcepack),
+        Some("shader") => Ok(Kind::Shader),
+        Some(k) => Err(Error::Other(format!("unknown kind: {k}"))),
+    }
 }
 
 async fn login() -> Result<()> {
@@ -293,19 +303,19 @@ async fn run(args: &[String]) -> Result<()> {
         [cmd, sub, id, rest @ ..] if cmd == "instance" && sub == "java-args" && rest.len() < 2 => {
             instance::set_java_args(&Paths::new()?, id, rest.first().map_or("", String::as_str))?;
         }
-        [cmd, sub, id] if cmd == "instance" && sub == "mods" => {
+        [cmd, sub, id, rest @ ..] if cmd == "instance" && sub == "mods" => {
             let paths = Paths::new()?;
-            for m in instance::mods(&paths, &instance::load(&paths, id)?)? {
+            for m in instance::files(&paths, &instance::load(&paths, id)?, kind_option(rest)?)? {
                 println!("{}  {}  {}", m.name, m.size, if m.managed { "pack" } else { "own" });
             }
         }
-        [cmd, sub, id, jar] if cmd == "instance" && sub == "add-mod" => {
+        [cmd, sub, id, jar, rest @ ..] if cmd == "instance" && sub == "add-mod" => {
             let paths = Paths::new()?;
-            instance::add_mod(&paths, &instance::load(&paths, id)?, Path::new(jar))?;
+            instance::add_file(&paths, &instance::load(&paths, id)?, kind_option(rest)?, Path::new(jar))?;
         }
-        [cmd, sub, id, name] if cmd == "instance" && sub == "remove-mod" => {
+        [cmd, sub, id, name, rest @ ..] if cmd == "instance" && sub == "remove-mod" => {
             let paths = Paths::new()?;
-            instance::remove_mod(&paths, &mut instance::load(&paths, id)?, name)?;
+            instance::remove_file(&paths, &mut instance::load(&paths, id)?, kind_option(rest)?, name)?;
         }
         [cmd, sub, cat, project, version, rest @ ..] if cmd == "pack" && sub == "install" && cat == "ftb" => {
             pack_install(rest, pack_ref("ftb", project, version)).await?

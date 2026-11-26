@@ -1,6 +1,6 @@
 use crate::state::{AppState, CmdResult, CommandError, Running, claim, end_all_runs, end_run, forward_progress, list_running, refuse_if_running, shown};
 use portal_core::download::numbered;
-use portal_core::instance::{self, Instance, Listing, ModFile, PackRef};
+use portal_core::instance::{self, Instance, Kind, Listing, ModFile, PackRef};
 use portal_core::pack::{self, modrinth};
 use portal_core::launch::DEFAULT_MEMORY_MB;
 use portal_core::loader::{self, Loader};
@@ -96,9 +96,9 @@ pub async fn instance_get(state: State<'_, AppState>, id: String) -> CmdResult<I
 }
 
 #[tauri::command]
-pub async fn instance_mods(state: State<'_, AppState>, id: String) -> CmdResult<Vec<ModFile>> {
+pub async fn instance_mods(state: State<'_, AppState>, id: String, kind: Kind) -> CmdResult<Vec<ModFile>> {
     let inst = instance::load(&state.paths, &id)?;
-    Ok(instance::mods(&state.paths, &inst)?)
+    Ok(instance::files(&state.paths, &inst, kind)?)
 }
 
 #[tauri::command]
@@ -144,14 +144,14 @@ pub async fn instance_set_version(state: State<'_, AppState>, id: String, minecr
 }
 
 #[tauri::command]
-pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<bool> {
+pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: String, kind: Kind) -> CmdResult<bool> {
     refuse_if_running(&state.running, &id)?;
     let paths = state.paths.clone();
     let added = tokio::task::spawn_blocking(move || -> portal_core::Result<bool> {
         let inst = instance::load(&paths, &id)?;
-        let Some(file) = app.dialog().file().add_filter("Mod", &[&inst.mods_place().1[1..]]).blocking_pick_file() else { return Ok(false) };
+        let Some(file) = app.dialog().file().add_filter("File", &[&inst.place(kind)?.1[1..]]).blocking_pick_file() else { return Ok(false) };
         let file = file.into_path().map_err(|e| Error::Other(e.to_string()))?;
-        instance::add_mod(&paths, &inst, &file)?;
+        instance::add_file(&paths, &inst, kind, &file)?;
         Ok(true)
     })
     .await
@@ -160,30 +160,30 @@ pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: St
 }
 
 #[tauri::command]
-pub async fn instance_remove_mod(state: State<'_, AppState>, id: String, name: String) -> CmdResult<()> {
+pub async fn instance_remove_mod(state: State<'_, AppState>, id: String, kind: Kind, name: String) -> CmdResult<()> {
     refuse_if_running(&state.running, &id)?;
     let mut inst = instance::load(&state.paths, &id)?;
-    Ok(instance::remove_mod(&state.paths, &mut inst, &name)?)
+    Ok(instance::remove_file(&state.paths, &mut inst, kind, &name)?)
 }
 
 #[tauri::command]
-pub async fn mods_search(state: State<'_, AppState>, id: String, query: String, offset: usize) -> CmdResult<mods::Found> {
+pub async fn mods_search(state: State<'_, AppState>, id: String, kind: Kind, query: String, offset: usize) -> CmdResult<mods::Found> {
     let inst = instance::load(&state.paths, &id)?;
-    Ok(mods::search(&state.client, mods::API, &inst, &query, offset).await?)
+    Ok(mods::search_of(&state.client, mods::API, &inst, kind, &query, offset).await?)
 }
 
 #[tauri::command]
-pub async fn mods_installed(state: State<'_, AppState>, id: String) -> CmdResult<Vec<mods::Installed>> {
+pub async fn mods_installed(state: State<'_, AppState>, id: String, kind: Kind) -> CmdResult<Vec<mods::Installed>> {
     let inst = instance::load(&state.paths, &id)?;
-    Ok(mods::installed(&state.client, mods::API, &state.paths, &inst).await?)
+    Ok(mods::installed_of(&state.client, mods::API, &state.paths, &inst, kind).await?)
 }
 
 #[tauri::command]
-pub async fn mods_install(app: AppHandle, state: State<'_, AppState>, id: String, project: String) -> CmdResult<mods::Outcome> {
+pub async fn mods_install(app: AppHandle, state: State<'_, AppState>, id: String, kind: Kind, project: String) -> CmdResult<mods::Outcome> {
     let _claim = claim(&state.busy, &id)?;
     refuse_if_running(&state.running, &id)?;
     let inst = instance::load(&state.paths, &id)?;
-    Ok(mods::install(&state.client, mods::API, &state.paths, &inst, &project, &numbered(vec!["mods"], forwarder(&app))).await?)
+    Ok(mods::install_of(&state.client, mods::API, &state.paths, &inst, kind, &project, &numbered(vec!["mods"], forwarder(&app))).await?)
 }
 
 #[tauri::command]
@@ -323,9 +323,9 @@ pub fn open_folder(app: &AppHandle, path: &Path) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub async fn open_mods_folder(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<()> {
+pub async fn open_mods_folder(app: AppHandle, state: State<'_, AppState>, id: String, kind: Kind) -> CmdResult<()> {
     let inst = instance::load(&state.paths, &id)?;
-    let mods = instance::game_dir(&state.paths, &inst.id).join(inst.mods_place().0);
+    let mods = instance::game_dir(&state.paths, &inst.id).join(inst.place(kind)?.0);
     std::fs::create_dir_all(&mods).map_err(Error::from)?;
     open_folder(&app, &mods)
 }

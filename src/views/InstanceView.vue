@@ -23,6 +23,7 @@ import {
   packVersions,
   panels,
   type CommandError,
+  type ContentKind,
   type Defaults,
   type Instance,
   type InstalledMod,
@@ -57,6 +58,7 @@ import {
   installedSentence,
   instanceSummary,
   isHttps,
+  kindWords,
   memoryOptions,
   modCounts,
   modsText,
@@ -76,6 +78,10 @@ import { instanceTexture } from "../logic/visuals";
 const id = openInstanceId.value ?? "";
 const instance = ref<Instance | null>(null);
 const mods = ref<ModFile[] | null>(null);
+// What the files card shows: the mods, the resource packs or the shaders.
+const kind = ref<ContentKind>("mod");
+const words = computed(() => kindWords[kind.value]);
+const kinds = (Object.keys(kindWords) as ContentKind[]).map((k) => ({ value: k, label: kindWords[k].title }));
 const knownPanels = ref<Panel[]>([]);
 const choices = ref<Defaults | null>(null);
 const loadError = ref<CommandError | null>(null);
@@ -117,23 +123,33 @@ async function loadInstance() {
   }
 }
 
+// An answer for a kind the player has left meanwhile is dropped.
 async function loadMods() {
+  const k = kind.value;
   try {
-    mods.value = await instanceMods(id);
+    const list = await instanceMods(id, k);
+    if (k !== kind.value) return;
+    mods.value = list;
     modsError.value = null;
   } catch (e) {
-    modsError.value = e as CommandError;
+    if (k === kind.value) modsError.value = e as CommandError;
   }
 }
 
 // An extra after the list: without Modrinth the list is the same, only without its buttons.
 async function loadKnown() {
-  try {
-    known.value = await modsInstalled(id);
-  } catch {
-    known.value = null;
-  }
+  const k = kind.value;
+  const list = await modsInstalled(id, k).catch(() => null);
+  if (k === kind.value) known.value = list;
 }
+
+watch(kind, () => {
+  mods.value = known.value = modsError.value = modsNote.value = null;
+  browsing.value = false;
+  query.value = "";
+  filter.value = "all";
+  refresh();
+});
 
 const refresh = async () => {
   await loadMods();
@@ -143,7 +159,7 @@ const refresh = async () => {
 async function installMod(project: string) {
   actionError.value = null;
   modsNote.value = null;
-  const done = await withProgress(instance.value!.name, () => modsInstall(id, project), `mod:${project}`);
+  const done = await withProgress(instance.value!.name, () => modsInstall(id, kind.value, project), `mod:${project}`);
   if (done) modsNote.value = { text: installedSentence(done), kind: done.failed.length ? "warn" : "info" };
   await refresh();
 }
@@ -277,7 +293,7 @@ async function launch() {
 async function addMod() {
   actionError.value = null;
   try {
-    if (await instanceAddMod(id)) await refresh();
+    if (await instanceAddMod(id, kind.value)) await refresh();
   } catch (e) {
     fail(e);
   }
@@ -289,7 +305,7 @@ async function confirmRemove() {
   if (!mod) return;
   actionError.value = null;
   try {
-    await instanceRemoveMod(id, mod.name);
+    await instanceRemoveMod(id, kind.value, mod.name);
   } catch (e) {
     fail(e);
   }
@@ -389,7 +405,7 @@ onUnmounted(() => {
       />
       <AppButton v-if="ownVersion" variant="secondary" :aria-expanded="versionOpen" @click="toggleVersion">Change version</AppButton>
       <AppButton variant="secondary" :aria-pressed="openLog === id" @click="openLog = openLog === id ? null : id">Log</AppButton>
-      <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id))">Mods folder</AppButton>
+      <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id, kind))">{{ words.title }} folder</AppButton>
       <AppButton variant="danger" icon="trash" :disabled="busy" @click="deleting = true">Delete</AppButton>
       <AppButton variant="primary" icon="play" :disabled="play.disabled" :aria-label="play.aria" @click="launch">{{ play.label }}</AppButton>
     </template>
@@ -416,7 +432,7 @@ onUnmounted(() => {
             <AppButton v-if="isHttps(f.page)" variant="secondary" size="small" icon="external" @click="run(() => openPage(f.page))">Open its page</AppButton>
           </div>
           <div class="flex gap-2">
-            <AppButton variant="secondary" size="small" icon="folder" @click="run(() => openModsFolder(id))">Open mods folder</AppButton>
+            <AppButton variant="secondary" size="small" icon="folder" @click="run(() => openModsFolder(id, 'mod'))">Open mods folder</AppButton>
             <AppButton variant="secondary" size="small" @click="checkAgain">Check again</AppButton>
           </div>
         </section>
@@ -461,8 +477,9 @@ onUnmounted(() => {
 
       <GameLog v-if="openLog === id" :id="id" @back="openLog = null" />
       <ModBrowser
-        v-else-if="browsing && instance.loader"
+        v-else-if="browsing && (kind !== 'mod' || instance.loader)"
         :id="id"
+        :kind="kind"
         :minecraft="instance.minecraft"
         :loader="instance.loader"
         :installed="known"
@@ -472,23 +489,29 @@ onUnmounted(() => {
       />
       <section v-else class="card" aria-labelledby="mods-heading">
         <div class="card-head flex-wrap">
-          <h2 id="mods-heading" class="card-title mc-name">Mods</h2>
-          <span class="card-meta tabular">{{ modsText(counts.all) }}</span>
+          <h2 id="mods-heading" class="card-title mc-name">{{ words.title }}</h2>
+          <span class="card-meta tabular">{{ mods ? modsText(counts.all, kind) : "" }}</span>
+          <SegFilter v-if="!isHorizon(instance.loader)" v-model="kind" :options="kinds" />
           <span class="flex-1" />
           <SegFilter v-model="filter" :options="filters" />
-          <label for="mod-search" class="sr-only">Search mods</label>
-          <input id="mod-search" v-model="query" class="input" style="width: 170px; height: 30px" placeholder="Search mods" />
-          <AppButton v-if="instance.loader" ref="browseButton" variant="secondary" size="small" icon="plus" @click="browsing = true">Browse mods</AppButton>
-          <AppButton variant="secondary" size="small" icon="upload" @click="addMod">Add a mod file</AppButton>
+          <label for="mod-search" class="sr-only">Search {{ words.many }}</label>
+          <input id="mod-search" v-model="query" class="input" style="width: 170px; height: 30px" :placeholder="`Search ${words.many}`" />
+          <AppButton v-if="kind !== 'mod' || instance.loader" ref="browseButton" variant="secondary" size="small" icon="plus" @click="browsing = true">
+            Browse {{ words.many }}
+          </AppButton>
+          <AppButton variant="secondary" size="small" icon="upload" @click="addMod">Add a {{ kind === "mod" ? "mod" : "zip" }} file</AppButton>
         </div>
-        <div v-if="browseNote(instance)" class="row text-xs text-(--muted)">{{ browseNote(instance) }}</div>
+        <div v-if="browseNote(instance, kind)" class="row text-xs text-(--muted)">{{ browseNote(instance, kind) }}</div>
         <div class="row gap-2 text-xs">
           <Icon name="lock" :size="14" class="shrink-0" />
-          <span>Pack mods are managed by the sync and can change with the next pack update. Your own mods are never changed or removed by a sync.</span>
+          <span>
+            Pack {{ words.many }} are managed by the sync and can change with the next pack update. Your own {{ words.many }} are never changed or removed by a
+            sync.
+          </span>
         </div>
         <div v-if="modsError && !mods" class="px-4 pb-4" role="alert">
           <Note kind="err">
-            <strong>Couldn’t read the mods.</strong>
+            <strong>Couldn’t read the {{ words.many }}.</strong>
             <div>{{ errorText(modsError) }}</div>
             <AppButton variant="secondary" size="small" class="mt-2" @click="loadMods">Try again</AppButton>
           </Note>
@@ -526,7 +549,7 @@ onUnmounted(() => {
               <AppButton v-else variant="danger" size="small" :aria-label="`Remove ${m.name}`" @click="removing = m">Remove</AppButton>
             </span>
           </div>
-          <div v-if="shown.length === 0" class="row justify-center text-(--muted)">{{ noModsText(query) }}</div>
+          <div v-if="shown.length === 0" class="row justify-center text-(--muted)">{{ noModsText(query, kind) }}</div>
         </template>
       </section>
 
@@ -559,10 +582,10 @@ onUnmounted(() => {
     </template>
   </div>
 
-  <ConfirmDialog :open="removing !== null" title="Remove this mod?" action="Remove mod" @confirm="confirmRemove" @cancel="removing = null">
-    This deletes <span class="mono font-bold">{{ removing?.name }}</span> from {{ instance?.name }}’s mods folder. It’s your own file, so no sync will bring it back.
+  <ConfirmDialog :open="removing !== null" :title="`Remove this ${words.one}?`" :action="`Remove ${words.one}`" @confirm="confirmRemove" @cancel="removing = null">
+    This deletes <span class="mono font-bold">{{ removing?.name }}</span> from {{ instance?.name }}’s {{ words.many }} folder. It’s your own file, so no sync will bring it back.
   </ConfirmDialog>
   <ConfirmDialog :open="deleting" :title="`Delete ${instance?.name}?`" action="Delete instance" @confirm="confirmDelete" @cancel="deleting = false">
-    {{ instance ? deleteBody(instance, mods) : "" }}
+    {{ instance ? deleteBody(instance, kind === "mod" ? mods : null) : "" }}
   </ConfirmDialog>
 </template>

@@ -46,6 +46,15 @@ pub struct LastPlayed {
     pub seconds: u64,
 }
 
+// What the browser installs into an instance: each kind has its own folder.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Mod,
+    Resourcepack,
+    Shader,
+}
+
 pub const MEMORY_CHOICES_MB: [u32; 4] = [4096, 6144, 8192, 10240];
 
 impl Instance {
@@ -70,6 +79,15 @@ impl Instance {
     // The folder under the game folder that holds the mods, and how a mod file ends.
     pub fn mods_place(&self) -> (&'static str, &'static str) {
         if self.is_horizon() { ("horizon-mods", ".hmod") } else { ("mods", ".jar") }
+    }
+
+    pub fn place(&self, kind: Kind) -> Result<(&'static str, &'static str)> {
+        match kind {
+            Kind::Mod => Ok(self.mods_place()),
+            _ if self.is_horizon() => Err(Error::Unsupported("Horizon has no resource packs or shaders".into())),
+            Kind::Resourcepack => Ok(("resourcepacks", ".zip")),
+            Kind::Shader => Ok(("shaderpacks", ".zip")),
+        }
     }
 }
 
@@ -391,8 +409,12 @@ fn has_ext(name: &str, ext: &str) -> bool {
 }
 
 pub fn mods(paths: &Paths, instance: &Instance) -> Result<Vec<ModFile>> {
+    files(paths, instance, Kind::Mod)
+}
+
+pub fn files(paths: &Paths, instance: &Instance, kind: Kind) -> Result<Vec<ModFile>> {
     let mut out = Vec::new();
-    let (folder, ext) = instance.mods_place();
+    let (folder, ext) = instance.place(kind)?;
     let entries = match std::fs::read_dir(game_dir(paths, &instance.id).join(folder)) {
         Ok(e) => e,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(out),
@@ -413,7 +435,11 @@ pub fn mods(paths: &Paths, instance: &Instance) -> Result<Vec<ModFile>> {
 }
 
 pub fn add_mod(paths: &Paths, instance: &Instance, file: &Path) -> Result<()> {
-    let (folder, ext) = instance.mods_place();
+    add_file(paths, instance, Kind::Mod, file)
+}
+
+pub fn add_file(paths: &Paths, instance: &Instance, kind: Kind, file: &Path) -> Result<()> {
+    let (folder, ext) = instance.place(kind)?;
     let name = file
         .file_name()
         .and_then(|n| n.to_str())
@@ -428,18 +454,22 @@ pub fn add_mod(paths: &Paths, instance: &Instance, file: &Path) -> Result<()> {
     }
     std::fs::copy(file, target)?;
     if instance.is_horizon() {
-        // The file of a Horizon mod is named after its id.
+        // Only a mod gets here. The file of a Horizon mod is named after its id.
         crate::horizon::enable_mod(&game, &name[..name.len() - ext.len()])?;
     }
     Ok(())
 }
 
 pub fn remove_mod(paths: &Paths, instance: &mut Instance, name: &str) -> Result<()> {
+    remove_file(paths, instance, Kind::Mod, name)
+}
+
+pub fn remove_file(paths: &Paths, instance: &mut Instance, kind: Kind, name: &str) -> Result<()> {
     check_relative(name)?;
     if name.contains('/') {
         return Err(Error::Other(format!("{name:?} is not a plain file name")));
     }
-    let folder = instance.mods_place().0;
+    let folder = instance.place(kind)?.0;
     match std::fs::remove_file(game_dir(paths, &instance.id).join(folder).join(name)) {
         Ok(()) => {}
         Err(e) if e.kind() == ErrorKind::NotFound => {
