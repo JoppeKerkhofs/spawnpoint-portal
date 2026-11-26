@@ -2,7 +2,7 @@
 
 **Goal:** the things a player expects from a Minecraft launcher that Portal does not do yet. Each piece below stands on its own, gets a branch and a pull request of its own, and ends with something that runs.
 
-**Where it stands:** pieces 1 to 7 and 9 are written (of pieces 4 and 6 the launcher side; the panel sides are pull requests 16 and 17 of the spawnpoint repository, versions 1.9.7 and 1.9.8). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
+**Where it stands:** pieces 1 to 7, 9 and 10 are written (of pieces 4 and 6 the launcher side; the panel sides are pull requests 16 and 17 of the spawnpoint repository, versions 1.9.7 and 1.9.8). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
 
 ## Status
 
@@ -19,7 +19,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | 7. Total play time | Open | #30 | By hand: play twice and read the line at the bottom of the instance's page |
 | 8. Start in a singleplayer world | Left out | | The owner left it out on 26 November 2026: not something anyone would really use |
 | 9. Screenshots | Open | #31 | By hand: the Screenshots button on an instance's page |
-| 10. World backup before a pack update | Not started | | |
+| 10. World backup before a pack update | Open | #PR | By hand: a world in a pack's instance, another version of the pack, the copy in `world-backups` |
 | 11. Export and import an instance | Not started | | |
 | 12. A second Microsoft account | Not started | | |
 | 13. Changing the skin | Not started | | |
@@ -150,9 +150,13 @@ Written, as the owner cut it down on 26 November 2026: a **Screenshots** button 
 
 ## 10. World backup before a pack update
 
-Wanted: before a sync or a pack update changes an instance whose pack version differs, its `saves/` are copied, so a world broken by the update can be put back.
+Written. The panel backs up a server's world on the server; this is for the worlds on the player's own computer, which nothing else copies.
 
-Open: where the copies go and how many are kept; whether it is asked every time or set once; zip or plain copy (`zip` is already a dependency).
+When a sync or a pack update brings another version of the pack than the instance has, `pack::install` first copies the instance's `saves/` to `world-backups/<the version it had>` in the instance's folder, beside `game` (`instance::back_up_worlds`). The newest three copies are kept. An instance without worlds gets no copy, and a copy that fails stops the update before anything is changed.
+
+The open questions, answered without the owner: a plain copy and not a zip (putting a world back is copying a folder), always and without asking, three copies.
+
+Not done: the window does not say a copy was made, and has no button to put one back. A change of mods without another pack version (a server's owner adding a jar) makes no copy.
 
 ## 11. Export and import an instance
 

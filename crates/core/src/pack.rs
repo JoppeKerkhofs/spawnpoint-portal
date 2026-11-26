@@ -46,6 +46,12 @@ pub async fn install(
         crate::loader::check_new(client, &pack.minecraft, l).await?;
     }
     let _lock = instance::lock(&instance.id)?;
+    // A pack that changes under a world can break it, so the worlds are copied first.
+    let was = instance::load(paths, &instance.id).ok().and_then(|disk| disk.source.pack().cloned());
+    if let Some(was) = was.filter(|was| instance.source.pack().is_some_and(|now| now.version != was.version)) {
+        let (paths, id) = (paths.clone(), instance.id.clone());
+        blocking(move || instance::back_up_worlds(&paths, &id, was.version_name.as_deref().unwrap_or(&was.version))).await?;
+    }
     let game = instance::game_dir(paths, &instance.id);
     let (dir, managed, tx) = (game.clone(), instance.managed.clone(), progress.clone());
     let plan = blocking(move || sync::plan_with(&dir, &managed, pack.files, &tx)).await?;
@@ -133,6 +139,27 @@ mod tests {
         assert_eq!(saved, inst);
         assert_eq!(saved.loader, Some(Loader::parse("fabric:0.1").unwrap()));
         assert_eq!(saved.managed.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn another_pack_version_copies_the_worlds_first_and_the_same_one_does_not() {
+        let t = tmp_dir();
+        let paths = Paths { root: t.join("root") };
+        let pack = |version: &str| Source::Pack { pack: PackRef { catalogue: "modrinth".into(), project: "p".into(), version: version.into(), version_name: None } };
+        let mut inst = create(&paths, "W", "1.21.1", None, pack("v1")).unwrap();
+        let level = instance::game_dir(&paths, "w").join("saves/Home/level.dat");
+        std::fs::create_dir_all(level.parent().unwrap()).unwrap();
+        std::fs::write(&level, "world").unwrap();
+        let backups = paths.instances().join("w/world-backups");
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let same = || PackInstall { minecraft: "1.21.1".into(), loader: None, files: vec![] };
+
+        install(&crate::http_client(), &paths, &mut inst, same(), &tx).await.unwrap();
+        assert!(!backups.exists());
+
+        inst.source = pack("v2");
+        install(&crate::http_client(), &paths, &mut inst, same(), &tx).await.unwrap();
+        assert_eq!(std::fs::read(backups.join("v1/Home/level.dat")).unwrap(), b"world");
     }
 
     #[tokio::test]
