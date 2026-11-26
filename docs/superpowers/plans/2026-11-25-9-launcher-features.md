@@ -22,7 +22,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | 10. World backup before a pack update | Open | #32 | By hand: a world in a pack's instance, another version of the pack, the copy in `world-backups` |
 | 11. Export and import an instance | Open | #33 | By hand: Export on an instance's page, Import a file on the Instances page, the file opened in another launcher |
 | 12. A second Microsoft account | Left out | | The owner left it out on 26 November 2026 |
-| 13. Changing the skin | Open | #PR | By hand, all of it, with a real account: the face on the Account page, a new skin of each kind, a file that is no skin |
+| 13. Changing the skin | Open | #34 | By hand, all of it, with a real account: the face on the Account page, a new skin of each kind, a file that is no skin |
 
 Pieces 2 to 6 are the ones a player misses; 7 to 13 are nice to have. Do them in this order unless the owner says otherwise.
 
