@@ -35,6 +35,8 @@ pub fn run() {
             instances::pack_versions,
             instances::pack_install,
             instances::pack_update,
+            instances::pack_import,
+            instances::instance_export,
             instances::instance_check_manual,
             instances::instance_log,
             instances::instance_launch,

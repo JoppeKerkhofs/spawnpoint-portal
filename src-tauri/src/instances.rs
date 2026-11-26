@@ -212,6 +212,40 @@ pub async fn pack_install(
     Ok(pack::install_new(&state.client, &state.paths, &name, pack, picture, &progress).await?.0)
 }
 
+async fn pick(app: &AppHandle, save_as: Option<String>) -> CmdResult<Option<std::path::PathBuf>> {
+    let app = app.clone();
+    let picked = tokio::task::spawn_blocking(move || {
+        let dialog = app.dialog().file().add_filter("Modrinth pack", &["mrpack"]);
+        match save_as {
+            Some(name) => dialog.set_file_name(name).blocking_save_file(),
+            None => dialog.blocking_pick_file(),
+        }
+    })
+    .await
+    .map_err(|e| Error::Other(e.to_string()))?;
+    Ok(match picked {
+        Some(file) => Some(file.into_path().map_err(|e| Error::Other(e.to_string()))?),
+        None => None,
+    })
+}
+
+#[tauri::command]
+pub async fn pack_import(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Option<Instance>> {
+    let Some(file) = pick(&app, None).await? else { return Ok(None) };
+    let _claim = claim(&state.busy, "pack:import")?;
+    let name = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let progress = numbered(play::SYNC_STAGES.to_vec(), forwarder(&app));
+    Ok(Some(pack::import_file(&state.client, &state.paths, &file, &name, &progress).await?.0))
+}
+
+#[tauri::command]
+pub async fn instance_export(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<Option<String>> {
+    let inst = instance::load(&state.paths, &id)?;
+    let Some(file) = pick(&app, Some(format!("{}.mrpack", inst.id))).await? else { return Ok(None) };
+    modrinth::export(&state.client, mods::API, &state.paths, &inst, &file).await?;
+    Ok(Some(file.to_string_lossy().into_owned()))
+}
+
 #[tauri::command]
 pub async fn pack_update(app: AppHandle, state: State<'_, AppState>, id: String, version: String, version_name: Option<String>) -> CmdResult<Instance> {
     let _claim = claim(&state.busy, &id)?;

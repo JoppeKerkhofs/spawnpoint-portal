@@ -186,6 +186,8 @@ export const bedrockInstalled = () => invoke<string | null>("bedrock_installed")
 export const bedrockStart = () => invoke<void>("bedrock_start");
 export const loaderVersions = (minecraft: string, loader: string) => invoke<string[]>("loader_versions", { minecraft, loader });
 export const minecraftVersions = () => invoke<MinecraftVersion[]>("minecraft_versions");
+export const packImport = () => invoke<Instance | null>("pack_import");
+export const instanceExport = (id: string) => invoke<string | null>("instance_export", { id });
 export const openScreenshotsFolder = (id: string) => invoke<void>("open_screenshots_folder", { id });
 export const openModsFolder = (id: string, kind: ContentKind) => invoke<void>("open_mods_folder", { id, kind });
 export const openInstanceFolder = (id: string) => invoke<void>("open_instance_folder", { id });
