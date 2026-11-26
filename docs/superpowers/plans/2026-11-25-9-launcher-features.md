@@ -11,7 +11,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | Piece | State | Pull request | Still to check |
 |---|---|---|---|
 | 1. Game log and crash view | Open | #24 | By hand: the log card in each look, a game that crashes, a Java that does not start, Copy |
-| 2. Install a pack from the window | Open | | By hand, all of the window: the pack search, the version list, an install with its progress, Change version on the instance page. FTB is not in it |
+| 2. Install a pack from the window | Open | #25 | By hand, all of the window: the pack search, the version list, an install with its progress, Change version on the instance page. FTB is not in it |
 | 3. Instance housekeeping | Not started | | |
 | 4. Java arguments, the player's and the server's | Not started | | Needs a panel version first |
 | 5. Shaders and resource packs in the browser | Not started | | |
