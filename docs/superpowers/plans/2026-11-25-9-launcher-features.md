@@ -12,7 +12,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 |---|---|---|---|
 | 1. Game log and crash view | Open | #24 | By hand: the log card in each look, a game that crashes, a Java that does not start, Copy |
 | 2. Install a pack from the window | Open | #25 | By hand, all of the window: the pack search, the version list, an install with its progress, Change version on the instance page. FTB is not in it |
-| 3. Instance housekeeping | Open | #26 | By hand, all of the window: the Manage card (rename, duplicate, change version), Check files again on a pack |
+| 3. Instance housekeeping | Open | #26 | By hand: the pencil and the copy button of the reworked page (the owner tried the first version, with a Manage card, on 26 November 2026) |
 | 4. Java arguments, the player's and the server's | Not started | | Needs a panel version first |
 | 5. Shaders and resource packs in the browser | Not started | | |
 | 6. Config files in a server sync | Not started | | |
@@ -55,7 +55,7 @@ Not done: FTB in the window. Its public API has a search and a pack listing; che
 
 ## 3. Instance housekeeping
 
-Written. An instance page has **Manage**, a card with three forms; the command line has `portal instance rename`, `duplicate` and `set-version`.
+Written. An instance page has a pencil that makes its title a field (Enter or leaving it saves, Escape does not), a copy button that duplicates at once as "<name> copy" and opens the copy, and for an instance the player made a **Change version** button with its form. The owner asked for the two icon buttons on 26 November 2026, in place of a Manage card. The command line has `portal instance rename`, `duplicate` and `set-version`.
 
 - **Rename** (`instance::rename`) changes the name only. The id, and so the folder, stays: nothing that points at the instance breaks.
 - **Duplicate** (`instance::duplicate`) copies the whole game folder under a new id. A copy of a pack's instance stays that pack's. A copy of a server's instance becomes the player's own, with every mod as an own mod: a sync finds a server's instance by its source, so a server has one.

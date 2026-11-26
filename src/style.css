@@ -575,6 +575,7 @@ html[data-theme="blocky"] .side-name { font-family: var(--font-heading); font-we
 .head-text { flex: 1 1 0; min-width: 0; }
 .head h1 { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.3; }
 html[data-theme="blocky"] .head h1 { text-shadow: 3px 3px 0 var(--title-shadow); }
+.head .name-edit { height: 34px; font-size: 20px; font-weight: 700; }
 .head-summary { margin: 4px 0 0; font-size: 15px; color: var(--muted); }
 .head.is-centred { align-items: center; }
 .head.is-centred .head-text { flex-basis: 340px; }

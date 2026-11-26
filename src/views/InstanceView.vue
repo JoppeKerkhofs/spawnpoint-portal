@@ -169,9 +169,12 @@ async function changePack() {
   await refresh();
 }
 
-const managing = ref(false);
-const newName = ref("");
-const copyName = ref("");
+const versionOpen = ref(false);
+// The name as it is typed in the title; null while the title is not being edited.
+const newName = ref<string | null>(null);
+const nameInput = ref<HTMLInputElement | null>(null);
+const renameButton = ref<InstanceType<typeof AppButton> | null>(null);
+const copying = ref(false);
 const version = ref("");
 const loader = ref("none");
 const loaderVersion = ref("");
@@ -179,19 +182,38 @@ const versionsReady = ref(false);
 // Only an instance the player made: a sync decides the version of a server's or a pack's.
 const ownVersion = computed(() => instance.value?.source.kind === "manual" && !isHorizon(instance.value.loader));
 
-function toggleManage() {
-  managing.value = !managing.value;
+function toggleVersion() {
+  versionOpen.value = !versionOpen.value;
   const i = instance.value;
-  if (!managing.value || !i) return;
-  newName.value = i.name;
-  copyName.value = `${i.name} copy`;
+  if (!versionOpen.value || !i) return;
   version.value = i.minecraft;
   loader.value = i.loader?.kind ?? "none";
   loaderVersion.value = i.loader?.version ?? "";
 }
 
-const rename = () => run(async () => void (instance.value = await instanceRename(id, newName.value)));
-const duplicate = () => run(async () => openInstance((await instanceDuplicate(id, copyName.value)).id));
+async function editName() {
+  newName.value = instance.value!.name;
+  await nextTick();
+  nameInput.value?.select();
+}
+
+// Enter and leaving the field save. The keys give the focus back to the pencil; a click elsewhere keeps its own.
+async function endName(save: boolean, refocus: boolean) {
+  const name = newName.value?.trim();
+  if (newName.value === null) return;
+  newName.value = null;
+  if (save && name && name !== instance.value!.name) await run(async () => void (instance.value = await instanceRename(id, name)));
+  if (!refocus) return;
+  await nextTick();
+  (renameButton.value?.$el as HTMLElement | undefined)?.focus();
+}
+
+async function duplicate() {
+  copying.value = true;
+  await run(async () => openInstance((await instanceDuplicate(id, `${instance.value!.name} copy`)).id));
+  copying.value = false;
+}
+
 const setVersion = () =>
   run(async () => {
     instance.value = await instanceSetVersion(id, version.value, loaderChoice(loader.value, loaderVersion.value));
@@ -321,6 +343,17 @@ onUnmounted(() => {
         <Icon name="chevron-left" :size="14" />Instances
       </button>
     </template>
+    <template v-if="newName !== null" #title>
+      <input
+        ref="nameInput"
+        v-model="newName"
+        class="input name-edit w-full"
+        aria-label="Name"
+        @keydown.enter="endName(true, true)"
+        @keydown.esc="endName(false, true)"
+        @blur="endName(true, false)"
+      />
+    </template>
     <template v-if="instance" #lead>
       <label class="pick-picture" title="Change picture">
         <input ref="pictureInput" type="file" accept="image/png,image/jpeg,image/webp" class="sr-only" aria-label="Change picture" @change="choosePicture" />
@@ -340,7 +373,16 @@ onUnmounted(() => {
         </select>
       </div>
       <AppButton v-if="instance.own_picture" variant="secondary" @click="removePicture">Remove picture</AppButton>
-      <AppButton variant="secondary" :aria-expanded="managing" @click="toggleManage">Manage</AppButton>
+      <AppButton ref="renameButton" variant="secondary" icon="pencil" aria-label="Rename" title="Rename" @click="editName" />
+      <AppButton
+        variant="secondary"
+        icon="copy"
+        :aria-label="copying ? 'Duplicating…' : 'Duplicate'"
+        title="Duplicate: a copy with its mods, configs and worlds"
+        :disabled="busy || isPlaying || copying"
+        @click="duplicate"
+      />
+      <AppButton v-if="ownVersion" variant="secondary" :aria-expanded="versionOpen" @click="toggleVersion">Change version</AppButton>
       <AppButton variant="secondary" :aria-pressed="openLog === id" @click="openLog = openLog === id ? null : id">Log</AppButton>
       <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id))">Mods folder</AppButton>
       <AppButton variant="danger" icon="trash" :disabled="busy" @click="deleting = true">Delete</AppButton>
@@ -385,28 +427,11 @@ onUnmounted(() => {
         touches your files. Remove yours if you want the pack’s version.
       </Note>
 
-      <section v-if="managing" class="card" aria-labelledby="manage-heading">
+      <section v-if="versionOpen && ownVersion" class="card" aria-labelledby="version-heading">
         <div class="card-head">
-          <h2 id="manage-heading" class="card-title mc-name">Manage</h2>
+          <h2 id="version-heading" class="card-title mc-name">Change version</h2>
         </div>
-        <form class="row flex-wrap items-end gap-3" @submit.prevent="rename">
-          <div class="min-w-0 flex-[1_1_240px]">
-            <label class="label" for="manage-name">Name</label>
-            <input id="manage-name" v-model="newName" class="input w-full" />
-          </div>
-          <AppButton variant="secondary" type="submit" :disabled="!newName.trim() || newName.trim() === instance.name">Rename</AppButton>
-        </form>
-        <form class="row flex-wrap items-end gap-3" @submit.prevent="duplicate">
-          <div class="min-w-0 flex-[1_1_240px]">
-            <label class="label" for="manage-copy">Name of the copy</label>
-            <input id="manage-copy" v-model="copyName" class="input w-full" />
-          </div>
-          <AppButton variant="secondary" type="submit" :disabled="busy || isPlaying || !copyName.trim()">Duplicate</AppButton>
-          <p class="m-0 basis-full text-xs text-(--muted)">
-            A copy has everything: mods, configs and worlds.{{ instance.source.kind === "server" ? " It is yours alone: the server’s sync keeps to this instance." : "" }}
-          </p>
-        </form>
-        <form v-if="ownVersion" class="row flex-wrap items-end gap-3" @submit.prevent="setVersion">
+        <form class="row flex-wrap items-end gap-3" @submit.prevent="setVersion">
           <VersionFields v-model:version="version" v-model:loader="loader" v-model:loader-version="loaderVersion" v-model:ready="versionsReady" />
           <AppButton variant="secondary" type="submit" :disabled="busy || isPlaying || !versionsReady">Change version</AppButton>
           <p class="m-0 basis-full text-xs text-(--muted)">
