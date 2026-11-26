@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::launch::DEFAULT_MEMORY_MB;
+use crate::launch::{DEFAULT_MEMORY_MB, server_arg_allowed, split_args};
 use crate::loader::{Loader, LoaderKind};
 use crate::paths::{check_id, check_relative};
 use crate::sync::{Manual, path_key, safe_path};
@@ -30,6 +30,14 @@ pub struct Instance {
     pub picture: Option<String>,
     #[serde(default)]
     pub own_picture: bool,
+    // The player's own Java arguments, as typed.
+    #[serde(default)]
+    pub java_args: String,
+    // What the server sent at the last sync: the arguments in use, and those Portal refused.
+    #[serde(default)]
+    pub server_java_args: Vec<String>,
+    #[serde(default)]
+    pub refused_java_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -43,6 +51,16 @@ pub const MEMORY_CHOICES_MB: [u32; 4] = [4096, 6144, 8192, 10240];
 impl Instance {
     pub fn memory_mb(&self) -> u32 {
         self.memory_mb.unwrap_or(DEFAULT_MEMORY_MB)
+    }
+
+    // The server's first, so the player's own choice wins where both name a flag. Checked again: instance.json is a file.
+    pub fn java_arguments(&self) -> Vec<String> {
+        let server = self.server_java_args.iter().filter(|a| server_arg_allowed(a)).cloned();
+        server.chain(split_args(&self.java_args)).collect()
+    }
+
+    pub fn set_server_java_args(&mut self, sent: Option<&str>) {
+        (self.server_java_args, self.refused_java_args) = split_args(sent.unwrap_or_default()).into_iter().partition(|a| server_arg_allowed(a));
     }
 
     pub fn is_horizon(&self) -> bool {
@@ -133,6 +151,9 @@ pub fn create(
                     skipped: Vec::new(),
                     picture: None,
                     own_picture: false,
+                    java_args: String::new(),
+                    server_java_args: Vec::new(),
+                    refused_java_args: Vec::new(),
                 };
                 save(paths, &instance)?;
                 return Ok(instance);
@@ -196,6 +217,13 @@ pub fn set_memory(paths: &Paths, id: &str, mb: u32) -> Result<Instance> {
     update(paths, id, |i| i.memory_mb = Some(mb))
 }
 
+pub fn set_java_args(paths: &Paths, id: &str, args: &str) -> Result<Instance> {
+    if args.len() > 2000 || args.chars().any(char::is_control) {
+        return Err(Error::Other("Java arguments are one line of at most 2000 characters".into()));
+    }
+    update(paths, id, |i| i.java_args = args.trim().into())
+}
+
 pub fn set_picture(paths: &Paths, id: &str, picture: Option<String>) -> Result<Instance> {
     if let Some(p) = &picture
         && !(p.starts_with("data:") && crate::panel::picture(p).is_some())
@@ -251,6 +279,7 @@ pub fn duplicate(paths: &Paths, id: &str, name: &str) -> Result<Instance> {
     }
     copy.managed = if own { Vec::new() } else { from.managed };
     (copy.memory_mb, copy.manual, copy.skipped, copy.picture, copy.own_picture) = (from.memory_mb, from.manual, from.skipped, from.picture, from.own_picture);
+    copy.java_args = from.java_args;
     save(paths, &copy)?;
     Ok(copy)
 }
@@ -288,6 +317,7 @@ pub fn save_synced(paths: &Paths, instance: &mut Instance) -> Result<()> {
     let _saving = saving();
     if let Ok(disk) = load(paths, &instance.id) {
         instance.memory_mb = disk.memory_mb;
+        instance.java_args = disk.java_args;
         instance.last_played = disk.last_played;
         if disk.own_picture || instance.own_picture {
             instance.picture = disk.picture;
@@ -469,6 +499,18 @@ mod tests {
         assert_eq!(load(&paths, "dup-b").unwrap(), copy);
 
         assert!(set_version(&paths, &a.id, "1.20.1", None).is_err());
+
+        // A sync replaces the server's arguments and keeps the player's, which come last at the start.
+        assert!(set_java_args(&paths, &a.id, "-Dx\n-Dy").is_err());
+        set_java_args(&paths, &a.id, " -Dmine=1 ").unwrap();
+        let mut synced = a.clone();
+        synced.set_server_java_args(Some("-XX:+UseZGC -Xmx64G -javaagent:evil.jar"));
+        save_synced(&paths, &mut synced).unwrap();
+        let now = load(&paths, &a.id).unwrap();
+        assert_eq!(now.java_arguments(), ["-XX:+UseZGC", "-Dmine=1"]);
+        assert_eq!(now.refused_java_args, ["-Xmx64G", "-javaagent:evil.jar"]);
+        synced.set_server_java_args(None);
+        assert!(synced.server_java_args.is_empty() && synced.refused_java_args.is_empty());
         assert!(set_version(&paths, "dup-b", "../x", None).is_err());
         let fabric = Loader::parse("fabric:0.1").unwrap();
         let changed = set_version(&paths, "dup-b", "1.20.1", Some(fabric.clone())).unwrap();

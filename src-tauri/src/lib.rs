@@ -26,6 +26,7 @@ pub fn run() {
             instances::instance_add_mod,
             instances::instance_remove_mod,
             instances::instance_set_memory,
+            instances::instance_set_java_args,
             instances::instance_set_picture,
             instances::mods_search,
             instances::mods_installed,

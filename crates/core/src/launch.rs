@@ -39,6 +39,45 @@ pub struct LaunchOptions {
     pub profile: Profile,
     pub server: Option<String>,
     pub memory_mb: u32,
+    pub java_args: Vec<String>,
+}
+
+// Splits typed arguments on spaces; double quotes keep a value with a space in one piece.
+pub fn split_args(text: &str) -> Vec<String> {
+    let (mut out, mut word, mut quoted, mut started) = (Vec::new(), String::new(), false, false);
+    for c in text.chars() {
+        match c {
+            '"' => (quoted, started) = (!quoted, true),
+            c if c.is_whitespace() && !quoted => {
+                if started {
+                    out.push(std::mem::take(&mut word));
+                }
+                started = false;
+            }
+            c => {
+                word.push(c);
+                started = true;
+            }
+        }
+    }
+    if started {
+        out.push(word);
+    }
+    out
+}
+
+// What a server may not set on a player's machine: memory, and whatever loads code, runs a command or reads a file of more arguments.
+const REFUSED_FROM_SERVER: [&str; 26] = [
+    "-Xmx", "-Xms", "-XX:MaxHeapSize", "-XX:InitialHeapSize", "-XX:MaxRAM", "-XX:InitialRAM",
+    "-javaagent", "-agentlib", "-agentpath", "-cp", "-classpath", "--class-path", "-jar",
+    "--module-path", "--upgrade-module-path", "--patch-module", "-Xbootclasspath",
+    "-XX:OnError", "-XX:OnOutOfMemoryError", "-XX:Flags", "-XX:VMOptionsFile", "-XX:+StartAttachListener",
+    "-Djava.class.path", "-Djava.system.class.loader", "-Dcom.sun.management", "-Dlog4j",
+];
+
+// A word without a dash would be taken for the class to start, and "-p" is the short --module-path.
+pub fn server_arg_allowed(arg: &str) -> bool {
+    arg.starts_with('-') && arg != "-p" && !REFUSED_FROM_SERVER.iter().any(|r| arg.starts_with(r))
 }
 
 pub fn supported(kind: &str) -> bool {
@@ -159,6 +198,7 @@ pub fn arguments_on(platform: &Platform, paths: &Paths, version: &VersionJson, o
     ]);
 
     let mut out = vec![format!("-Xmx{}M", opts.memory_mb)];
+    out.extend(opts.java_args.iter().cloned());
     if let Some(log) = version.logging.as_ref().and_then(|l| l.client.as_ref()) {
         check_relative(&log.file.id)?;
         let path = paths.assets().join("log_configs").join(&log.file.id);
@@ -253,7 +293,27 @@ mod tests {
             profile: Profile::offline("Steve"),
             server: server.map(String::from),
             memory_mb: DEFAULT_MEMORY_MB,
+            java_args: Vec::new(),
         }
+    }
+
+    #[test]
+    fn typed_arguments_split_and_a_server_is_held_to_safe_ones() {
+        assert_eq!(split_args(r#"  -XX:+UseZGC -Dname="a b"  "" -Dx"#), ["-XX:+UseZGC", "-Dname=a b", "", "-Dx"]);
+        assert!(split_args(" \t ").is_empty());
+        for ok in ["-XX:+UseZGC", "-Dfml.readTimeout=120", "-XX:MaxGCPauseMillis=50", "-Xss2M", "-Dpack=x"] {
+            assert!(server_arg_allowed(ok), "{ok}");
+        }
+        for bad in [
+            "-Xmx64G", "-Xms1G", "-XX:MaxRAMPercentage=90", "-javaagent:evil.jar", "-agentlib:jdwp=transport=dt_socket", "-agentpath:x", "-cp", "evil.jar",
+            "-classpath", "--class-path=x", "-jar", "-p", "--module-path=x", "-Xbootclasspath/a:x", "-XX:OnError=calc", "-XX:OnOutOfMemoryError=calc",
+            "@args.txt", "-XX:Flags=f", "-XX:VMOptionsFile=f", "-Djava.class.path=x", "-Dcom.sun.management.jmxremote", "-Dlog4j.configurationFile=http://x", "Main", "",
+        ] {
+            assert!(!server_arg_allowed(bad), "{bad}");
+        }
+        let mut with = opts(None);
+        with.java_args = vec!["-XX:+UseZGC".into()];
+        assert_eq!(arguments(&paths(), &v("1.21.1"), &with).unwrap()[..2], ["-Xmx4096M", "-XX:+UseZGC"]);
     }
 
     fn after<'a>(a: &'a [String], flag: &str) -> &'a str {

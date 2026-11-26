@@ -118,6 +118,7 @@ async fn sync_numbered(
     };
     instance.source = Source::Server { panel: panel.id.clone(), server: server.slug.clone(), pack: pack_ref };
     take_picture(&mut instance, server.picture.clone());
+    instance.set_server_java_args(server.client_jvm_opts.as_deref());
     match pack::install(client, paths, &mut instance, wanted, progress).await {
         Ok(manual) => Ok((instance, server, manual, progress.clone())),
         Err(e) => {
@@ -276,6 +277,7 @@ mod tests {
             players: None,
             picture: None,
             detail: None,
+            client_jvm_opts: None,
         }
     }
 

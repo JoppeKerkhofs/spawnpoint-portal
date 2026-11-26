@@ -25,6 +25,8 @@ const USAGE: &str = "usage:
   portal instance duplicate <id> <name>    a copy of the whole instance, worlds included
   portal instance set-version <id> <version> [--loader <fabric|neoforge|forge>[:<version>]]
                                            for an instance you made yourself
+  portal instance java-args <id> [<arguments>]
+                                           your own Java arguments, as one quoted text; none clears them
   portal instance mods <id>                name, size, pack or own
   portal instance add-mod <id> <jar>
   portal instance remove-mod <id> <file name>
@@ -287,6 +289,9 @@ async fn run(args: &[String]) -> Result<()> {
                 None => None,
             };
             instance::set_version(&paths, id, version, loader)?;
+        }
+        [cmd, sub, id, rest @ ..] if cmd == "instance" && sub == "java-args" && rest.len() < 2 => {
+            instance::set_java_args(&Paths::new()?, id, rest.first().map_or("", String::as_str))?;
         }
         [cmd, sub, id] if cmd == "instance" && sub == "mods" => {
             let paths = Paths::new()?;

@@ -2,7 +2,7 @@
 
 **Goal:** the things a player expects from a Minecraft launcher that Portal does not do yet. Each piece below stands on its own, gets a branch and a pull request of its own, and ends with something that runs.
 
-**Where it stands:** pieces 1 to 3 are written. The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
+**Where it stands:** pieces 1 to 4 are written (of piece 4 the launcher side; the panel has its own pull request). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
 
 ## Status
 
@@ -11,9 +11,9 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | Piece | State | Pull request | Still to check |
 |---|---|---|---|
 | 1. Game log and crash view | Open | #24 | By hand: the log card in each look, a game that crashes, a Java that does not start, Copy |
-| 2. Install a pack from the window | Open | #25 | By hand, all of the window: the pack search, the version list, an install with its progress, Change version on the instance page. FTB is not in it |
-| 3. Instance housekeeping | Open | #26 | By hand: the pencil and the copy button of the reworked page (the owner tried the first version, with a Manage card, on 26 November 2026) |
-| 4. Java arguments, the player's and the server's | Not started | | Needs a panel version first |
+| 2. Install a pack from the window | Open | #25 | The owner tried it on 26 November 2026 and it works. FTB is not in it |
+| 3. Instance housekeeping | Open | #26 | The owner tried it on 26 November 2026, the reworked page too |
+| 4. Java arguments, the player's and the server's | Open | | By hand: the Java arguments card, a start with an argument, a wrong argument in the Log, a sync with a panel that sends arguments (needs the panel's version with the setting) |
 | 5. Shaders and resource packs in the browser | Not started | | |
 | 6. Config files in a server sync | Not started | | |
 | 7. Total play time | Not started | | |
@@ -93,11 +93,15 @@ Decided by the owner on 25 November 2026:
 - **Which arguments a server may send.** A server's owner already decides which mods run on a player's machine, so this adds no new trust, but arguments can do things a mod list does not show. The launcher refuses anything that loads code or runs a command (`-javaagent`, `-agentlib`, `-agentpath`, `-cp`, `-classpath`, `-jar`, `-XX:OnError`, `-XX:OnOutOfMemoryError`, an `@file`), and `-Xmx` and `-Xms`, because memory is the player's choice and their machine's limit. A refused argument is left out and named on the instance page, and the game still starts.
 - **Horizon** instances have no Java (they hide memory already, `isHorizon` in `InstanceView.vue`) and get neither half.
 
-Open:
+Written, the launcher's side. `Instance` has `java_args` (the player's text), `server_java_args` and `refused_java_args` (what the last sync got, split by `launch::server_arg_allowed`); `Instance::java_arguments` gives the start its list and checks the server's again. The panel's field is `client_jvm_opts`. The page has a **Java arguments** card at its end; the command line has `portal instance java-args`.
 
-- How the text becomes arguments: split on spaces, or with quotes for a value that holds a space.
-- Whether a wrong argument of the player's own is caught before the start or left to the log of piece 1 (the second is simpler, and piece 1 makes it visible).
-- Whether the player may switch the server's arguments off for their instance.
+The three open questions, answered without the owner:
+
+- The text is split on spaces, and double quotes keep a value with a space together (`launch::split_args`).
+- A wrong argument of the player's own is not caught: Java says which one in the Log of piece 1, and the card says to look there.
+- No switch to turn the server's arguments off. The player's come last, so the player can already set a flag the other way.
+
+Beyond the owner's list the launcher also refuses, from a server: a word without a dash (Java would take it for the class to start), the other spellings of the class and module path, `-Xbootclasspath`, `--patch-module`, the heap and RAM `-XX` flags, `-XX:Flags` and `-XX:VMOptionsFile` (a file of more flags), and `-Djava.class.path`, `-Djava.system.class.loader`, `-Dcom.sun.management` (remote JMX) and `-Dlog4j`. It is a list of what is refused, so it cannot be proven complete; a list of what is allowed would be, at the cost of a server owner's freedom.
 
 ## 5. Shaders and resource packs in the browser
 

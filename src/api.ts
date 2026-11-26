@@ -56,6 +56,9 @@ export interface Instance {
   skipped: string[];
   picture: string | null;
   own_picture: boolean;
+  java_args: string;
+  server_java_args: string[];
+  refused_java_args: string[];
 }
 
 export interface ModFile {
@@ -128,6 +131,7 @@ export const instanceSetVersion = (id: string, minecraft: string, loader: string
 export const instanceDelete = (id: string) => invoke<void>("instance_delete", { id });
 export const instanceAddMod = (id: string) => invoke<boolean>("instance_add_mod", { id });
 export const instanceRemoveMod = (id: string, name: string) => invoke<void>("instance_remove_mod", { id, name });
+export const instanceSetJavaArgs = (id: string, args: string) => invoke<Instance>("instance_set_java_args", { id, args });
 export const instanceSetMemory = (id: string, mb: number) => invoke<Instance>("instance_set_memory", { id, mb });
 export const modsSearch = (id: string, query: string, offset: number) => invoke<ModSearch>("mods_search", { id, query, offset });
 export const modsInstalled = (id: string) => invoke<InstalledMod[]>("mods_installed", { id });

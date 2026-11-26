@@ -65,7 +65,7 @@ Instances, game files, Java runtimes and settings are under `%APPDATA%\Spawnpoin
 
 - **Servers**: every linked panel's servers, with state, players and what they run. Join syncs the pack and starts the game.
 - **Instances**: your instances, a form to create a plain one, and **Install a pack**: search Modrinth's packs, pick a version and install it as an instance, without a server. Instances Portal cannot read are listed with a button to show their folder.
-- **An instance**: memory, another version of its pack or a new check of the pack's files (for a Modrinth pack installed without a server), renaming it in its title (the pencil), duplicating it (a copy named after it, with its mods, configs and worlds), another Minecraft version or mod loader for an instance you made yourself, the mods folder, adding and removing your own mods, files a pack's author does not allow launchers to download (to fetch by hand), the log of its last start (the newest crash report, what the game printed and `latest.log`, with any sign-in token left out), and delete.
+- **An instance**: memory, your own Java arguments (and, read-only, the ones its server sets for every player), another version of its pack or a new check of the pack's files (for a Modrinth pack installed without a server), renaming it in its title (the pencil), duplicating it (a copy named after it, with its mods, configs and worlds), another Minecraft version or mod loader for an instance you made yourself, the mods folder, adding and removing your own mods, files a pack's author does not allow launchers to download (to fetch by hand), the log of its last start (the newest crash report, what the game printed and `latest.log`, with any sign-in token left out), and delete.
 - **Panels**: link a panel by approving a code on its page, or remove one.
 - **Account**: signing in with Microsoft, which starting a game needs (one account; only its sign-in is kept, in the Windows Credential Manager), and the appearance (standard light, dark or following Windows, or blocky).
 
@@ -89,6 +89,8 @@ The `portal` tool does everything the window does, except searching for packs: `
                                        a copy of the whole instance, worlds included
     portal instance set-version <id> <version> [--loader <fabric|neoforge|forge>[:<version>]]
                                        for an instance you made yourself; its mods are left as they are
+    portal instance java-args <id> [<arguments>]
+                                       your own Java arguments, as one quoted text; none clears them
     portal instance mods <id>          name, size, pack or own
     portal instance add-mod <id> <jar>
     portal instance remove-mod <id> <file name>

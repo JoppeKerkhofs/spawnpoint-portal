@@ -226,6 +226,11 @@ pub async fn instance_set_picture(state: State<'_, AppState>, id: String, pictur
 }
 
 #[tauri::command]
+pub async fn instance_set_java_args(state: State<'_, AppState>, id: String, args: String) -> CmdResult<Instance> {
+    Ok(instance::set_java_args(&state.paths, &id, &args)?)
+}
+
+#[tauri::command]
 pub async fn instance_set_memory(state: State<'_, AppState>, id: String, mb: u32) -> CmdResult<Instance> {
     Ok(instance::set_memory(&state.paths, &id, mb)?)
 }

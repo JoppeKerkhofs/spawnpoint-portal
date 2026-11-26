@@ -11,6 +11,7 @@ import {
   instanceMods,
   instanceRemoveMod,
   instanceRename,
+  instanceSetJavaArgs,
   instanceSetMemory,
   instanceSetPicture,
   instanceSetVersion,
@@ -238,6 +239,10 @@ async function setMemory(event: Event) {
     select.value = String(memory.value);
   }
 }
+
+const javaArgs = ref("");
+watch(() => instance.value?.java_args, (a) => (javaArgs.value = a ?? ""), { immediate: true });
+const saveJavaArgs = () => run(async () => void (instance.value = await instanceSetJavaArgs(id, javaArgs.value)));
 
 async function choosePicture(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -523,6 +528,33 @@ onUnmounted(() => {
           </div>
           <div v-if="shown.length === 0" class="row justify-center text-(--muted)">{{ noModsText(query) }}</div>
         </template>
+      </section>
+
+      <section v-if="!isHorizon(instance.loader)" class="card" aria-labelledby="java-heading">
+        <div class="card-head">
+          <h2 id="java-heading" class="card-title mc-name">Java arguments</h2>
+          <span class="card-meta">Extra settings for the game’s Java. Leave this empty unless you know what they do.</span>
+        </div>
+        <div class="card-body flex flex-col gap-3">
+          <div v-if="instance.server_java_args.length" class="text-xs text-(--muted)">
+            <span class="inline-flex items-center gap-1"><Icon name="lock" :size="12" />Set by the server, on every sync:</span>
+            <span class="mono ml-1 break-all">{{ instance.server_java_args.join(" ") }}</span>
+          </div>
+          <Note v-if="instance.refused_java_args.length" kind="warn">
+            Portal left out what a server may not set on your PC: <span class="mono break-all">{{ instance.refused_java_args.join(" ") }}</span>
+          </Note>
+          <form class="flex flex-wrap items-end gap-3" @submit.prevent="saveJavaArgs">
+            <div class="min-w-0 flex-1">
+              <label class="label" for="java-args">Your own</label>
+              <input id="java-args" v-model="javaArgs" class="input mono w-full" maxlength="2000" spellcheck="false" placeholder="-XX:+UseZGC" />
+            </div>
+            <AppButton variant="secondary" type="submit" :disabled="javaArgs.trim() === instance.java_args">Save</AppButton>
+          </form>
+          <p class="m-0 text-xs text-(--muted)">
+            Used from the next start, after the memory above and the server’s, so yours win. Put quotes around a value with a space. If the game no longer starts, the Log
+            says which one Java didn’t accept.
+          </p>
+        </div>
       </section>
     </template>
   </div>
