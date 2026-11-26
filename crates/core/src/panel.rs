@@ -223,11 +223,21 @@ pub struct ClientMod {
     pub url: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientFile {
+    pub path: String,
+    pub sha512: String,
+    pub size: u64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ClientMods {
     pub mods: Vec<ClientMod>,
     #[serde(default)]
     pub removed: Vec<String>,
+    // What the server's owner chose for players beside the jars, such as configuration.
+    #[serde(default)]
+    pub files: Vec<ClientFile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -408,6 +418,14 @@ pub fn client_mod_url(panel: &Panel, slug: &str, file: &str) -> Result<String> {
 
 pub fn panel_file(panel: &Panel, slug: &str, file: &str) -> Result<Origin> {
     Ok(Origin::PanelFile { url: client_mod_url(panel, slug, file)?, bearer: token(panel)? })
+}
+
+pub fn client_file(panel: &Panel, slug: &str, path: &str) -> Result<Origin> {
+    check_id(slug)?;
+    let path = crate::sync::safe_path(path)?;
+    let parts: Vec<String> = path.split('/').map(encode).collect();
+    let url = format!("{}/api/v1/servers/{}/client-files/{}", panel.address, encode(slug), parts.join("/"));
+    Ok(Origin::PanelFile { url, bearer: token(panel)? })
 }
 
 fn no_key(panel: &Panel) -> Error {

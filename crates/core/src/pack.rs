@@ -124,7 +124,7 @@ mod tests {
         let mut inst = create(&paths, "P", "1.21.1", Some(Loader::parse("fabric:0.1").unwrap()), Source::Manual).unwrap();
         inst.managed.push(ManagedFile { path: "mods/a.jar".into(), sha1: "x".into() });
         instance::save(&paths, &inst).unwrap();
-        let bad = Wanted { path: "../x".into(), from: Origin::Bytes(vec![]), hash: None, size: None };
+        let bad = Wanted { path: "../x".into(), from: Origin::Bytes(vec![]), hash: None, size: None, force: false };
         let pack = PackInstall { minecraft: "1.20.1".into(), loader: None, files: vec![bad] };
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         assert!(install(&crate::http_client(), &paths, &mut inst, pack, &tx).await.is_err());

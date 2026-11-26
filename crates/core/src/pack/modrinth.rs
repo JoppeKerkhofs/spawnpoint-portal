@@ -62,7 +62,7 @@ pub fn parse_index(json: &str) -> Result<PackInstall> {
         }
         let url = f.downloads.first().ok_or_else(|| Error::Other(format!("the pack lists no download: {}", f.path)))?;
         let from = Origin::Url(https_url(url, &f.path)?);
-        files.push(Wanted { path: f.path, from, hash: Some(Hash::Sha1(f.hashes.sha1)), size: f.file_size });
+        files.push(Wanted { path: f.path, from, hash: Some(Hash::Sha1(f.hashes.sha1)), size: f.file_size, force: false });
     }
     Ok(PackInstall { minecraft, loader, files })
 }
@@ -86,7 +86,7 @@ pub fn read_mrpack(archive: &Path) -> Result<PackInstall> {
             let mut bytes = Vec::new();
             entry.read_to_end(&mut bytes)?;
             let size = Some(bytes.len() as u64);
-            pack.files.push(Wanted { path, from: Origin::Bytes(bytes), hash: None, size });
+            pack.files.push(Wanted { path, from: Origin::Bytes(bytes), hash: None, size, force: false });
         }
     }
     Ok(pack)

@@ -2,7 +2,7 @@
 
 **Goal:** the things a player expects from a Minecraft launcher that Portal does not do yet. Each piece below stands on its own, gets a branch and a pull request of its own, and ends with something that runs.
 
-**Where it stands:** pieces 1 to 5 are written (of piece 4 the launcher side; the panel side is pull request 16 of the spawnpoint repository, version 1.9.7). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
+**Where it stands:** pieces 1 to 6 are written (of pieces 4 and 6 the launcher side; the panel sides are pull requests 16 and 17 of the spawnpoint repository, versions 1.9.7 and 1.9.8). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
 
 ## Status
 
@@ -15,7 +15,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | 3. Instance housekeeping | Open | #26 | The owner tried it on 26 November 2026, the reworked page too |
 | 4. Java arguments, the player's and the server's | Open | #27 | By hand: the Java arguments card, a start with an argument, a wrong argument in the Log, a sync with a panel that sends arguments (needs the panel's version with the setting) |
 | 5. Shaders and resource packs in the browser | Open | #28 | The owner tried it on 26 November 2026: a resource pack and a shader both show in the game |
-| 6. Config files in a server sync | Not started | | |
+| 6. Config files in a server sync | Open | #PR | By hand, all of it: ticking a file and a folder in the panel (needs its version 1.9.8, node too), a sync that brings them, a changed copy that is replaced and kept as `.portal-backup`, unticking |
 | 7. Total play time | Not started | | |
 | 8. Start in a singleplayer world | Not started | | |
 | 9. Screenshots | Not started | | |
@@ -115,13 +115,18 @@ Not done: a resource pack that is a folder and not a zip is not listed.
 
 ## 6. Config files in a server sync
 
-A sync covers jars only (the design: "Jars only, no `config/`"). A server whose mods need matching configs still needs hand work.
+Written. A server's owner ticks files and folders on the server's Files page in the panel; a sync puts each of them at the same path in the instance. A ticked folder means everything in it, also what is added later.
 
-Wanted: a server's instance also gets the config files the server's owner wants clients to have.
+Decided by the owner on 26 November 2026:
 
-This needs the panel first: `GET /servers/{server}/client-mods` lists jars only, so a new route or new fields are needed, built in the spawnpoint repository and described in its `openapi.json`. On the launcher side `sync::plan` already works on managed paths with hashes, not only on jars.
+- The owner of a server ticks files and folders. A list of paths typed in a field was not enough: a server rarely needs one file, more often a handful of configs or whole folders such as `kubejs/`.
+- The server's copy wins. A copy the player has that the launcher did not put there is kept beside it as `<name>.portal-backup`, one backup per file, replaced by the next. Many mods rewrite their config on every start, so the jars' rule (a changed file is left alone) would let a server change arrive almost never.
 
-Open, and decisive: which files the panel sends (a server's `config/` holds server-only files and can hold secrets, so the owner has to choose them, never the whole folder); what happens to a config the player changed (the design's rule keeps a changed managed file, which for configs means a server change never arrives).
+How: the panel's `GET /servers/{server}/client-mods` also answers `files` (path, SHA-512, size) and `GET /servers/{server}/client-files/{path}` passes one on. `join::build` turns each into a `sync::Wanted` with `force` set; `sync::plan` then replaces what is there whatever it is, and `sync::apply` copies it to the backup first unless it is what the launcher put itself. A file that is no longer ticked is deleted by the rule that was there: only while it is still what the launcher put.
+
+Both sides hold a server to four folders, below the folder itself: `config/`, `defaultconfigs/`, `kubejs/`, `scripts/` (`join::CLIENT_ROOTS`, the panel's `Server::CLIENT_ROOTS`). So a server cannot put a jar, touch a world or the options file, and never sends a whole `config/`. The launcher skips anything else a panel lists.
+
+Not done: nothing in the window says which files came from the server or that a backup was made. A server without mods has no such list (the panel answers 404 for it, as for its mods).
 
 ## 7. Total play time
 
