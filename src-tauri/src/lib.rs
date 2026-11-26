@@ -63,6 +63,8 @@ pub fn run() {
             panels::account_sign_in_start,
             panels::account_sign_in_poll,
             panels::account_sign_out,
+            panels::account_skin,
+            panels::account_set_skin,
             updates::app_version,
             updates::update_check,
             updates::update_install,

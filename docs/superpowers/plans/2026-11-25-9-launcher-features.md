@@ -2,7 +2,7 @@
 
 **Goal:** the things a player expects from a Minecraft launcher that Portal does not do yet. Each piece below stands on its own, gets a branch and a pull request of its own, and ends with something that runs.
 
-**Where it stands:** pieces 1 to 7 and 9 to 11 are written (of pieces 4 and 6 the launcher side; the panel sides are pull requests 16 and 17 of the spawnpoint repository, versions 1.9.7 and 1.9.8). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
+**Where it stands:** pieces 1 to 7, 9 to 11 and 13 are written, which is all that is wanted (of pieces 4 and 6 the launcher side; the panel sides are pull requests 16 and 17 of the spawnpoint repository, versions 1.9.7 and 1.9.8). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
 
 ## Status
 
@@ -22,7 +22,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | 10. World backup before a pack update | Open | #32 | By hand: a world in a pack's instance, another version of the pack, the copy in `world-backups` |
 | 11. Export and import an instance | Open | #33 | By hand: Export on an instance's page, Import a file on the Instances page, the file opened in another launcher |
 | 12. A second Microsoft account | Left out | | The owner left it out on 26 November 2026 |
-| 13. Changing the skin | Not started | | |
+| 13. Changing the skin | Open | #PR | By hand, all of it, with a real account: the face on the Account page, a new skin of each kind, a file that is no skin |
 
 Pieces 2 to 6 are the ones a player misses; 7 to 13 are nice to have. Do them in this order unless the owner says otherwise.
 
@@ -180,8 +180,10 @@ Open: whether an instance can pin an account.
 
 ## 13. Changing the skin
 
-The design lists skins as a non-goal.
+Written. The Account page has a **Skin** card for a signed-in player: the face of the current skin, a choice between classic and slim arms, and **Choose a skin file**, which asks for a PNG and makes it the player's skin.
 
-Wanted: the current skin shown on the Account page, and a new one uploaded from a file, classic or slim.
+In the core (`auth::skin`, `auth::set_skin`) the game token never leaves: the window gets the texture's address and the kind, nothing else. The current skin is read from `GET /minecraft/profile`, the new one goes to `POST /minecraft/profile/skins` as a form with `variant` and `file`. Only a PNG of 64 by 64 (or 64 by 32, the old layout) is sent. The face is cut from the texture at `https://textures.minecraft.net`, which the window's content policy now allows for pictures.
 
-Where: the Minecraft services API takes a skin with the access token `auth::current_profile` already gets; check its current documentation. The token must stay in the core.
+Not checked: the upload against Mojang, which needs a real account. Its address and form fields are the ones Mojang's launcher uses; an unknown address answers the same 401 without a token, so that could not be told apart from outside.
+
+Not done: capes, the list of skins used before, and a whole-body preview. The command line has no skin command.

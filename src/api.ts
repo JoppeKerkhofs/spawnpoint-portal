@@ -280,6 +280,12 @@ export const settingsSet = (discord: boolean) => invoke<Settings>("settings_set"
 export const openPage = (url: string) => invoke<void>("open_page", { url });
 export const accountSignInStart = () => invoke<DeviceCode>("account_sign_in_start");
 export const accountSignInPoll = () => invoke<string | null>("account_sign_in_poll");
+export interface Skin {
+  url: string | null;
+  slim: boolean;
+}
+export const accountSkin = () => invoke<Skin>("account_skin");
+export const accountSetSkin = (slim: boolean) => invoke<Skin | null>("account_set_skin", { slim });
 export const accountSignOut = () => invoke<void>("account_sign_out");
 
 export const appVersion = () => invoke<string>("app_version");
