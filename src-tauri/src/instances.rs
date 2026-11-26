@@ -1,6 +1,7 @@
 use crate::state::{AppState, CmdResult, CommandError, Running, claim, end_all_runs, end_run, forward_progress, list_running, refuse_if_running, shown};
 use portal_core::download::numbered;
-use portal_core::instance::{self, Instance, Listing, ModFile};
+use portal_core::instance::{self, Instance, Listing, ModFile, PackRef};
+use portal_core::pack::{self, modrinth};
 use portal_core::launch::DEFAULT_MEMORY_MB;
 use portal_core::loader::{self, Loader};
 use portal_core::{Error, Paths, auth, discord, gamefiles, gamelog, join as core_join, mods, panel, play, settings};
@@ -159,6 +160,40 @@ pub async fn mods_install(app: AppHandle, state: State<'_, AppState>, id: String
     refuse_if_running(&state.running, &id)?;
     let inst = instance::load(&state.paths, &id)?;
     Ok(mods::install(&state.client, mods::API, &state.paths, &inst, &project, &numbered(vec!["mods"], forwarder(&app))).await?)
+}
+
+#[tauri::command]
+pub async fn packs_search(state: State<'_, AppState>, query: String, offset: usize) -> CmdResult<mods::Found> {
+    Ok(modrinth::search(&state.client, mods::API, &query, offset).await?)
+}
+
+#[tauri::command]
+pub async fn pack_versions(state: State<'_, AppState>, project: String, version: String) -> CmdResult<Vec<modrinth::PackVersion>> {
+    Ok(modrinth::versions(&state.client, mods::API, &project, &version).await?)
+}
+
+#[tauri::command]
+pub async fn pack_install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    project: String,
+    version: String,
+    version_name: Option<String>,
+    picture: Option<String>,
+) -> CmdResult<Instance> {
+    let _claim = claim(&state.busy, &format!("pack:{project}"))?;
+    let pack = PackRef { catalogue: "modrinth".into(), project, version, version_name };
+    let progress = numbered(play::SYNC_STAGES.to_vec(), forwarder(&app));
+    Ok(pack::install_new(&state.client, &state.paths, &name, pack, picture, &progress).await?.0)
+}
+
+#[tauri::command]
+pub async fn pack_update(app: AppHandle, state: State<'_, AppState>, id: String, version: String, version_name: Option<String>) -> CmdResult<Instance> {
+    let _claim = claim(&state.busy, &id)?;
+    refuse_if_running(&state.running, &id)?;
+    let progress = numbered(play::SYNC_STAGES.to_vec(), forwarder(&app));
+    Ok(pack::update(&state.client, &state.paths, &id, &version, version_name, &progress).await?.0)
 }
 
 #[tauri::command]

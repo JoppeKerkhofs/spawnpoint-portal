@@ -11,7 +11,7 @@ const loadError = ref<CommandError | null>(null);
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, watch } from "vue";
-import { bedrockInstalled, bedrockStart, instanceCreate, instanceLaunch, instances, loaderVersions, minecraftVersions, openInstanceFolder, panels, type Instance, type MinecraftVersion } from "../api";
+import { bedrockInstalled, bedrockStart, instanceCreate, instanceLaunch, instances, loaderVersions, minecraftVersions, openInstanceFolder, openPage, panels, type Instance, type MinecraftVersion } from "../api";
 import AppButton from "../components/AppButton.vue";
 import BlockCube from "../components/BlockCube.vue";
 import Card from "../components/Card.vue";
@@ -19,6 +19,7 @@ import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import KindBadge from "../components/KindBadge.vue";
 import Note from "../components/Note.vue";
+import PackBrowser from "../components/PackBrowser.vue";
 import Skeleton from "../components/Skeleton.vue";
 import StatePill from "../components/StatePill.vue";
 import Picture from "../components/Picture.vue";
@@ -147,6 +148,17 @@ async function showFolder(folder: string) {
   }
 }
 
+const packsOpen = ref(false);
+
+async function showPage(url: string) {
+  actionError.value = null;
+  try {
+    await openPage(url);
+  } catch (e) {
+    actionError.value = e as CommandError;
+  }
+}
+
 const back = takeReturn();
 const bedrock = ref<string | null>(null);
 
@@ -171,10 +183,12 @@ onMounted(async () => {
 <template>
   <ViewHead title="Instances" :summary="summary">
     <template #actions>
+      <AppButton variant="secondary" icon="box" :aria-expanded="packsOpen" @click="packsOpen = !packsOpen">Install a pack</AppButton>
       <AppButton ref="newButton" variant="primary" icon="plus" :aria-expanded="formOpen" @click="toggleForm">New instance</AppButton>
     </template>
   </ViewHead>
   <div class="content">
+    <PackBrowser v-if="packsOpen" @installed="(i) => openInstance(i.id)" @done="load" @page="showPage" @back="packsOpen = false" />
     <form v-if="formOpen" class="card" aria-labelledby="new-instance-title" @submit.prevent="create">
       <div class="card-head">
         <h2 id="new-instance-title" class="card-title mc-name">New instance</h2>

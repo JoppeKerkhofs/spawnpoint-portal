@@ -6,11 +6,10 @@ use portal_core::java;
 use portal_core::join;
 use portal_core::panel;
 use portal_core::loader::{self, Loader};
-use portal_core::pack::{self, PackInstall};
+use portal_core::pack;
 use portal_core::play::{launch_stages, start_instance};
 use portal_core::sync::Manual;
 use portal_core::{http_client, settings, Error, Paths, Result};
-use reqwest::Client;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
@@ -222,33 +221,13 @@ async fn join_server(target: &str) -> Result<()> {
     std::process::exit(code);
 }
 
-async fn install_pack(client: &Client, paths: &Paths, instance: &mut Instance, resolved: PackInstall) -> Result<()> {
-    let inst = &mut *instance;
-    let manual = with_progress(|tx| async move { pack::install(client, paths, inst, resolved, &tx).await }).await?;
-    print_manual(paths, instance, &manual);
-    Ok(())
-}
-
 async fn pack_install(rest: &[String], pack: PackRef) -> Result<()> {
     let name = pack_name(rest, &pack)?;
     let (client, paths) = (http_client(), Paths::new()?);
-    let resolved = pack::resolve(&client, &paths, &pack).await?;
-    // Left empty until `pack::install` has planned the sync: empty after a failure means nothing was written.
-    let mut instance = instance::create(&paths, &name, "", None, Source::Pack { pack })?;
+    let p = paths.clone();
+    let (instance, manual) = with_progress(|tx| async move { pack::install_new(&client, &p, &name, pack, None, &tx).await }).await?;
     println!("instance {}", instance.id);
-    if let Err(e) = install_pack(&client, &paths, &mut instance, resolved).await {
-        if instance.minecraft.is_empty() {
-            let _ = instance::delete(&paths, &instance.id);
-            return Err(e);
-        }
-        let Source::Pack { pack } = &instance.source else { return Err(e) };
-        return Err(Error::Other(format!(
-            "{e}
-the instance {id} is incomplete; run \"portal pack update {id} {version}\" to finish",
-            id = instance.id,
-            version = pack.version
-        )));
-    }
+    print_manual(&paths, &instance, &manual);
     Ok(())
 }
 
@@ -313,14 +292,9 @@ async fn run(args: &[String]) -> Result<()> {
         }
         [cmd, sub, id, version] if cmd == "pack" && sub == "update" => {
             let (client, paths) = (http_client(), Paths::new()?);
-            let mut instance = instance::load(&paths, id)?;
-            let Source::Pack { pack } = &instance.source else {
-                return Err(Error::Other(format!("instance {id} was not installed from a pack")));
-            };
-            let pack = pack_ref(&pack.catalogue, &pack.project, version);
-            let resolved = pack::resolve(&client, &paths, &pack).await?;
-            instance.source = Source::Pack { pack };
-            install_pack(&client, &paths, &mut instance, resolved).await?;
+            let p = paths.clone();
+            let (instance, manual) = with_progress(|tx| async move { pack::update(&client, &p, id, version, None, &tx).await }).await?;
+            print_manual(&paths, &instance, &manual);
         }
         [cmd, sub, address, rest @ ..] if cmd == "panel" && sub == "add" => panel_add(address, allow_http(rest)?).await?,
         [cmd, sub] if cmd == "panel" && sub == "list" => {

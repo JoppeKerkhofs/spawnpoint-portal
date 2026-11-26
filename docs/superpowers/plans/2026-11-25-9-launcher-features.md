@@ -2,16 +2,16 @@
 
 **Goal:** the things a player expects from a Minecraft launcher that Portal does not do yet. Each piece below stands on its own, gets a branch and a pull request of its own, and ends with something that runs.
 
-**Where it stands:** piece 1 is written. The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
+**Where it stands:** pieces 1 and 2 are written. The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
 
 ## Status
 
-Updated 25 November 2026. Change this table in the pull request that changes a piece.
+Updated 26 November 2026. Change this table in the pull request that changes a piece.
 
 | Piece | State | Pull request | Still to check |
 |---|---|---|---|
 | 1. Game log and crash view | Open | #24 | By hand: the log card in each look, a game that crashes, a Java that does not start, Copy |
-| 2. Install a pack from the window | Not started | | |
+| 2. Install a pack from the window | Open | | By hand, all of the window: the pack search, the version list, an install with its progress, Change version on the instance page. FTB is not in it |
 | 3. Instance housekeeping | Not started | | |
 | 4. Java arguments, the player's and the server's | Not started | | Needs a panel version first |
 | 5. Shaders and resource packs in the browser | Not started | | |
@@ -47,11 +47,11 @@ Not done: following the log live while the game runs (Refresh reads it again), a
 
 The core installs an FTB or Modrinth pack without a server; only the command line offers it (`pack_install` and `pack update` in `main.rs`, `pack::resolve` and `pack::install` in `crates/core/src/pack.rs`). CurseForge packs need a panel's key and stay tied to a server.
 
-Wanted: on the Instances page, a way to search packs, pick a version and install it as an instance, with the progress in the status bar like a join; and on a pack instance, a way to move to another version of its pack.
+Written for Modrinth. **Install a pack** on the Instances page opens `PackBrowser.vue`: a search (`pack::modrinth::search`, the mod search with the `project_type:modpack` facet), and per pack a name, a version (`pack::modrinth::versions`, without the versions for Quilt alone) and Install. The instance page of a Modrinth pack installed without a server has a **Pack version** card that moves it to another version. Both go through `pack::install_new` and `pack::update`, which the command line uses too, with the progress in the status bar. The pack's icon becomes the instance's picture, as a server's does; the player's own picture still wins.
 
-Where: `ModBrowser.vue` and `mods::search` are the model for the search (Modrinth's `project_type:modpack` facet). FTB's public API has a search and a pack listing; check its current documentation. `Instance.manual` already carries the files to fetch by hand.
+Chosen without the owner, and easy to turn: Modrinth only, and the icon as the picture.
 
-Open: Modrinth only at first, or FTB as well; whether the pack's icon becomes the instance's picture.
+Not done: FTB in the window. Its public API has a search and a pack listing; check its current documentation. An FTB pack still installs from the command line, and its instance has no Pack version card.
 
 ## 3. Instance housekeeping
 

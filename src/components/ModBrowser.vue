@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from "vue";
-import { modsSearch, type CommandError, type InstalledMod, type Loader, type ModHit } from "../api";
+import { onMounted, ref } from "vue";
+import { modsSearch, type InstalledMod, type Loader } from "../api";
 import { errorText } from "../logic/format";
+import { useSearch } from "../logic/search";
 import { downloadsText, modSource, noResultsText, projectPage, resultControl } from "../logic/mods";
 import { busy, op } from "../logic/operation";
 import AppButton from "./AppButton.vue";
@@ -15,45 +16,13 @@ const props = defineProps<{ id: string; minecraft: string; loader: Loader; insta
 const source = modSource(props.loader);
 const emit = defineEmits<{ install: [project: string]; page: [url: string]; back: [] }>();
 
-const query = ref("");
-const hits = ref<ModHit[]>([]);
-const more = ref(false);
-const loading = ref(false);
-const failure = ref<CommandError | null>(null);
+const { query, hits, more, loading, failure, load } = useSearch((q, offset) => modsSearch(props.id, q, offset));
 const field = ref<HTMLInputElement | null>(null);
 const row: Array<[string, string]> = [["32px", "32px"], ["flex", "14px"], ["70px", "26px"]];
-let latest = 0;
-let timer: ReturnType<typeof setTimeout> | undefined;
-
-async function load(offset = 0) {
-  clearTimeout(timer);
-  const mine = ++latest;
-  loading.value = true;
-  failure.value = null;
-  if (!offset) hits.value = [];
-  try {
-    const found = await modsSearch(props.id, query.value.trim(), offset);
-    if (mine !== latest) return;
-    hits.value = offset ? [...hits.value, ...found.hits] : found.hits;
-    more.value = found.more;
-  } catch (e) {
-    if (mine === latest) failure.value = e as CommandError;
-  } finally {
-    if (mine === latest) loading.value = false;
-  }
-}
 
 const working = (project: string) => op.value.phase !== "idle" && op.value.key === `mod:${project}`;
 
-watch(query, () => {
-  clearTimeout(timer);
-  timer = setTimeout(() => load(), 300);
-});
-onMounted(() => {
-  load();
-  field.value?.focus();
-});
-onUnmounted(() => clearTimeout(timer));
+onMounted(() => field.value?.focus());
 </script>
 
 <template>

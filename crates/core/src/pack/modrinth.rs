@@ -3,11 +3,12 @@ use std::io::Read;
 use std::path::Path;
 
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{PackInstall, check_id, https_url};
 use crate::download::{Download, Hash, blocking, fetch, get_ok};
 use crate::loader::{Loader, LoaderKind};
+use crate::mods::{self, Found};
 use crate::sync::{Origin, Wanted};
 use crate::{Error, Paths, Result};
 
@@ -131,6 +132,42 @@ pub async fn resolve(client: &Client, paths: &Paths, version: &str) -> Result<Pa
     blocking(move || read_mrpack(&path)).await
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PackVersion {
+    pub id: String,
+    #[serde(rename(deserialize = "version_number"))]
+    pub name: String,
+    #[serde(default)]
+    pub game_versions: Vec<String>,
+    #[serde(default)]
+    pub loaders: Vec<String>,
+    #[serde(default)]
+    pub version_type: String,
+}
+
+pub async fn search(client: &Client, api: &str, query: &str, offset: usize) -> Result<Found> {
+    let facets = serde_json::json!([
+        ["project_type:modpack"],
+        ["categories:fabric", "categories:forge", "categories:neoforge"],
+        ["client_side:required", "client_side:optional"]
+    ]);
+    mods::search_facets(client, api, facets, query, offset).await
+}
+
+// Newest first. An instance made by the command line knows its version only, so that finds the project.
+pub async fn versions(client: &Client, api: &str, project: &str, version: &str) -> Result<Vec<PackVersion>> {
+    let found;
+    let project = if project.is_empty() {
+        found = mods::version_project(client, api, version).await?;
+        &found
+    } else {
+        project
+    };
+    let all: Vec<PackVersion> = mods::get(client, api, &format!("/project/{}/version", mods::plain_id(project)?), &[]).await?;
+    // Quilt is refused at install, so a version for Quilt alone is not offered.
+    Ok(all.into_iter().filter(|v| v.loaders.is_empty() || v.loaders.iter().any(|l| l != "quilt")).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +223,25 @@ mod tests {
         assert!(p.files.iter().any(|f| f.path == "options.txt"));
         assert!(!p.files.iter().any(|f| f.path.contains("server.properties")));
         assert!(p.files.iter().all(|f| f.path != "config" && f.path != "config/"));
+    }
+
+    #[tokio::test]
+    async fn pack_search_and_versions() {
+        use crate::download::testing::serve_routes;
+        let list = r#"[{"id":"new","version_number":"2.0","game_versions":["1.21.1"],"loaders":["quilt"],"version_type":"release"},
+            {"id":"old","version_number":"1.0","game_versions":["1.20.1"],"loaders":["fabric","quilt"],"version_type":"beta"}]"#;
+        let (url, _, heads) = serve_routes(vec![
+            ("/search", 200, br#"{"hits":[],"total_hits":0}"#.to_vec(), String::new()),
+            ("/version/old", 200, br#"{"project_id":"abc"}"#.to_vec(), String::new()),
+            ("/project/abc/version", 200, list.as_bytes().to_vec(), String::new()),
+        ])
+        .await;
+        let c = crate::http_client();
+        assert!(search(&c, &url, "", 0).await.unwrap().hits.is_empty());
+        assert!(heads.lock().unwrap()[0].contains("project_type%3Amodpack"));
+        let found: Vec<_> = versions(&c, &url, "", "old").await.unwrap().into_iter().map(|v| (v.id, v.name)).collect();
+        assert_eq!(found, [("old".to_string(), "1.0".to_string())]);
+        assert!(versions(&c, &url, "a/b", "").await.is_err());
     }
 
     #[tokio::test]

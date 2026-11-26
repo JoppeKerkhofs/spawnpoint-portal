@@ -128,7 +128,21 @@ export const instanceSetMemory = (id: string, mb: number) => invoke<Instance>("i
 export const modsSearch = (id: string, query: string, offset: number) => invoke<ModSearch>("mods_search", { id, query, offset });
 export const modsInstalled = (id: string) => invoke<InstalledMod[]>("mods_installed", { id });
 export const modsInstall = (id: string, project: string) => invoke<ModInstall>("mods_install", { id, project });
-export const instanceSetPicture = (id: string, picture: string | null) => invoke<Instance>("instance_set_picture", { id, picture });
+export interface PackVersion {
+  id: string;
+  name: string;
+  game_versions: string[];
+  loaders: string[];
+  version_type: string;
+}
+
+export const packsSearch = (query: string, offset: number) => invoke<ModSearch>("packs_search", { query, offset });
+// An instance made by the command line has no project: its version finds it.
+export const packVersions = (project: string, version: string) => invoke<PackVersion[]>("pack_versions", { project, version });
+export const packInstall = (name: string, project: string, version: string, versionName: string | null, picture: string | null) =>
+  invoke<Instance>("pack_install", { name, project, version, versionName, picture });
+export const packUpdate = (id: string, version: string, versionName: string | null) => invoke<Instance>("pack_update", { id, version, versionName });
+export const instanceSetPicture =(id: string, picture: string | null) => invoke<Instance>("instance_set_picture", { id, picture });
 export const instanceCheckManual = (id: string) => invoke<Instance>("instance_check_manual", { id });
 export interface LogSection {
   name: string;

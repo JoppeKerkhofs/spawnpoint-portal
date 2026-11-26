@@ -1,7 +1,7 @@
 use reqwest::Client;
 
 use crate::download::{ProgressTx, blocking};
-use crate::instance::{self, Instance, PackRef};
+use crate::instance::{self, Instance, PackRef, Source};
 use crate::loader::Loader;
 use crate::sync::{self, Manual, Wanted};
 use crate::{Error, Paths, Result};
@@ -55,11 +55,56 @@ pub async fn install(
     sync::apply(client, paths, instance, plan, progress).await
 }
 
+pub async fn install_new(
+    client: &Client,
+    paths: &Paths,
+    name: &str,
+    pack: PackRef,
+    picture: Option<String>,
+    progress: &ProgressTx,
+) -> Result<(Instance, Vec<Manual>)> {
+    let resolved = resolve(client, paths, &pack).await?;
+    let version = pack.version.clone();
+    // Left empty until `install` has planned the sync: empty after a failure means nothing was written.
+    let mut instance = instance::create(paths, name, "", None, Source::Pack { pack })?;
+    instance.picture = picture.filter(|p| crate::panel::picture(p).is_some());
+    match install(client, paths, &mut instance, resolved, progress).await {
+        Ok(manual) => Ok((instance, manual)),
+        Err(e) if instance.minecraft.is_empty() => {
+            let _ = instance::delete(paths, &instance.id);
+            Err(e)
+        }
+        Err(e) => Err(Error::Other(format!(
+            "{e}; the instance {} is incomplete, install version {version} of its pack over it to finish",
+            instance.id
+        ))),
+    }
+}
+
+pub async fn update(
+    client: &Client,
+    paths: &Paths,
+    id: &str,
+    version: &str,
+    version_name: Option<String>,
+    progress: &ProgressTx,
+) -> Result<(Instance, Vec<Manual>)> {
+    let mut instance = instance::load(paths, id)?;
+    let Source::Pack { pack } = &instance.source else {
+        return Err(Error::Other(format!("instance {id} was not installed from a pack")));
+    };
+    let pack = PackRef { version: version.into(), version_name, ..pack.clone() };
+    let resolved = resolve(client, paths, &pack).await?;
+    instance.source = Source::Pack { pack };
+    let manual = install(client, paths, &mut instance, resolved, progress).await?;
+    Ok((instance, manual))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::download::testing::tmp_dir;
-    use crate::instance::{ManagedFile, Source, create};
+    use crate::instance::{ManagedFile, create};
     use crate::sync::Origin;
 
     #[test]

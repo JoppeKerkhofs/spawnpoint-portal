@@ -127,14 +127,14 @@ fn loader_of(instance: &Instance) -> Result<&Loader> {
     instance.loader.as_ref().ok_or_else(|| Error::Unsupported("This instance has no mod loader".into()))
 }
 
-fn plain_id(id: &str) -> Result<&str> {
+pub(crate) fn plain_id(id: &str) -> Result<&str> {
     if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_')) {
         return Err(Error::Other(format!("{id:?} is not a Modrinth id")));
     }
     Ok(id)
 }
 
-async fn get<T: DeserializeOwned>(client: &Client, api: &str, path: &str, params: &[(&str, String)]) -> Result<T> {
+pub(crate) async fn get<T: DeserializeOwned>(client: &Client, api: &str, path: &str, params: &[(&str, String)]) -> Result<T> {
     let mut url = reqwest::Url::parse(&format!("{api}{path}")).map_err(|e| Error::Other(e.to_string()))?;
     url.query_pairs_mut().extend_pairs(params.iter().map(|(k, v)| (*k, v.as_str())));
     Ok(get_ok(client, url.as_str()).await?.json().await?)
@@ -165,6 +165,10 @@ pub async fn search(client: &Client, api: &str, instance: &Instance, query: &str
     }
     let loader = loader_of(instance)?.kind.as_str();
     let facets = json!([["project_type:mod"], [format!("categories:{loader}")], [format!("versions:{}", instance.minecraft)], ["client_side:required", "client_side:optional"]]);
+    search_facets(client, api, facets, query, offset).await
+}
+
+pub(crate) async fn search_facets(client: &Client, api: &str, facets: Value, query: &str, offset: usize) -> Result<Found> {
     let params = [
         ("query", query.to_string()),
         ("facets", facets.to_string()),
@@ -327,7 +331,7 @@ async fn put(client: &Client, api: &str, mods: &Path, target: (&str, &str), have
     Ok(Ok(Put { version, kept }))
 }
 
-async fn version_project(client: &Client, api: &str, version: &str) -> Result<String> {
+pub(crate) async fn version_project(client: &Client, api: &str, version: &str) -> Result<String> {
     Ok(get::<Version>(client, api, &format!("/version/{}", plain_id(version)?), &[]).await?.project_id)
 }
 

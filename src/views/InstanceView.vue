@@ -15,14 +15,18 @@ import {
   modsInstalled,
   openModsFolder,
   openPage,
+  packUpdate,
+  packVersions,
   panels,
   type CommandError,
   type Defaults,
   type Instance,
   type InstalledMod,
   type ModFile,
+  type PackVersion,
   type Panel,
 } from "../api";
+import { packVersionText } from "../logic/packs";
 import AppButton from "../components/AppButton.vue";
 import BlockCube from "../components/BlockCube.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
@@ -139,6 +143,28 @@ async function installMod(project: string) {
   await refresh();
 }
 
+// Only a Modrinth pack installed without a server: a server's sync decides its own pack version.
+const pack = computed(() => (instance.value?.source.kind === "pack" && instance.value.source.pack.catalogue === "modrinth" ? instance.value.source.pack : null));
+const packList = ref<PackVersion[] | null>(null);
+const packChoice = ref("");
+
+// An extra: without Modrinth the page works, only without the version choice.
+async function loadPackVersions() {
+  if (!pack.value) return;
+  packChoice.value = pack.value.version;
+  packList.value = await packVersions(pack.value.project, pack.value.version).catch(() => null);
+}
+
+async function changePack() {
+  const v = packList.value?.find((x) => x.id === packChoice.value);
+  if (!v) return;
+  actionError.value = null;
+  const changed = await withProgress(instance.value!.name, () => packUpdate(id, v.id, v.name), id);
+  if (changed) instance.value = changed;
+  else await loadInstance();
+  await refresh();
+}
+
 async function closeBrowser() {
   browsing.value = false;
   await nextTick();
@@ -242,7 +268,7 @@ watch(isPlaying, (now, before) => before && !now && loadInstance());
 watch(instance, (i) => (lastPlayed.value = i ? lastPlayedText(i.name, i.last_played, new Date()) : null));
 
 onMounted(() => {
-  loadInstance();
+  loadInstance().then(loadPackVersions);
   loadMods().then(loadKnown);
   panels().then((p) => (knownPanels.value = p), () => {});
   defaults().then((d) => (choices.value = d), () => {});
@@ -324,6 +350,18 @@ onUnmounted(() => {
         The last sync left one pack file out: <span class="mono font-bold">{{ skippedName(path) }}</span>. Your own file with the same name is in its place, and Portal never
         touches your files. Remove yours if you want the pack’s version.
       </Note>
+
+      <section v-if="pack && packList" class="card" aria-label="Pack version">
+        <div class="card-head flex-wrap">
+          <label for="pack-version" class="card-title mc-name">Pack version</label>
+          <span class="card-meta">Another version replaces the pack’s files. Your own mods and your worlds stay.</span>
+          <span class="flex-1" />
+          <select id="pack-version" v-model="packChoice" class="select" style="max-width: 320px; height: 30px">
+            <option v-for="v in packList" :key="v.id" :value="v.id">{{ packVersionText(v) }}</option>
+          </select>
+          <AppButton variant="secondary" size="small" :disabled="busy || isPlaying || packChoice === pack.version" @click="changePack">Change version</AppButton>
+        </div>
+      </section>
 
       <GameLog v-if="openLog === id" :id="id" @back="openLog = null" />
       <ModBrowser
