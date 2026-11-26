@@ -331,6 +331,14 @@ pub async fn open_mods_folder(app: AppHandle, state: State<'_, AppState>, id: St
 }
 
 #[tauri::command]
+pub async fn open_screenshots_folder(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    let inst = instance::load(&state.paths, &id)?;
+    let shots = instance::game_dir(&state.paths, &inst.id).join("screenshots");
+    std::fs::create_dir_all(&shots).map_err(Error::from)?;
+    open_folder(&app, &shots)
+}
+
+#[tauri::command]
 pub async fn open_instance_folder(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<()> {
     open_folder(&app, &instance::folder(&state.paths, &id)?)
 }

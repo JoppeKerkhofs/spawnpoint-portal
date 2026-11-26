@@ -18,6 +18,7 @@ import {
   modsInstall,
   modsInstalled,
   openModsFolder,
+  openScreenshotsFolder,
   openPage,
   packUpdate,
   packVersions,
@@ -406,6 +407,7 @@ onUnmounted(() => {
       <AppButton v-if="ownVersion" variant="secondary" :aria-expanded="versionOpen" @click="toggleVersion">Change version</AppButton>
       <AppButton variant="secondary" :aria-pressed="openLog === id" @click="openLog = openLog === id ? null : id">Log</AppButton>
       <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id, kind))">{{ words.title }} folder</AppButton>
+      <AppButton variant="secondary" icon="folder" @click="run(() => openScreenshotsFolder(id))">Screenshots</AppButton>
       <AppButton variant="danger" icon="trash" :disabled="busy" @click="deleting = true">Delete</AppButton>
       <AppButton variant="primary" icon="play" :disabled="play.disabled" :aria-label="play.aria" @click="launch">{{ play.label }}</AppButton>
     </template>

@@ -2,7 +2,7 @@
 
 **Goal:** the things a player expects from a Minecraft launcher that Portal does not do yet. Each piece below stands on its own, gets a branch and a pull request of its own, and ends with something that runs.
 
-**Where it stands:** pieces 1 to 7 are written (of pieces 4 and 6 the launcher side; the panel sides are pull requests 16 and 17 of the spawnpoint repository, versions 1.9.7 and 1.9.8). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
+**Where it stands:** pieces 1 to 7 and 9 are written (of pieces 4 and 6 the launcher side; the panel sides are pull requests 16 and 17 of the spawnpoint repository, versions 1.9.7 and 1.9.8). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
 
 ## Status
 
@@ -18,7 +18,7 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | 6. Config files in a server sync | Open | #29 | By hand, all of it: ticking a file and a folder in the panel (needs its version 1.9.8, node too), a sync that brings them, a changed copy that is replaced and kept as `.portal-backup`, unticking |
 | 7. Total play time | Open | #30 | By hand: play twice and read the line at the bottom of the instance's page |
 | 8. Start in a singleplayer world | Left out | | The owner left it out on 26 November 2026: not something anyone would really use |
-| 9. Screenshots | Not started | | |
+| 9. Screenshots | Open | #PR | By hand: the Screenshots button on an instance's page |
 | 10. World backup before a pack update | Not started | | |
 | 11. Export and import an instance | Not started | | |
 | 12. A second Microsoft account | Not started | | |
@@ -146,9 +146,7 @@ Open: hide the button on older versions, or show the list without it.
 
 ## 9. Screenshots
 
-Wanted: an instance's `screenshots/` shown as a grid, with open, show in folder and delete.
-
-Open: how the window reads the pictures (Tauri's asset protocol needs the folder allowed in `src-tauri/capabilities/default.json`; thumbnails sent as data are the alternative).
+Written, as the owner cut it down on 26 November 2026: a **Screenshots** button on an instance's page that opens its `screenshots/` folder in the file explorer (`open_screenshots_folder`). A grid in the window, with open and delete, was the first idea and is not wanted.
 
 ## 10. World backup before a pack update
 

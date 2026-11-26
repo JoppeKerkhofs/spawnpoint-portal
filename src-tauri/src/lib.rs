@@ -46,6 +46,7 @@ pub fn run() {
             instances::bedrock_start,
             instances::loader_versions,
             instances::open_mods_folder,
+            instances::open_screenshots_folder,
             instances::open_instance_folder,
             panels::servers,
             panels::panels,
