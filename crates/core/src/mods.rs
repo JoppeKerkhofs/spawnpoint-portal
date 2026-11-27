@@ -140,7 +140,7 @@ pub(crate) async fn get<T: DeserializeOwned>(client: &Client, api: &str, path: &
     Ok(get_ok(client, url.as_str()).await?.json().await?)
 }
 
-async fn post<T: DeserializeOwned>(client: &Client, api: &str, path: &str, body: &Value) -> Result<T> {
+pub(crate) async fn post<T: DeserializeOwned>(client: &Client, api: &str, path: &str, body: &Value) -> Result<T> {
     let response = client.post(format!("{api}{path}")).json(body).send().await?;
     let status = response.status();
     if !status.is_success() {

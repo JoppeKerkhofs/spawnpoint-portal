@@ -2,7 +2,7 @@
 
 **Goal:** the things a player expects from a Minecraft launcher that Portal does not do yet. Each piece below stands on its own, gets a branch and a pull request of its own, and ends with something that runs.
 
-**Where it stands:** pieces 1 to 7, 9 and 10 are written (of pieces 4 and 6 the launcher side; the panel sides are pull requests 16 and 17 of the spawnpoint repository, versions 1.9.7 and 1.9.8). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
+**Where it stands:** pieces 1 to 7, 9 to 11 and 13 are written, which is all that is wanted (of pieces 4 and 6 the launcher side; the panel sides are pull requests 16 and 17 of the spawnpoint repository, versions 1.9.7 and 1.9.8). The rest is not started, and none of it has a design yet: each piece below says what is wanted and where the code is, not how to build it. Read the code it names first, and settle the open questions with the owner before writing.
 
 ## Status
 
@@ -20,9 +20,9 @@ Updated 26 November 2026. Change this table in the pull request that changes a p
 | 8. Start in a singleplayer world | Left out | | The owner left it out on 26 November 2026: not something anyone would really use |
 | 9. Screenshots | Open | #31 | By hand: the Screenshots button on an instance's page |
 | 10. World backup before a pack update | Open | #32 | By hand: a world in a pack's instance, another version of the pack, the copy in `world-backups` |
-| 11. Export and import an instance | Not started | | |
-| 12. A second Microsoft account | Not started | | |
-| 13. Changing the skin | Not started | | |
+| 11. Export and import an instance | Open | #33 | By hand: Export on an instance's page, Import a file on the Instances page, the file opened in another launcher |
+| 12. A second Microsoft account | Left out | | The owner left it out on 26 November 2026 |
+| 13. Changing the skin | Open | #34 | By hand, all of it, with a real account: the face on the Account page, a new skin of each kind, a file that is no skin |
 
 Pieces 2 to 6 are the ones a player misses; 7 to 13 are nice to have. Do them in this order unless the owner says otherwise.
 
@@ -160,24 +160,30 @@ Not done: the window does not say a copy was made, and has no button to put one 
 
 ## 11. Export and import an instance
 
-Wanted: an instance written as a `.mrpack` to give to a friend, and a `.mrpack` file from disk installed as an instance.
+Written. An instance's page has **Export**, which asks where to save and writes a `.mrpack`; the Instances page has **Import a file**, which asks for a `.mrpack` and installs it as an instance named after the file. The command line has `portal instance export <id> <file>` and `portal pack import <file> [--name <name>]`.
 
-Where: `pack::modrinth::read_mrpack` already reads the format, so import is the small half. Export needs each mod's download address, which `mods::installed` finds on Modrinth by hash; a jar Modrinth does not know goes into `overrides/`.
+An export (`pack::modrinth::export`) holds `mods/`, `resourcepacks/`, `shaderpacks/`, `config/`, `defaultconfigs/`, `kubejs/` and `scripts/`, and never worlds, logs, screenshots or the options file. A file directly in one of the first three that Modrinth knows by its hash is listed with its download address; everything else goes into the archive's `overrides/`. The owner's open question (which folders) was answered without the owner.
 
-Open: which folders an export includes besides mods (configs, resource packs; never saves or logs).
+An import (`pack::import_file`) is an instance of the player's own (`Source::Manual`): a file has no pack to update it from, so there is no pack version to change, and the Minecraft version can be changed by hand.
+
+Tried on the command line with a real pack (Fabulously Optimized 6.5.0 for 1.21.1): 50 files listed, 63 inside, and the import had the same mods and configs as the instance it came from.
+
+Not done: an export has no picture and version "1"; a mod that Modrinth does not know is copied into the file, which its author may not allow to be passed on.
 
 ## 12. A second Microsoft account
 
 One account is kept (`auth.rs`, its refresh token under one name in `secrets.rs`, `Settings.account_name`). The design lists more than one account as a non-goal.
 
-Wanted: several accounts signed in, one of them active, switched on the Account page.
+Left out by the owner on 26 November 2026. What was wanted, for whoever takes it up again: several accounts signed in, one of them active, switched on the Account page.
 
 Open: whether an instance can pin an account.
 
 ## 13. Changing the skin
 
-The design lists skins as a non-goal.
+Written. The Account page has a **Skin** card for a signed-in player: the face of the current skin, a choice between classic and slim arms, and **Choose a skin file**, which asks for a PNG and makes it the player's skin.
 
-Wanted: the current skin shown on the Account page, and a new one uploaded from a file, classic or slim.
+In the core (`auth::skin`, `auth::set_skin`) the game token never leaves: the window gets the texture's address and the kind, nothing else. The current skin is read from `GET /minecraft/profile`, the new one goes to `POST /minecraft/profile/skins` as a form with `variant` and `file`. Only a PNG of 64 by 64 (or 64 by 32, the old layout) is sent. The face is cut from the texture at `https://textures.minecraft.net`, which the window's content policy now allows for pictures.
 
-Where: the Minecraft services API takes a skin with the access token `auth::current_profile` already gets; check its current documentation. The token must stay in the core.
+Not checked: the upload against Mojang, which needs a real account. Its address and form fields are the ones Mojang's launcher uses; an unknown address answers the same 401 without a token, so that could not be told apart from outside.
+
+Not done: capes, the list of skins used before, and a whole-body preview. The command line has no skin command.
