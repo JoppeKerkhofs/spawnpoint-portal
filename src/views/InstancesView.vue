@@ -11,7 +11,7 @@ const loadError = ref<CommandError | null>(null);
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted } from "vue";
-import { bedrockInstalled, bedrockStart, instanceCreate, instanceLaunch, instances, openInstanceFolder, openPage, panels, type Instance } from "../api";
+import { bedrockInstalled, bedrockStart, instanceCreate, instanceLaunch, instances, openInstanceFolder, openPage, packImport, panels, type Instance } from "../api";
 import AppButton from "../components/AppButton.vue";
 import BlockCube from "../components/BlockCube.vue";
 import Card from "../components/Card.vue";
@@ -31,7 +31,7 @@ import { canCreate, loaderChoice, instancesState, instancesSummary, kindOf, kind
 import { look } from "../logic/look";
 import { os } from "../logic/os";
 import { focusRow, instanceRowKey, takeReturn } from "../logic/focus";
-import { markPlaying, op, openInstance, playing, view, withProgress } from "../logic/operation";
+import { busy, markPlaying, op, openInstance, playing, view, withProgress } from "../logic/operation";
 import { instanceTexture } from "../logic/visuals";
 
 const state = computed(() => instancesState(list.value));
@@ -41,6 +41,12 @@ const blocky = computed(() => look.value.theme === "blocky");
 const skeletonRow: Array<[string, string]> = [["32px", "32px"], ["flex", "14px"], ["120px", "14px"], ["140px", "30px"]];
 
 const actionError = ref<CommandError | null>(null);
+
+async function importFile() {
+  const made = await withProgress("the pack file", packImport, "pack:import");
+  await load();
+  if (made) openInstance(made.id);
+}
 
 async function load() {
   if (loading.value) return;
@@ -153,6 +159,7 @@ onMounted(async () => {
 <template>
   <ViewHead title="Instances" :summary="summary">
     <template #actions>
+      <AppButton variant="secondary" :disabled="busy" title="Install a .mrpack file from this computer" @click="importFile">Import a file</AppButton>
       <AppButton variant="secondary" icon="box" :aria-expanded="packsOpen" @click="packsOpen = !packsOpen">Install a pack</AppButton>
       <AppButton ref="newButton" variant="primary" icon="plus" :aria-expanded="formOpen" @click="toggleForm">New instance</AppButton>
     </template>
