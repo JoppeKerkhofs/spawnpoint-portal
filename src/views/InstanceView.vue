@@ -5,20 +5,27 @@ import {
   instanceAddMod,
   instanceCheckManual,
   instanceDelete,
+  instanceDuplicate,
+  instanceExport,
   instanceGet,
   instanceLaunch,
   instanceMods,
   instanceRemoveMod,
+  instanceRename,
+  instanceSetJavaArgs,
   instanceSetMemory,
   instanceSetPicture,
+  instanceSetVersion,
   modsInstall,
   modsInstalled,
   openModsFolder,
+  openScreenshotsFolder,
   openPage,
   packUpdate,
   packVersions,
   panels,
   type CommandError,
+  type ContentKind,
   type Defaults,
   type Instance,
   type InstalledMod,
@@ -39,9 +46,10 @@ import SegFilter from "../components/SegFilter.vue";
 import Skeleton from "../components/Skeleton.vue";
 import Picture from "../components/Picture.vue";
 import Tile from "../components/Tile.vue";
+import VersionFields from "../components/VersionFields.vue";
 import ViewHead from "../components/ViewHead.vue";
 import { errorText, lastPlayedText, megabytes, memoryLabel } from "../logic/format";
-import { dropInstance, isHorizon, playButton } from "../logic/instances";
+import { dropInstance, isHorizon, loaderChoice, playButton } from "../logic/instances";
 import { look } from "../logic/look";
 import { pictureFromFile } from "../logic/picture";
 import {
@@ -52,6 +60,7 @@ import {
   installedSentence,
   instanceSummary,
   isHttps,
+  kindWords,
   memoryOptions,
   modCounts,
   modsText,
@@ -65,12 +74,16 @@ import {
   type ModFilter,
 } from "../logic/mods";
 import { instanceRowKey, leave } from "../logic/focus";
-import { afterJoin, busy, lastPlayed, markPlaying, op, openInstanceId, openLog, playing, withProgress } from "../logic/operation";
+import { afterJoin, busy, lastPlayed, markPlaying, op, openInstance, openInstanceId, openLog, playing, withProgress } from "../logic/operation";
 import { instanceTexture } from "../logic/visuals";
 
 const id = openInstanceId.value ?? "";
 const instance = ref<Instance | null>(null);
 const mods = ref<ModFile[] | null>(null);
+// What the files card shows: the mods, the resource packs or the shaders.
+const kind = ref<ContentKind>("mod");
+const words = computed(() => kindWords[kind.value]);
+const kinds = (Object.keys(kindWords) as ContentKind[]).map((k) => ({ value: k, label: kindWords[k].title }));
 const knownPanels = ref<Panel[]>([]);
 const choices = ref<Defaults | null>(null);
 const loadError = ref<CommandError | null>(null);
@@ -112,23 +125,33 @@ async function loadInstance() {
   }
 }
 
+// An answer for a kind the player has left meanwhile is dropped.
 async function loadMods() {
+  const k = kind.value;
   try {
-    mods.value = await instanceMods(id);
+    const list = await instanceMods(id, k);
+    if (k !== kind.value) return;
+    mods.value = list;
     modsError.value = null;
   } catch (e) {
-    modsError.value = e as CommandError;
+    if (k === kind.value) modsError.value = e as CommandError;
   }
 }
 
 // An extra after the list: without Modrinth the list is the same, only without its buttons.
 async function loadKnown() {
-  try {
-    known.value = await modsInstalled(id);
-  } catch {
-    known.value = null;
-  }
+  const k = kind.value;
+  const list = await modsInstalled(id, k).catch(() => null);
+  if (k === kind.value) known.value = list;
 }
+
+watch(kind, () => {
+  mods.value = known.value = modsError.value = modsNote.value = null;
+  browsing.value = false;
+  query.value = "";
+  filter.value = "all";
+  refresh();
+});
 
 const refresh = async () => {
   await loadMods();
@@ -138,7 +161,7 @@ const refresh = async () => {
 async function installMod(project: string) {
   actionError.value = null;
   modsNote.value = null;
-  const done = await withProgress(instance.value!.name, () => modsInstall(id, project), `mod:${project}`);
+  const done = await withProgress(instance.value!.name, () => modsInstall(id, kind.value, project), `mod:${project}`);
   if (done) modsNote.value = { text: installedSentence(done), kind: done.failed.length ? "warn" : "info" };
   await refresh();
 }
@@ -165,6 +188,67 @@ async function changePack() {
   await refresh();
 }
 
+const versionOpen = ref(false);
+// The name as it is typed in the title; null while the title is not being edited.
+const newName = ref<string | null>(null);
+const nameInput = ref<HTMLInputElement | null>(null);
+const renameButton = ref<InstanceType<typeof AppButton> | null>(null);
+const copying = ref(false);
+const version = ref("");
+const loader = ref("none");
+const loaderVersion = ref("");
+const versionsReady = ref(false);
+// Only an instance the player made: a sync decides the version of a server's or a pack's.
+const ownVersion = computed(() => instance.value?.source.kind === "manual" && !isHorizon(instance.value.loader));
+
+function toggleVersion() {
+  versionOpen.value = !versionOpen.value;
+  const i = instance.value;
+  if (!versionOpen.value || !i) return;
+  version.value = i.minecraft;
+  loader.value = i.loader?.kind ?? "none";
+  loaderVersion.value = i.loader?.version ?? "";
+}
+
+async function editName() {
+  newName.value = instance.value!.name;
+  await nextTick();
+  nameInput.value?.select();
+}
+
+// Enter and leaving the field save. The keys give the focus back to the pencil; a click elsewhere keeps its own.
+async function endName(save: boolean, refocus: boolean) {
+  const name = newName.value?.trim();
+  if (newName.value === null) return;
+  newName.value = null;
+  if (save && name && name !== instance.value!.name) await run(async () => void (instance.value = await instanceRename(id, name)));
+  if (!refocus) return;
+  await nextTick();
+  (renameButton.value?.$el as HTMLElement | undefined)?.focus();
+}
+
+const exported = ref<string | null>(null);
+const exporting = ref(false);
+
+async function exportFile() {
+  exporting.value = true;
+  exported.value = null;
+  await run(async () => void (exported.value = await instanceExport(id)));
+  exporting.value = false;
+}
+
+async function duplicate() {
+  copying.value = true;
+  await run(async () => openInstance((await instanceDuplicate(id, `${instance.value!.name} copy`)).id));
+  copying.value = false;
+}
+
+const setVersion = () =>
+  run(async () => {
+    instance.value = await instanceSetVersion(id, version.value, loaderChoice(loader.value, loaderVersion.value));
+    await loadKnown();
+  });
+
 async function closeBrowser() {
   browsing.value = false;
   await nextTick();
@@ -183,6 +267,10 @@ async function setMemory(event: Event) {
     select.value = String(memory.value);
   }
 }
+
+const javaArgs = ref("");
+watch(() => instance.value?.java_args, (a) => (javaArgs.value = a ?? ""), { immediate: true });
+const saveJavaArgs = () => run(async () => void (instance.value = await instanceSetJavaArgs(id, javaArgs.value)));
 
 async function choosePicture(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -217,7 +305,7 @@ async function launch() {
 async function addMod() {
   actionError.value = null;
   try {
-    if (await instanceAddMod(id)) await refresh();
+    if (await instanceAddMod(id, kind.value)) await refresh();
   } catch (e) {
     fail(e);
   }
@@ -229,7 +317,7 @@ async function confirmRemove() {
   if (!mod) return;
   actionError.value = null;
   try {
-    await instanceRemoveMod(id, mod.name);
+    await instanceRemoveMod(id, kind.value, mod.name);
   } catch (e) {
     fail(e);
   }
@@ -265,7 +353,7 @@ const run = (action: () => Promise<void>) => {
 
 // "Last played" changes when the game closes.
 watch(isPlaying, (now, before) => before && !now && loadInstance());
-watch(instance, (i) => (lastPlayed.value = i ? lastPlayedText(i.name, i.last_played, new Date()) : null));
+watch(instance, (i) => (lastPlayed.value = i ? lastPlayedText(i.name, i.last_played, new Date(), i.played_seconds) : null));
 
 onMounted(() => {
   loadInstance().then(loadPackVersions);
@@ -288,6 +376,17 @@ onUnmounted(() => {
         <Icon name="chevron-left" :size="14" />Instances
       </button>
     </template>
+    <template v-if="newName !== null" #title>
+      <input
+        ref="nameInput"
+        v-model="newName"
+        class="input name-edit w-full"
+        aria-label="Name"
+        @keydown.enter="endName(true, true)"
+        @keydown.esc="endName(false, true)"
+        @blur="endName(true, false)"
+      />
+    </template>
     <template v-if="instance" #lead>
       <label class="pick-picture" title="Change picture">
         <input ref="pictureInput" type="file" accept="image/png,image/jpeg,image/webp" class="sr-only" aria-label="Change picture" @change="choosePicture" />
@@ -307,14 +406,36 @@ onUnmounted(() => {
         </select>
       </div>
       <AppButton v-if="instance.own_picture" variant="secondary" @click="removePicture">Remove picture</AppButton>
+      <AppButton ref="renameButton" variant="secondary" icon="pencil" aria-label="Rename" title="Rename" @click="editName" />
+      <AppButton
+        variant="secondary"
+        icon="copy"
+        :aria-label="copying ? 'Duplicating…' : 'Duplicate'"
+        title="Duplicate: a copy with its mods, configs and worlds"
+        :disabled="busy || isPlaying || copying"
+        @click="duplicate"
+      />
+      <AppButton v-if="ownVersion" variant="secondary" :aria-expanded="versionOpen" @click="toggleVersion">Change version</AppButton>
       <AppButton variant="secondary" :aria-pressed="openLog === id" @click="openLog = openLog === id ? null : id">Log</AppButton>
-      <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id))">Mods folder</AppButton>
+      <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id, kind))">{{ words.title }} folder</AppButton>
+      <AppButton variant="secondary" icon="folder" @click="run(() => openScreenshotsFolder(id))">Screenshots</AppButton>
+      <AppButton
+        variant="secondary"
+        title="Export: a .mrpack file with the mods, packs and settings, without the worlds"
+        :disabled="exporting"
+        @click="exportFile"
+      >
+        Export
+      </AppButton>
       <AppButton variant="danger" icon="trash" :disabled="busy" @click="deleting = true">Delete</AppButton>
       <AppButton variant="primary" icon="play" :disabled="play.disabled" :aria-label="play.aria" @click="launch">{{ play.label }}</AppButton>
     </template>
   </ViewHead>
   <div class="content">
     <Note v-if="actionError" kind="err" role="alert">{{ errorText(actionError) }}</Note>
+    <Note v-if="exported" kind="info" icon="check" role="status">
+      Exported to <span class="mono break-all">{{ exported }}</span>
+    </Note>
     <Note v-if="loadError && !instance" kind="err" role="alert">
       <strong>Couldn’t read this instance.</strong>
       <div>{{ errorText(loadError) }}</div>
@@ -335,7 +456,7 @@ onUnmounted(() => {
             <AppButton v-if="isHttps(f.page)" variant="secondary" size="small" icon="external" @click="run(() => openPage(f.page))">Open its page</AppButton>
           </div>
           <div class="flex gap-2">
-            <AppButton variant="secondary" size="small" icon="folder" @click="run(() => openModsFolder(id))">Open mods folder</AppButton>
+            <AppButton variant="secondary" size="small" icon="folder" @click="run(() => openModsFolder(id, 'mod'))">Open mods folder</AppButton>
             <AppButton variant="secondary" size="small" @click="checkAgain">Check again</AppButton>
           </div>
         </section>
@@ -351,6 +472,19 @@ onUnmounted(() => {
         touches your files. Remove yours if you want the pack’s version.
       </Note>
 
+      <section v-if="versionOpen && ownVersion" class="card" aria-labelledby="version-heading">
+        <div class="card-head">
+          <h2 id="version-heading" class="card-title mc-name">Change version</h2>
+        </div>
+        <form class="row flex-wrap items-end gap-3" @submit.prevent="setVersion">
+          <VersionFields v-model:version="version" v-model:loader="loader" v-model:loader-version="loaderVersion" v-model:ready="versionsReady" />
+          <AppButton variant="secondary" type="submit" :disabled="busy || isPlaying || !versionsReady">Change version</AppButton>
+          <p class="m-0 basis-full text-xs text-(--muted)">
+            Your mods stay as they are. One made for another version or loader can stop the game from starting: update or remove it.
+          </p>
+        </form>
+      </section>
+
       <section v-if="pack && packList" class="card" aria-label="Pack version">
         <div class="card-head flex-wrap">
           <label for="pack-version" class="card-title mc-name">Pack version</label>
@@ -359,14 +493,17 @@ onUnmounted(() => {
           <select id="pack-version" v-model="packChoice" class="select" style="max-width: 320px; height: 30px">
             <option v-for="v in packList" :key="v.id" :value="v.id">{{ packVersionText(v) }}</option>
           </select>
-          <AppButton variant="secondary" size="small" :disabled="busy || isPlaying || packChoice === pack.version" @click="changePack">Change version</AppButton>
+          <AppButton variant="secondary" size="small" :disabled="busy || isPlaying" @click="changePack">
+            {{ packChoice === pack.version ? "Check files again" : "Change version" }}
+          </AppButton>
         </div>
       </section>
 
       <GameLog v-if="openLog === id" :id="id" @back="openLog = null" />
       <ModBrowser
-        v-else-if="browsing && instance.loader"
+        v-else-if="browsing && (kind !== 'mod' || instance.loader)"
         :id="id"
+        :kind="kind"
         :minecraft="instance.minecraft"
         :loader="instance.loader"
         :installed="known"
@@ -376,23 +513,29 @@ onUnmounted(() => {
       />
       <section v-else class="card" aria-labelledby="mods-heading">
         <div class="card-head flex-wrap">
-          <h2 id="mods-heading" class="card-title mc-name">Mods</h2>
-          <span class="card-meta tabular">{{ modsText(counts.all) }}</span>
+          <h2 id="mods-heading" class="card-title mc-name">{{ words.title }}</h2>
+          <span class="card-meta tabular">{{ mods ? modsText(counts.all, kind) : "" }}</span>
+          <SegFilter v-if="!isHorizon(instance.loader)" v-model="kind" :options="kinds" />
           <span class="flex-1" />
           <SegFilter v-model="filter" :options="filters" />
-          <label for="mod-search" class="sr-only">Search mods</label>
-          <input id="mod-search" v-model="query" class="input" style="width: 170px; height: 30px" placeholder="Search mods" />
-          <AppButton v-if="instance.loader" ref="browseButton" variant="secondary" size="small" icon="plus" @click="browsing = true">Browse mods</AppButton>
-          <AppButton variant="secondary" size="small" icon="upload" @click="addMod">Add a mod file</AppButton>
+          <label for="mod-search" class="sr-only">Search {{ words.many }}</label>
+          <input id="mod-search" v-model="query" class="input" style="width: 170px; height: 30px" :placeholder="`Search ${words.many}`" />
+          <AppButton v-if="kind !== 'mod' || instance.loader" ref="browseButton" variant="secondary" size="small" icon="plus" @click="browsing = true">
+            Browse {{ words.many }}
+          </AppButton>
+          <AppButton variant="secondary" size="small" icon="upload" @click="addMod">Add a {{ kind === "mod" ? "mod" : "zip" }} file</AppButton>
         </div>
-        <div v-if="browseNote(instance)" class="row text-xs text-(--muted)">{{ browseNote(instance) }}</div>
+        <div v-if="browseNote(instance, kind)" class="row text-xs text-(--muted)">{{ browseNote(instance, kind) }}</div>
         <div class="row gap-2 text-xs">
           <Icon name="lock" :size="14" class="shrink-0" />
-          <span>Pack mods are managed by the sync and can change with the next pack update. Your own mods are never changed or removed by a sync.</span>
+          <span>
+            Pack {{ words.many }} are managed by the sync and can change with the next pack update. Your own {{ words.many }} are never changed or removed by a
+            sync.
+          </span>
         </div>
         <div v-if="modsError && !mods" class="px-4 pb-4" role="alert">
           <Note kind="err">
-            <strong>Couldn’t read the mods.</strong>
+            <strong>Couldn’t read the {{ words.many }}.</strong>
             <div>{{ errorText(modsError) }}</div>
             <AppButton variant="secondary" size="small" class="mt-2" @click="loadMods">Try again</AppButton>
           </Note>
@@ -430,16 +573,43 @@ onUnmounted(() => {
               <AppButton v-else variant="danger" size="small" :aria-label="`Remove ${m.name}`" @click="removing = m">Remove</AppButton>
             </span>
           </div>
-          <div v-if="shown.length === 0" class="row justify-center text-(--muted)">{{ noModsText(query) }}</div>
+          <div v-if="shown.length === 0" class="row justify-center text-(--muted)">{{ noModsText(query, kind) }}</div>
         </template>
+      </section>
+
+      <section v-if="!isHorizon(instance.loader)" class="card" aria-labelledby="java-heading">
+        <div class="card-head">
+          <h2 id="java-heading" class="card-title mc-name">Java arguments</h2>
+          <span class="card-meta">Extra settings for the game’s Java. Leave this empty unless you know what they do.</span>
+        </div>
+        <div class="card-body flex flex-col gap-3">
+          <div v-if="instance.server_java_args.length" class="text-xs text-(--muted)">
+            <span class="inline-flex items-center gap-1"><Icon name="lock" :size="12" />Set by the server, on every sync:</span>
+            <span class="mono ml-1 break-all">{{ instance.server_java_args.join(" ") }}</span>
+          </div>
+          <Note v-if="instance.refused_java_args.length" kind="warn">
+            Portal left out what a server may not set on your PC: <span class="mono break-all">{{ instance.refused_java_args.join(" ") }}</span>
+          </Note>
+          <form class="flex flex-wrap items-end gap-3" @submit.prevent="saveJavaArgs">
+            <div class="min-w-0 flex-1">
+              <label class="label" for="java-args">Your own</label>
+              <input id="java-args" v-model="javaArgs" class="input mono w-full" maxlength="2000" spellcheck="false" placeholder="-XX:+UseZGC" />
+            </div>
+            <AppButton variant="secondary" type="submit" :disabled="javaArgs.trim() === instance.java_args">Save</AppButton>
+          </form>
+          <p class="m-0 text-xs text-(--muted)">
+            Used from the next start, after the memory above and the server’s, so yours win. Put quotes around a value with a space. If the game no longer starts, the Log
+            says which one Java didn’t accept.
+          </p>
+        </div>
       </section>
     </template>
   </div>
 
-  <ConfirmDialog :open="removing !== null" title="Remove this mod?" action="Remove mod" @confirm="confirmRemove" @cancel="removing = null">
-    This deletes <span class="mono font-bold">{{ removing?.name }}</span> from {{ instance?.name }}’s mods folder. It’s your own file, so no sync will bring it back.
+  <ConfirmDialog :open="removing !== null" :title="`Remove this ${words.one}?`" :action="`Remove ${words.one}`" @confirm="confirmRemove" @cancel="removing = null">
+    This deletes <span class="mono font-bold">{{ removing?.name }}</span> from {{ instance?.name }}’s {{ words.many }} folder. It’s your own file, so no sync will bring it back.
   </ConfirmDialog>
   <ConfirmDialog :open="deleting" :title="`Delete ${instance?.name}?`" action="Delete instance" @confirm="confirmDelete" @cancel="deleting = false">
-    {{ instance ? deleteBody(instance, mods) : "" }}
+    {{ instance ? deleteBody(instance, kind === "mod" ? mods : null) : "" }}
   </ConfirmDialog>
 </template>

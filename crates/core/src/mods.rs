@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::download::{Download, Hash, Progress, ProgressTx, blocking, fetch, file_matches, get_ok, sha512_file};
-use crate::instance::{self, Instance};
+use crate::instance::{self, Instance, Kind};
 use crate::loader::Loader;
 use crate::sync::safe_path;
 use crate::{Error, Paths, Result};
@@ -140,7 +140,7 @@ pub(crate) async fn get<T: DeserializeOwned>(client: &Client, api: &str, path: &
     Ok(get_ok(client, url.as_str()).await?.json().await?)
 }
 
-async fn post<T: DeserializeOwned>(client: &Client, api: &str, path: &str, body: &Value) -> Result<T> {
+pub(crate) async fn post<T: DeserializeOwned>(client: &Client, api: &str, path: &str, body: &Value) -> Result<T> {
     let response = client.post(format!("{api}{path}")).json(body).send().await?;
     let status = response.status();
     if !status.is_success() {
@@ -160,6 +160,20 @@ async fn projects(client: &Client, api: &str, ids: Vec<String>) -> Result<HashMa
 }
 
 pub async fn search(client: &Client, api: &str, instance: &Instance, query: &str, offset: usize) -> Result<Found> {
+    search_of(client, api, instance, Kind::Mod, query, offset).await
+}
+
+pub async fn search_of(client: &Client, api: &str, instance: &Instance, kind: Kind, query: &str, offset: usize) -> Result<Found> {
+    instance.place(kind)?;
+    // A resource pack or a shader is tied to the Minecraft version alone.
+    if let Some(what) = match kind {
+        Kind::Mod => None,
+        Kind::Resourcepack => Some("resourcepack"),
+        Kind::Shader => Some("shader"),
+    } {
+        let facets = json!([[format!("project_type:{what}")], [format!("versions:{}", instance.minecraft)]]);
+        return search_facets(client, api, facets, query, offset).await;
+    }
     if instance.is_horizon() {
         return horizon::search(client, horizon::INDEX, instance, query, offset).await;
     }
@@ -195,14 +209,20 @@ pub(crate) async fn search_facets(client: &Client, api: &str, facets: Value, que
 }
 
 pub async fn installed(client: &Client, api: &str, paths: &Paths, instance: &Instance) -> Result<Vec<Installed>> {
+    installed_of(client, api, paths, instance, Kind::Mod).await
+}
+
+// Only a mod is asked for a newer build: the others have no loader to ask it for.
+pub async fn installed_of(client: &Client, api: &str, paths: &Paths, instance: &Instance, kind: Kind) -> Result<Vec<Installed>> {
+    let folder = instance.place(kind)?.0;
     if instance.is_horizon() {
         return horizon::installed(client, horizon::INDEX, paths, instance).await;
     }
-    let loader = loader_of(instance)?.kind.as_str();
+    let loader = if kind == Kind::Mod { Some(loader_of(instance)?.kind.as_str()) } else { None };
     let (p, i) = (paths.clone(), instance.clone());
     let mut list: Vec<Installed> = blocking(move || {
-        let dir = instance::game_dir(&p, &i.id).join("mods");
-        instance::mods(&p, &i)?
+        let dir = instance::game_dir(&p, &i.id).join(folder);
+        instance::files(&p, &i, kind)?
             .into_iter()
             .map(|m| Ok(Installed { hash: sha512_cached(&dir.join(&m.name))?, disabled: m.name.to_lowercase().ends_with(".disabled"), file: m.name, managed: m.managed, project: None, title: None, icon: None, update: false }))
             .collect()
@@ -216,8 +236,13 @@ pub async fn installed(client: &Client, api: &str, paths: &Paths, instance: &Ins
     if known.is_empty() {
         return Ok(list);
     }
-    let body = json!({ "hashes": hashes, "algorithm": "sha512", "loaders": [loader], "game_versions": [instance.minecraft], "version_types": ["release"] });
-    let newer: HashMap<String, Known> = post(client, api, "/version_files/update", &body).await?;
+    let newer: HashMap<String, Known> = match loader {
+        Some(loader) => {
+            let body = json!({ "hashes": hashes, "algorithm": "sha512", "loaders": [loader], "game_versions": [instance.minecraft], "version_types": ["release"] });
+            post(client, api, "/version_files/update", &body).await?
+        }
+        None => HashMap::new(),
+    };
     let names = projects(client, api, known.values().map(|k| k.project_id.clone()).collect()).await?;
     for jar in &mut list {
         if let Some(k) = known.get(&jar.hash) {
@@ -251,10 +276,10 @@ fn same_name(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
 
-fn jar_name(name: &str) -> std::result::Result<String, String> {
+fn file_name(name: &str, ext: &str) -> std::result::Result<String, String> {
     safe_path(name)
         .ok()
-        .filter(|n| !n.contains('/') && n.to_lowercase().ends_with(".jar"))
+        .filter(|n| !n.contains('/') && n.to_lowercase().ends_with(ext))
         .ok_or_else(|| format!("Modrinth gave an unsafe file name ({name})"))
 }
 
@@ -283,24 +308,25 @@ struct Put {
 }
 
 // Ok(Err(reason)) is a mod that cannot be installed; Err is a failure of the install itself.
-async fn put(client: &Client, api: &str, mods: &Path, target: (&str, &str), have: &[&Installed], project: &str) -> Result<std::result::Result<Put, String>> {
-    let (loader, minecraft) = target;
+async fn put(client: &Client, api: &str, mods: &Path, target: (Option<&str>, &str, &str), have: &[&Installed], project: &str) -> Result<std::result::Result<Put, String>> {
+    let (loader, minecraft, ext) = target;
     if have.iter().any(|j| j.managed) {
         return Ok(Err("it comes from the pack, and the sync manages it".into()));
     }
     if !have.is_empty() && have.iter().all(|j| j.disabled) {
         return Ok(Err(format!("{} is in this instance but disabled.", have[0].title.as_deref().unwrap_or("It"))));
     }
-    let params = [("loaders", json!([loader]).to_string()), ("game_versions", json!([minecraft]).to_string()), ("include_changelog", "false".into())];
+    let mut params = vec![("game_versions", json!([minecraft]).to_string()), ("include_changelog", "false".into())];
+    params.extend(loader.map(|l| ("loaders", json!([l]).to_string())));
     let versions: Vec<Version> = get(client, api, &format!("/project/{project}/version"), &params).await?;
     let pick = versions.iter().position(|v| v.version_type == "release").unwrap_or(0);
     let Some(version) = versions.into_iter().nth(pick) else {
-        return Ok(Err(format!("no build for {loader} on Minecraft {minecraft}")));
+        return Ok(Err(format!("no build for {}Minecraft {minecraft}", loader.map(|l| format!("{l} on ")).unwrap_or_default())));
     };
     let Some(file) = version.files.iter().find(|f| f.primary).or(version.files.first()) else {
         return Ok(Err("its newest build has no file".into()));
     };
-    let name = match jar_name(&file.filename) {
+    let name = match file_name(&file.filename, ext) {
         Ok(n) => n,
         Err(reason) => return Ok(Err(reason)),
     };
@@ -336,15 +362,21 @@ pub(crate) async fn version_project(client: &Client, api: &str, version: &str) -
 }
 
 pub async fn install(client: &Client, api: &str, paths: &Paths, instance: &Instance, project: &str, progress: &ProgressTx) -> Result<Outcome> {
+    install_of(client, api, paths, instance, Kind::Mod, project, progress).await
+}
+
+pub async fn install_of(client: &Client, api: &str, paths: &Paths, instance: &Instance, kind: Kind, project: &str, progress: &ProgressTx) -> Result<Outcome> {
+    let (folder, ext) = instance.place(kind)?;
     if instance.is_horizon() {
         return horizon::install(client, horizon::INDEX, paths, instance, project, progress).await;
     }
     plain_id(project)?;
     let _lock = instance::lock(&instance.id)?;
     let instance = instance::load(paths, &instance.id)?;
-    let target = (loader_of(&instance)?.kind.as_str(), instance.minecraft.as_str());
-    let have = installed(client, api, paths, &instance).await?;
-    let mods = instance::game_dir(paths, &instance.id).join("mods");
+    let loader = if kind == Kind::Mod { Some(loader_of(&instance)?.kind.as_str()) } else { None };
+    let target = (loader, instance.minecraft.as_str(), ext);
+    let have = installed_of(client, api, paths, &instance, kind).await?;
+    let mods = instance::game_dir(paths, &instance.id).join(folder);
     let mut queue = VecDeque::from([project.to_string()]);
     let mut seen: HashSet<String> = queue.iter().cloned().collect();
     let (mut done, mut failed) = (Vec::new(), Vec::new());
@@ -373,7 +405,8 @@ pub async fn install(client: &Client, api: &str, paths: &Paths, instance: &Insta
         };
         failed.extend(kept);
         done.push(version.project_id.clone());
-        for d in version.dependencies.iter().filter(|d| d.dependency_type == "required") {
+        // What a resource pack or a shader needs is a mod, which does not belong in its folder.
+        for d in version.dependencies.iter().filter(|d| kind == Kind::Mod && d.dependency_type == "required") {
             let id = match (&d.project_id, &d.version_id) {
                 (Some(p), _) => Some(p.clone()),
                 (None, Some(v)) => match version_project(client, api, v).await {
@@ -577,6 +610,28 @@ mod tests {
         let found = search(&http_client(), &url, &w.inst, "x", 0).await.unwrap();
         assert_eq!((found.hits[0].icon.clone(), found.hits[1].icon.clone(), found.more), (None, None, false));
         assert!(found.hits[2].icon.is_some());
+    }
+
+    #[tokio::test]
+    async fn a_shader_needs_no_loader_and_goes_to_its_own_folder_without_what_it_needs() {
+        let w = world(None);
+        let (files, _) = serve(200, b"shader zip").await;
+        let shader = version("AANobbMI", "shader.zip", &files, b"shader zip", json!([dep("YL57xq9U", "required")]));
+        let (url, _, heads) = api(vec![json_route("GET /search", SEARCH), json_route("GET /projects", PROJECTS), json_route("GET /project/AANobbMI/version", &json!([shader]).to_string())]).await;
+        let c = http_client();
+        search_of(&c, &url, &w.inst, Kind::Shader, "", 0).await.unwrap();
+        let line = heads.lock().unwrap()[0].lines().next().unwrap().to_string();
+        assert!(line.contains("project_type%3Ashader") && line.contains("versions%3A1.21.1") && !line.contains("categories"), "{line}");
+        let done = install_of(&c, &url, &w.paths, &w.inst, Kind::Shader, "AANobbMI", &quiet()).await.unwrap();
+        assert_eq!((done.installed.len(), done.failed.len()), (1, 0));
+        assert_eq!(std::fs::read(game_dir(&w.paths, &w.inst.id).join("shaderpacks/shader.zip")).unwrap(), b"shader zip");
+        assert_eq!(requests(&heads, "loaders"), 0);
+        assert_eq!(requests(&heads, "/project/YL57xq9U"), 0);
+        let list = instance::files(&w.paths, &w.inst, Kind::Shader).unwrap();
+        assert_eq!((list.len(), list[0].name.as_str(), list[0].managed), (1, "shader.zip", false));
+        let mut inst = w.inst.clone();
+        instance::remove_file(&w.paths, &mut inst, Kind::Shader, "shader.zip").unwrap();
+        assert!(instance::files(&w.paths, &w.inst, Kind::Shader).unwrap().is_empty() && instance::files(&w.paths, &w.inst, Kind::Resourcepack).unwrap().is_empty());
     }
 
     #[tokio::test]
