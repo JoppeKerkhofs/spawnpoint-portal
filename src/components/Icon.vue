@@ -1,7 +1,7 @@
 <script lang="ts">
 export type IconName =
   | "refresh" | "plus" | "play" | "folder" | "trash" | "upload" | "lock" | "external" | "check"
-  | "warning" | "info" | "chevron-left" | "server" | "box" | "link" | "user" | "minimize" | "maximize" | "close";
+  | "warning" | "info" | "chevron-left" | "server" | "box" | "link" | "user" | "minimize" | "maximize" | "close" | "pencil" | "copy";
 </script>
 
 <script setup lang="ts">
@@ -26,6 +26,8 @@ const paths: Record<IconName, string[]> = {
   box: ["M12 3 4 7.5v9L12 21l8-4.5v-9z", "M4 7.5 12 12l8-4.5M12 12v9"],
   link: ["M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1", "M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"],
   user: ["M8 8a4 4 0 1 0 8 0 4 4 0 1 0-8 0", "M4 21c1-4 4.5-6 8-6s7 2 8 6"],
+  pencil: ["M4 20h4L19 9l-4-4L4 16z", "M13.5 6.5l4 4"],
+  copy: ["M9 9h11v11H9z", "M5 15H4V4h11v1"],
   minimize: ["M0 5h10"],
   maximize: ["M.5 .5h9v9h-9z"],
   close: ["M0 0l10 10M10 0 0 10"],
