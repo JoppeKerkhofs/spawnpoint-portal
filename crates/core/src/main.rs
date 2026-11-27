@@ -23,6 +23,7 @@ const USAGE: &str = "usage:
   portal instance delete <id>
   portal instance rename <id> <name>       the id stays
   portal instance duplicate <id> <name>    a copy of the whole instance, worlds included
+  portal instance export <id> <file>       a .mrpack with the mods, packs and settings, without worlds
   portal instance set-version <id> <version> [--loader <fabric|neoforge|forge>[:<version>]]
                                            for an instance you made yourself
   portal instance java-args <id> [<arguments>]
@@ -33,6 +34,7 @@ const USAGE: &str = "usage:
   portal instance remove-mod <id> <file name> [--kind <resourcepack|shader>]
   portal pack install ftb <pack> <version> [--name <name>]
   portal pack install modrinth <version id> [--name <name>]
+  portal pack import <file.mrpack> [--name <name>]
   portal pack update <id> <version>        install another version of the instance's pack
   portal panel add <address> [--allow-http]  link a Spawnpoint panel; approve the code it shows
   portal panel list                        id, name and address of each linked panel
@@ -288,6 +290,24 @@ async fn run(args: &[String]) -> Result<()> {
         [cmd, sub, id] if cmd == "instance" && sub == "delete" => instance::delete(&Paths::new()?, id)?,
         [cmd, sub, id, name] if cmd == "instance" && sub == "rename" => {
             instance::rename(&Paths::new()?, id, name)?;
+        }
+        [cmd, sub, id, file] if cmd == "instance" && sub == "export" => {
+            let paths = Paths::new()?;
+            let inst = instance::load(&paths, id)?;
+            pack::modrinth::export(&http_client(), portal_core::mods::API, &paths, &inst, std::path::Path::new(file)).await?;
+        }
+        [cmd, sub, file, rest @ ..] if cmd == "pack" && sub == "import" => {
+            let file = std::path::PathBuf::from(file);
+            let name = match rest {
+                [flag, name] if flag == "--name" => name.clone(),
+                [] => file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+                _ => return Err(Error::Other("usage: portal pack import <file.mrpack> [--name <name>]".into())),
+            };
+            let (client, paths) = (http_client(), Paths::new()?);
+            let p = paths.clone();
+            let (instance, manual) = with_progress(|tx| async move { pack::import_file(&client, &p, &file, &name, &tx).await }).await?;
+            println!("instance {}", instance.id);
+            print_manual(&paths, &instance, &manual);
         }
         [cmd, sub, id, name] if cmd == "instance" && sub == "duplicate" => {
             println!("{}", instance::duplicate(&Paths::new()?, id, name)?.id);

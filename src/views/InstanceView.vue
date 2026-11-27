@@ -6,6 +6,7 @@ import {
   instanceCheckManual,
   instanceDelete,
   instanceDuplicate,
+  instanceExport,
   instanceGet,
   instanceLaunch,
   instanceMods,
@@ -18,6 +19,7 @@ import {
   modsInstall,
   modsInstalled,
   openModsFolder,
+  openScreenshotsFolder,
   openPage,
   packUpdate,
   packVersions,
@@ -225,6 +227,16 @@ async function endName(save: boolean, refocus: boolean) {
   (renameButton.value?.$el as HTMLElement | undefined)?.focus();
 }
 
+const exported = ref<string | null>(null);
+const exporting = ref(false);
+
+async function exportFile() {
+  exporting.value = true;
+  exported.value = null;
+  await run(async () => void (exported.value = await instanceExport(id)));
+  exporting.value = false;
+}
+
 async function duplicate() {
   copying.value = true;
   await run(async () => openInstance((await instanceDuplicate(id, `${instance.value!.name} copy`)).id));
@@ -406,12 +418,24 @@ onUnmounted(() => {
       <AppButton v-if="ownVersion" variant="secondary" :aria-expanded="versionOpen" @click="toggleVersion">Change version</AppButton>
       <AppButton variant="secondary" :aria-pressed="openLog === id" @click="openLog = openLog === id ? null : id">Log</AppButton>
       <AppButton variant="secondary" icon="folder" @click="run(() => openModsFolder(id, kind))">{{ words.title }} folder</AppButton>
+      <AppButton variant="secondary" icon="folder" @click="run(() => openScreenshotsFolder(id))">Screenshots</AppButton>
+      <AppButton
+        variant="secondary"
+        title="Export: a .mrpack file with the mods, packs and settings, without the worlds"
+        :disabled="exporting"
+        @click="exportFile"
+      >
+        Export
+      </AppButton>
       <AppButton variant="danger" icon="trash" :disabled="busy" @click="deleting = true">Delete</AppButton>
       <AppButton variant="primary" icon="play" :disabled="play.disabled" :aria-label="play.aria" @click="launch">{{ play.label }}</AppButton>
     </template>
   </ViewHead>
   <div class="content">
     <Note v-if="actionError" kind="err" role="alert">{{ errorText(actionError) }}</Note>
+    <Note v-if="exported" kind="info" icon="check" role="status">
+      Exported to <span class="mono break-all">{{ exported }}</span>
+    </Note>
     <Note v-if="loadError && !instance" kind="err" role="alert">
       <strong>Couldn’t read this instance.</strong>
       <div>{{ errorText(loadError) }}</div>
