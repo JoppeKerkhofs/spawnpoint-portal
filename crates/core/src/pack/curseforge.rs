@@ -96,7 +96,7 @@ pub(crate) fn wanted(manifest: &Manifest, files: &[PackFile], archive: &Path) ->
                 Origin::Manual { name: f.name.clone(), page }
             }
         };
-        out.push(Wanted { path: format!("{folder}/{}", f.name), from, hash: None, size: None });
+        out.push(Wanted { path: format!("{folder}/{}", f.name), from, hash: None, size: None, force: false });
     }
     let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)?;
     for i in 0..zip.len() {
@@ -110,7 +110,7 @@ pub(crate) fn wanted(manifest: &Manifest, files: &[PackFile], archive: &Path) ->
         let mut bytes = Vec::new();
         entry.read_to_end(&mut bytes)?;
         let size = Some(bytes.len() as u64);
-        out.push(Wanted { path, from: Origin::Bytes(bytes), hash: None, size });
+        out.push(Wanted { path, from: Origin::Bytes(bytes), hash: None, size, force: false });
     }
     Ok(PackInstall { minecraft: manifest.minecraft.clone(), loader: manifest.loader.clone(), files: out })
 }

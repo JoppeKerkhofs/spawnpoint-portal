@@ -52,7 +52,13 @@ export function errorText(e: CommandError): string {
   return sentence(e.message);
 }
 
-export function lastPlayedText(name: string, lp: LastPlayed | null, now: Date): string | null {
+function duration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return seconds < 60 ? "less than a minute" : h === 0 ? `${m} min` : m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
+export function lastPlayedText(name: string, lp: LastPlayed | null, now: Date, total = 0): string | null {
   if (!lp) return null;
   const at = new Date(lp.started_at * 1000);
   const same = (a: Date, b: Date) => a.toDateString() === b.toDateString();
@@ -61,8 +67,6 @@ export function lastPlayedText(name: string, lp: LastPlayed | null, now: Date): 
     : same(at, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))
       ? "yesterday"
       : `on ${at.getDate()} ${months[at.getMonth()]}`;
-  const h = Math.floor(lp.seconds / 3600);
-  const m = Math.floor((lp.seconds % 3600) / 60);
-  const length = lp.seconds < 60 ? "less than a minute" : h === 0 ? `${m} min` : m === 0 ? `${h} h` : `${h} h ${m} min`;
-  return `Last played ${name} ${day}, for ${length}.`;
+  const all = total > lp.seconds ? ` ${upper(duration(total))} in total.` : "";
+  return `Last played ${name} ${day}, for ${duration(lp.seconds)}.${all}`;
 }
