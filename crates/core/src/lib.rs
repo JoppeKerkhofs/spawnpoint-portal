@@ -3,6 +3,7 @@ pub mod bedrock;
 pub mod discord;
 pub mod download;
 pub mod gamefiles;
+pub mod gamelog;
 pub mod horizon;
 pub mod instance;
 pub mod join;

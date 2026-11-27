@@ -9,7 +9,7 @@ const server = (o: Partial<Server>): Server => ({
 });
 const inst = (o: Partial<Instance>): Instance => ({
   id: "i", name: "I", minecraft: "1.21", loader: null, source: { kind: "manual" }, managed: [],
-  memory_mb: null, last_played: null, manual: [], skipped: [], picture: null, own_picture: false, ...o,
+  memory_mb: null, last_played: null, played_seconds: 0, manual: [], skipped: [], picture: null, own_picture: false, java_args: "", server_java_args: [], refused_java_args: [], ...o,
 });
 
 describe("visuals", () => {
