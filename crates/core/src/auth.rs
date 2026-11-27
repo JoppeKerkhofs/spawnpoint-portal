@@ -119,6 +119,75 @@ fn parse_profile(status: u16, body: &str, mc_token: &str) -> Result<Profile> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Skin {
+    // The texture at Mojang, https only; none while the player has the default skin.
+    pub url: Option<String>,
+    pub slim: bool,
+}
+
+fn parse_skin(status: u16, body: &str) -> Result<Skin> {
+    #[derive(Deserialize)]
+    struct Answer {
+        #[serde(default)]
+        skins: Vec<Entry>,
+    }
+    #[derive(Deserialize)]
+    struct Entry {
+        state: String,
+        url: String,
+        #[serde(default)]
+        variant: String,
+    }
+    if status != 200 {
+        return Err(Error::Status { url: "Minecraft".into(), status });
+    }
+    let active = parse::<Answer>(body, "Minecraft")?.skins.into_iter().find(|s| s.state == "ACTIVE");
+    let url = active.as_ref().and_then(|s| s.url.split_once("://textures.minecraft.net/texture/")).map(|(_, id)| id.to_string());
+    Ok(Skin {
+        url: url.filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric())).map(|id| format!("https://textures.minecraft.net/texture/{id}")),
+        slim: active.is_some_and(|s| s.variant.eq_ignore_ascii_case("slim")),
+    })
+}
+
+// A skin is a PNG of 64 by 64, or 64 by 32 in the old layout; Mojang refuses anything else.
+fn check_skin(png: &[u8]) -> Result<()> {
+    let size = |at: usize| png.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+    let is_png = png.starts_with(b"\x89PNG\r\n\x1a\n") && png.get(12..16) == Some(b"IHDR");
+    match (is_png, size(16), size(20)) {
+        (true, Some(64), Some(64 | 32)) if png.len() <= 1024 * 1024 => Ok(()),
+        _ => Err(Error::Other("a skin is a PNG picture of 64 by 64 pixels".into())),
+    }
+}
+
+async fn skin_of(hosts: &Hosts, paths: &Paths) -> Result<Skin> {
+    let profile = current(hosts, paths).await?;
+    let url = format!("{}/minecraft/profile", hosts.minecraft);
+    let (status, body) = answer(panel_client().get(url).bearer_auth(&profile.access_token)).await?;
+    parse_skin(status, &body)
+}
+
+async fn upload_skin(hosts: &Hosts, paths: &Paths, png: &[u8], slim: bool) -> Result<Skin> {
+    check_skin(png)?;
+    let profile = current(hosts, paths).await?;
+    // reqwest's multipart sits behind a feature, and this body is two parts.
+    const EDGE: &str = "portal-skin-7f3a91c2";
+    let mut body = format!(
+        "--{EDGE}\r\nContent-Disposition: form-data; name=\"variant\"\r\n\r\n{}\r\n--{EDGE}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"skin.png\"\r\nContent-Type: image/png\r\n\r\n",
+        if slim { "slim" } else { "classic" }
+    )
+    .into_bytes();
+    body.extend_from_slice(png);
+    body.extend_from_slice(format!("\r\n--{EDGE}--\r\n").as_bytes());
+    let request = panel_client()
+        .post(format!("{}/minecraft/profile/skins", hosts.minecraft))
+        .bearer_auth(&profile.access_token)
+        .header("Content-Type", format!("multipart/form-data; boundary={EDGE}"))
+        .body(body);
+    let (status, body) = answer(request).await?;
+    parse_skin(status, &body)
+}
+
 // reqwest's own `.form()` sits behind a feature that pulls in another crate.
 fn form(fields: &[(&str, &str)]) -> String {
     let encode = |s: &str| -> String {
@@ -257,6 +326,14 @@ pub async fn current_profile(paths: &Paths) -> Result<Profile> {
     current(&Hosts::real(), paths).await
 }
 
+pub async fn skin(paths: &Paths) -> Result<Skin> {
+    skin_of(&Hosts::real(), paths).await
+}
+
+pub async fn set_skin(paths: &Paths, png: &[u8], slim: bool) -> Result<Skin> {
+    upload_skin(&Hosts::real(), paths, png, slim).await
+}
+
 pub fn sign_out(paths: &Paths) -> Result<()> {
     forget(&Hosts::real(), paths)
 }
@@ -334,6 +411,45 @@ mod tests {
 
     fn route(key: &'static str, status: u16, body: &[u8]) -> (&'static str, u16, Vec<u8>, String) {
         (key, status, body.to_vec(), String::new())
+    }
+
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut p = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        p.extend(width.to_be_bytes());
+        p.extend(height.to_be_bytes());
+        p
+    }
+
+    #[test]
+    fn a_skin_is_read_from_the_profile_and_only_a_skin_sized_png_is_sent() {
+        let body = r#"{"id":"0","name":"Steve","skins":[
+            {"id":"a","state":"INACTIVE","url":"http://textures.minecraft.net/texture/old","variant":"CLASSIC"},
+            {"id":"b","state":"ACTIVE","url":"http://textures.minecraft.net/texture/abc123","variant":"SLIM"}]}"#;
+        assert_eq!(parse_skin(200, body).unwrap(), Skin { url: Some("https://textures.minecraft.net/texture/abc123".into()), slim: true });
+        assert_eq!(parse_skin(200, include_str!("../tests/fixtures/auth-profile.json")).unwrap(), Skin { url: None, slim: false });
+        let elsewhere = r#"{"skins":[{"state":"ACTIVE","url":"https://evil.example/texture/abc"}]}"#;
+        assert_eq!(parse_skin(200, elsewhere).unwrap().url, None);
+        assert!(parse_skin(401, "").is_err());
+
+        assert!(check_skin(&png(64, 64)).is_ok() && check_skin(&png(64, 32)).is_ok());
+        assert!(check_skin(&png(128, 128)).is_err() && check_skin(b"GIF89a").is_err() && check_skin(b"").is_err());
+    }
+
+    #[tokio::test]
+    async fn a_new_skin_is_sent_with_the_game_token_and_its_kind() {
+        let mut routes = vec![route("/minecraft/profile/skins", 200, br#"{"skins":[{"state":"ACTIVE","url":"http://textures.minecraft.net/texture/new1","variant":"SLIM"}]}"#)];
+        routes.extend(whole_chain(200));
+        let (base, _, heads) = serve_routes(routes).await;
+        let (h, (_dir, paths)) = (hosts(&base), home());
+        signed_in(&h, &paths);
+        let skin = upload_skin(&h, &paths, &png(64, 64), true).await.unwrap();
+        assert_eq!(skin, Skin { url: Some("https://textures.minecraft.net/texture/new1".into()), slim: true });
+        let heads = heads.lock().unwrap();
+        let sent = heads.last().unwrap().to_ascii_lowercase();
+        assert!(sent.starts_with("post /minecraft/profile/skins") && sent.contains("authorization: bearer mc") && sent.contains("multipart/form-data; boundary="));
+
+        assert!(upload_skin(&h, &paths, b"not a picture", false).await.is_err());
+        assert_eq!(heads.len(), 6);
     }
 
     #[tokio::test]

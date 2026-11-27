@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { accountSignOut, appVersion, settingsGet, settingsSet, type CommandError } from "../api";
+import { accountSetSkin, accountSignOut, accountSkin, appVersion, settingsGet, settingsSet, type CommandError, type Skin } from "../api";
 import AppButton from "../components/AppButton.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import Note from "../components/Note.vue";
@@ -21,6 +21,35 @@ const signingIn = ref(false);
 const askSignOut = ref(false);
 const signOutError = ref<CommandError | null>(null);
 
+const skin = ref<Skin | null>(null);
+const slim = ref(false);
+const skinBusy = ref(false);
+const skinError = ref<CommandError | null>(null);
+const skinChanged = ref(false);
+
+async function skinCall(call: () => Promise<Skin | null>) {
+  skinBusy.value = true;
+  skinError.value = null;
+  try {
+    const got = await call();
+    if (got) {
+      skin.value = got;
+      slim.value = got.slim;
+    }
+    return got;
+  } catch (e) {
+    skinError.value = e as CommandError;
+    return null;
+  } finally {
+    skinBusy.value = false;
+  }
+}
+
+async function chooseSkin() {
+  skinChanged.value = false;
+  skinChanged.value = (await skinCall(() => accountSetSkin(slim.value))) !== null;
+}
+
 const version = ref("");
 const newVersion = computed(() => availableVersion(update.value));
 const block = computed(() => installBlock(busy.value, playing.value.length > 0));
@@ -32,6 +61,7 @@ onMounted(async () => {
     discord.value = s.discord;
     account.value = s.account_name;
     playerName.value = s.account_name ?? "";
+    if (s.account_name) void skinCall(accountSkin);
   } catch (e) {
     error.value = e as CommandError;
   }
@@ -49,6 +79,7 @@ async function setDiscord(on: boolean) {
 function signedIn(name: string) {
   account.value = name;
   playerName.value = name;
+  void skinCall(accountSkin);
 }
 
 async function signOut() {
@@ -57,6 +88,7 @@ async function signOut() {
   try {
     await accountSignOut();
     account.value = null;
+    skin.value = null;
     playerName.value = "";
     signingIn.value = false;
   } catch (e) {
@@ -97,6 +129,32 @@ const appearance = computed({
           <AppButton variant="primary" @click="signingIn = true">Sign in with Microsoft</AppButton>
         </div>
         <Note v-if="signOutError" kind="err" role="alert">{{ errorText(signOutError) }}</Note>
+      </div>
+    </section>
+
+    <section v-if="account" class="card" aria-labelledby="skin-title">
+      <div class="card-head"><h2 id="skin-title" class="card-title mc-name">Skin</h2></div>
+      <div class="card-body flex flex-col gap-2.5">
+        <div class="flex flex-wrap items-end gap-3">
+          <div
+            v-if="skin?.url"
+            class="size-16 shrink-0 rounded-(--radius)"
+            role="img"
+            aria-label="The face of your skin"
+            :style="{ backgroundImage: `url(${skin.url})`, backgroundSize: '512px', backgroundPosition: '-64px -64px', imageRendering: 'pixelated' }"
+          />
+          <div class="min-w-0 flex-[1_1_200px]">
+            <label class="label" for="skin-kind">Arms of the new skin</label>
+            <select id="skin-kind" v-model="slim" class="select w-full">
+              <option :value="false">Classic (wide arms)</option>
+              <option :value="true">Slim (narrow arms)</option>
+            </select>
+          </div>
+          <AppButton variant="secondary" :disabled="skinBusy" @click="chooseSkin"><Spinner v-if="skinBusy" />Choose a skin file</AppButton>
+        </div>
+        <div class="text-xs text-(--muted)">A skin is a PNG picture of 64 by 64 pixels. It is sent to Mojang, and everyone sees it on every server.</div>
+        <Note v-if="skinChanged" kind="info" icon="check" role="status">Your skin is changed. A game that is running shows it after a restart.</Note>
+        <Note v-if="skinError" kind="err" role="alert">{{ errorText(skinError) }}</Note>
       </div>
     </section>
 
