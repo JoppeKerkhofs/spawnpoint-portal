@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { modsSearch, type InstalledMod, type Loader } from "../api";
+import { modsSearch, type ContentKind, type InstalledMod, type Loader } from "../api";
 import { errorText } from "../logic/format";
 import { useSearch } from "../logic/search";
-import { downloadsText, modSource, noResultsText, projectPage, resultControl } from "../logic/mods";
+import { downloadsText, kindWords, modSource, noResultsText, projectPage, resultControl } from "../logic/mods";
 import { busy, op } from "../logic/operation";
 import AppButton from "./AppButton.vue";
 import Icon from "./Icon.vue";
@@ -12,11 +12,12 @@ import Note from "./Note.vue";
 import Picture from "./Picture.vue";
 import Skeleton from "./Skeleton.vue";
 
-const props = defineProps<{ id: string; minecraft: string; loader: Loader; installed: InstalledMod[] | null }>();
+const props = defineProps<{ id: string; kind: ContentKind; minecraft: string; loader: Loader | null; installed: InstalledMod[] | null }>();
+const words = kindWords[props.kind];
 const source = modSource(props.loader);
 const emit = defineEmits<{ install: [project: string]; page: [url: string]; back: [] }>();
 
-const { query, hits, more, loading, failure, load } = useSearch((q, offset) => modsSearch(props.id, q, offset));
+const { query, hits, more, loading, failure, load } = useSearch((q, offset) => modsSearch(props.id, props.kind, q, offset));
 const field = ref<HTMLInputElement | null>(null);
 const row: Array<[string, string]> = [["32px", "32px"], ["flex", "14px"], ["70px", "26px"]];
 
@@ -28,7 +29,7 @@ onMounted(() => field.value?.focus());
 <template>
   <section class="card" aria-labelledby="browse-heading">
     <div class="card-head flex-wrap">
-      <h2 id="browse-heading" class="card-title mc-name">Browse mods</h2>
+      <h2 id="browse-heading" class="card-title mc-name">Browse {{ words.many }}</h2>
       <span class="card-meta">{{ source }}</span>
       <span class="flex-1" />
       <label for="browse-search" class="sr-only">Search {{ source }}</label>
@@ -41,12 +42,12 @@ onMounted(() => field.value?.focus());
         :placeholder="`Search ${source}`"
         @keydown.enter="load()"
       />
-      <AppButton variant="secondary" size="small" icon="chevron-left" @click="emit('back')">Back to installed mods</AppButton>
+      <AppButton variant="secondary" size="small" icon="chevron-left" @click="emit('back')">Back to installed {{ words.many }}</AppButton>
     </div>
     <div v-if="loading && !hits.length" class="px-4" aria-busy="true">
       <Skeleton :rows="[row, row, row]" />
     </div>
-    <div v-else-if="!hits.length && !failure" class="row justify-center text-(--muted)" role="status">{{ noResultsText(loader, minecraft) }}</div>
+    <div v-else-if="!hits.length && !failure" class="row justify-center text-(--muted)" role="status">{{ noResultsText(loader, minecraft, kind) }}</div>
     <template v-else-if="hits.length">
       <div v-for="h in hits" :key="h.project_id" class="row" style="padding-block: 8px">
         <Picture :picture="h.icon" :size="32"><Icon name="box" :size="32" class="text-(--muted)" /></Picture>

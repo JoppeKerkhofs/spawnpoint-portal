@@ -118,6 +118,7 @@ async fn sync_numbered(
     };
     instance.source = Source::Server { panel: panel.id.clone(), server: server.slug.clone(), pack: pack_ref };
     take_picture(&mut instance, server.picture.clone());
+    instance.set_server_java_args(server.client_jvm_opts.as_deref());
     match pack::install(client, paths, &mut instance, wanted, progress).await {
         Ok(manual) => Ok((instance, server, manual, progress.clone())),
         Err(e) => {
@@ -218,10 +219,19 @@ pub async fn all_servers(paths: &Paths) -> Result<Vec<(Panel, Result<Vec<Server>
 }
 
 pub fn desired(panel: &Panel, server: &Server, pack: Option<PackInstall>, mods: ClientMods) -> Result<PackInstall> {
-    build(server, pack, mods, |file| panel::panel_file(panel, &server.slug, file))
+    build(server, pack, mods, |file| panel::panel_file(panel, &server.slug, file), |path| panel::client_file(panel, &server.slug, path))
 }
 
-fn build(server: &Server, pack: Option<PackInstall>, mods: ClientMods, panel_file: impl Fn(&str) -> Result<Origin>) -> Result<PackInstall> {
+// Where a server may put files, below the folder itself. The panel offers the same folders.
+const CLIENT_ROOTS: [&str; 4] = ["config", "defaultconfigs", "kubejs", "scripts"];
+
+fn build(
+    server: &Server,
+    pack: Option<PackInstall>,
+    mods: ClientMods,
+    panel_file: impl Fn(&str) -> Result<Origin>,
+    client_file: impl Fn(&str) -> Result<Origin>,
+) -> Result<PackInstall> {
     let minecraft = server
         .game_version
         .clone()
@@ -244,7 +254,16 @@ fn build(server: &Server, pack: Option<PackInstall>, mods: ClientMods, panel_fil
             None => panel_file(&m.file)?,
         };
         files.retain(|f| f.path.to_lowercase() != path.to_lowercase());
-        files.push(Wanted { path, from, hash: Some(Hash::Sha512(m.sha512)), size: Some(m.size) });
+        files.push(Wanted { path, from, hash: Some(Hash::Sha512(m.sha512)), size: Some(m.size), force: false });
+    }
+    for f in mods.files {
+        let path = safe_path(&f.path)?;
+        if !path.split_once('/').is_some_and(|(root, _)| CLIENT_ROOTS.contains(&root)) {
+            continue;
+        }
+        let from = client_file(&path)?;
+        files.retain(|w| w.path.to_lowercase() != path.to_lowercase());
+        files.push(Wanted { path, from, hash: Some(Hash::Sha512(f.sha512)), size: Some(f.size), force: true });
     }
     Ok(PackInstall { minecraft, loader, files })
 }
@@ -276,6 +295,7 @@ mod tests {
             players: None,
             picture: None,
             detail: None,
+            client_jvm_opts: None,
         }
     }
 
@@ -288,11 +308,11 @@ mod tests {
     }
 
     fn wanted(path: &str) -> Wanted {
-        Wanted { path: path.into(), from: Origin::Url("https://x/y".into()), hash: Some(Hash::Sha1("1".into())), size: None }
+        Wanted { path: path.into(), from: Origin::Url("https://x/y".into()), hash: Some(Hash::Sha1("1".into())), size: None, force: false }
     }
 
     fn run(s: &Server, pack: Option<PackInstall>, mods: ClientMods) -> Result<PackInstall> {
-        build(s, pack, mods, fake)
+        build(s, pack, mods, fake, fake)
     }
 
     #[test]
@@ -308,6 +328,22 @@ mod tests {
     }
 
     #[test]
+    fn a_servers_files_win_inside_the_folders_a_server_may_use_and_nowhere_else() {
+        let file = |path: &str| panel::ClientFile { path: path.into(), sha512: "cc".into(), size: 3 };
+        let pack = PackInstall { minecraft: "1.21.1".into(), loader: None, files: vec![wanted("Config/create/Common.toml")] };
+        let chosen = ["config/create/common.toml", "kubejs/client_scripts/a.js", "config", "mods/x.jar", "options.txt", "saves/w/level.dat"];
+        let mods = ClientMods { files: chosen.map(file).into(), ..Default::default() };
+        let d = run(&server(Some("1.21.1"), None), Some(pack), mods).unwrap();
+        let got: Vec<(&str, bool)> = d.files.iter().map(|f| (f.path.as_str(), f.force)).collect();
+        assert_eq!(got, [("config/create/common.toml", true), ("kubejs/client_scripts/a.js", true)]);
+        assert!(matches!(&d.files[0].from, Origin::PanelFile { url, .. } if url == "https://p/config/create/common.toml"));
+        assert!(matches!(&d.files[0].hash, Some(Hash::Sha512(h)) if h == "cc"));
+
+        let outside = ClientMods { files: vec![file("config/../../x")], ..Default::default() };
+        assert!(run(&server(Some("1.21.1"), None), None, outside).is_err());
+    }
+
+    #[test]
     fn vanilla_server() {
         let d = run(&server(Some("1.21.10"), None), None, ClientMods::default()).unwrap();
         assert_eq!(d.minecraft, "1.21.10");
@@ -316,7 +352,7 @@ mod tests {
 
     #[test]
     fn plain_modded_server() {
-        let mods = ClientMods { mods: vec![cm("a.jar", "aa", Some("https://cdn/a.jar")), cm("b.jar", "bb", None)], removed: vec![] };
+        let mods = ClientMods { mods: vec![cm("a.jar", "aa", Some("https://cdn/a.jar")), cm("b.jar", "bb", None)], ..Default::default() };
         let d = run(&server(Some("1.21.1"), Some(("Fabric", None))), None, mods).unwrap();
         let l = d.loader.unwrap();
         assert_eq!((l.kind, l.version), (LoaderKind::Fabric, None));
@@ -334,7 +370,7 @@ mod tests {
             loader: Some(Loader { kind: LoaderKind::NeoForge, version: Some("21.1.90".into()) }),
             files: vec![wanted("mods/x.jar"), wanted("mods/y.jar"), wanted("config/c.toml")],
         };
-        let mods = ClientMods { mods: vec![cm("z.jar", "zz", None), cm("X.jar", "new", None)], removed: vec!["Y.JAR".into()] };
+        let mods = ClientMods { mods: vec![cm("z.jar", "zz", None), cm("X.jar", "new", None)], removed: vec!["Y.JAR".into()], ..Default::default() };
         let d = run(&server(Some("1.21.1"), Some(("neoforge", Some("1")))), Some(pack), mods).unwrap();
         let mut paths: Vec<&str> = d.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
@@ -361,14 +397,14 @@ mod tests {
     #[test]
     fn a_mod_name_with_a_path_is_refused() {
         for file in [r"..\..\x.jar", "sub/x.jar", "..", "con.jar", "x.jar."] {
-            let mods = ClientMods { mods: vec![cm(file, "a", None)], removed: vec![] };
+            let mods = ClientMods { mods: vec![cm(file, "a", None)], ..Default::default() };
             assert!(run(&server(Some("1.21.1"), None), None, mods).is_err(), "{file}");
         }
     }
 
     #[test]
     fn a_plain_http_mod_url_is_refused() {
-        let mods = ClientMods { mods: vec![cm("a.jar", "a", Some("http://cdn/a.jar"))], removed: vec![] };
+        let mods = ClientMods { mods: vec![cm("a.jar", "a", Some("http://cdn/a.jar"))], ..Default::default() };
         let err = run(&server(Some("1.21.1"), None), None, mods).unwrap_err();
         assert!(err.to_string().contains("a.jar"));
     }

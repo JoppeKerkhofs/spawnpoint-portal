@@ -1,4 +1,4 @@
-import type { Instance, InstalledMod, Loader, ModFile, ModInstall, Panel } from "../api";
+import type { ContentKind, Instance, InstalledMod, Loader, ModFile, ModInstall, Panel } from "../api";
 import { count, minecraftText } from "./format";
 import { isHorizon, loaderText, packText } from "./instances";
 import { loaderName } from "./servers";
@@ -18,9 +18,16 @@ export function modCounts(mods: ModFile[]): { all: number; pack: number; own: nu
   return { all: mods.length, pack, own: mods.length - pack };
 }
 
-export const modsText = (n: number): string => `${n} mod${n === 1 ? "" : "s"}`;
+export const kindWords: Record<ContentKind, { title: string; one: string; many: string }> = {
+  mod: { title: "Mods", one: "mod", many: "mods" },
+  resourcepack: { title: "Resource packs", one: "resource pack", many: "resource packs" },
+  shader: { title: "Shaders", one: "shader", many: "shaders" },
+};
 
-export const noModsText = (q: string): string => (q.trim() ? `No mod matches “${q}”.` : "No mods here.");
+export const modsText = (n: number, kind: ContentKind = "mod"): string => `${n} ${n === 1 ? kindWords[kind].one : kindWords[kind].many}`;
+
+export const noModsText = (q: string, kind: ContentKind = "mod"): string =>
+  q.trim() ? `No ${kindWords[kind].one} matches “${q}”.` : `No ${kindWords[kind].many} here.`;
 
 export function instanceSummary(i: Instance, panels: Panel[]): string {
   const s = i.source;
@@ -95,8 +102,13 @@ export function installedSentence(o: ModInstall): string {
     .join(" ");
 }
 
-export const noResultsText = (l: Loader, minecraft: string): string => `No mods found for ${loaderName(l.kind)} on Minecraft ${minecraft}.`;
+// Only a mod is made for a loader.
+export const noResultsText = (l: Loader | null, minecraft: string, kind: ContentKind = "mod"): string =>
+  `No ${kindWords[kind].many} found for ${kind === "mod" && l ? `${loaderName(l.kind)} on ` : ""}Minecraft ${minecraft}.`;
 
 export const downloadsText = (n: number): string => `${count(n)} download${n === 1 ? "" : "s"}`;
 
-export const browseNote = (i: Instance): string | null => (i.loader ? null : "Mods need a mod loader, and this instance has none.");
+export function browseNote(i: Instance, kind: ContentKind = "mod"): string | null {
+  if (kind === "shader") return "Shaders only show in the game with a shader mod such as Iris, or with OptiFine.";
+  return kind === "mod" && !i.loader ? "Mods need a mod loader, and this instance has none." : null;
+}

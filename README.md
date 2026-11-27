@@ -63,11 +63,11 @@ Instances, game files, Java runtimes and settings are under `%APPDATA%\Spawnpoin
 
 ## The window
 
-- **Servers**: every linked panel's servers, with state, players and what they run. Join syncs the pack and starts the game.
+- **Servers**: every linked panel's servers, with state, players and what they run. Join syncs the pack and starts the game. Before another version of a pack is installed, the instance's own worlds are copied to `world-backups` in its folder; the newest three copies are kept. A sync also brings the files the server's owner ticked for players in the panel, such as configuration: the server's copy replaces yours, and yours is kept beside it as `<name>.portal-backup`.
 - **Instances**: your instances, a form to create a plain one, and **Install a pack**: search Modrinth's packs, pick a version and install it as an instance, without a server. Instances Portal cannot read are listed with a button to show their folder.
-- **An instance**: memory, another version of its pack or a new check of the pack's files (for a Modrinth pack installed without a server), renaming it in its title (the pencil), duplicating it (a copy named after it, with its mods, configs and worlds), another Minecraft version or mod loader for an instance you made yourself, the mods folder, adding and removing your own mods, files a pack's author does not allow launchers to download (to fetch by hand), the log of its last start (the newest crash report, what the game printed and `latest.log`, with any sign-in token left out), and delete.
+- **An instance**: memory, your own Java arguments (and, read-only, the ones its server sets for every player), another version of its pack or a new check of the pack's files (for a Modrinth pack installed without a server), renaming it in its title (the pencil), duplicating it (a copy named after it, with its mods, configs and worlds), another Minecraft version or mod loader for an instance you made yourself, exporting it as a `.mrpack` file for someone else (its mods, resource packs, shaders and the mods' settings, never its worlds; **Import a file** on the Instances page installs one), the mods folder, the screenshots folder, adding and removing your own mods, and the same for resource packs and shaders (browsed on Modrinth, or a zip file of your own), files a pack's author does not allow launchers to download (to fetch by hand), the log of its last start (the newest crash report, what the game printed and `latest.log`, with any sign-in token left out), and delete.
 - **Panels**: link a panel by approving a code on its page, or remove one.
-- **Account**: signing in with Microsoft, which starting a game needs (one account; only its sign-in is kept, in the Windows Credential Manager), and the appearance (standard light, dark or following Windows, or blocky).
+- **Account**: signing in with Microsoft, which starting a game needs (one account; only its sign-in is kept, in the Windows Credential Manager), your skin (its face, and a new one from a PNG file, with classic or slim arms), and the appearance (standard light, dark or following Windows, or blocky).
 
 The status bar shows the steps of a join and whether the game is running, and offers the log when a game stops without being closed.
 
@@ -86,14 +86,19 @@ The `portal` tool does everything the window does, except searching for packs: `
     portal instance delete <id>
     portal instance rename <id> <name> the id, and so the folder, stays
     portal instance duplicate <id> <name>
+    portal instance export <id> <file>
                                        a copy of the whole instance, worlds included
     portal instance set-version <id> <version> [--loader <fabric|neoforge|forge>[:<version>]]
                                        for an instance you made yourself; its mods are left as they are
-    portal instance mods <id>          name, size, pack or own
-    portal instance add-mod <id> <jar>
-    portal instance remove-mod <id> <file name>
+    portal instance java-args <id> [<arguments>]
+                                       your own Java arguments, as one quoted text; none clears them
+    portal instance mods <id> [--kind <resourcepack|shader>]
+                                       name, size, pack or own; with --kind the resource packs or shaders
+    portal instance add-mod <id> <file> [--kind <resourcepack|shader>]
+    portal instance remove-mod <id> <file name> [--kind <resourcepack|shader>]
     portal pack install ftb <pack> <version> [--name <name>]
     portal pack install modrinth <version id> [--name <name>]
+    portal pack import <file.mrpack> [--name <name>]
                                        make an instance from a pack; files to fetch by hand are listed
     portal pack update <id> <version>  install another version of the instance's pack over it
     portal launch <id> [--server <host>] [--memory <MB>]
