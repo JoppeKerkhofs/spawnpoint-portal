@@ -19,12 +19,13 @@ jobs:
       release: ${{ steps.read.outputs.release }}
       systems: ${{ steps.systems.outputs.systems }}
     steps:
-      # macOS only once there is a runner for it: the repository variable MACOS_RUNNER names it,
-      # `macos-latest` for GitHub's own or the label of a Mac with an Apple chip.
+      # macOS only once the repository variable MACOS_RELEASE_RUNNER names a runner: `macos-latest`
+      # for GitHub's own or the label of a Mac with an Apple chip. Not MACOS_RUNNER, which only
+      # turns on the checks: a release for macOS waits for the signing secrets.
       - name: The systems to build for
         id: systems
         env:
-          MACOS_RUNNER: ${{ vars.MACOS_RUNNER }}
+          MACOS_RUNNER: ${{ vars.MACOS_RELEASE_RUNNER }}
         run: |
           set -eu
           # ubuntu-22.04 is the oldest Ubuntu there is a runner for: an AppImage runs on systems as old as the one it was built on.
