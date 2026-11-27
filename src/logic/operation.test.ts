@@ -17,7 +17,7 @@ import { busy, closeFailure, gameExited, liveText, loadPlaying, markPlaying, onP
 
 const inst = (id: string, extra: Partial<Instance> = {}): Instance => ({
   id, name: id.toUpperCase(), minecraft: "1.20.1", loader: null, source: { kind: "server", panel: "p", server: id, pack: null },
-  managed: [], memory_mb: null, last_played: { started_at: 5, seconds: 60 }, manual: [], skipped: [], picture: null, own_picture: false, ...extra,
+  managed: [], memory_mb: null, last_played: { started_at: 5, seconds: 60 }, played_seconds: 0, manual: [], skipped: [], picture: null, own_picture: false, java_args: "", server_java_args: [], refused_java_args: [], ...extra,
 });
 
 const p = [{ instance: "homestead", name: "Homestead", since: new Date(2026, 10, 20, 14, 6), host: "homestead.mc.joppek.be", memoryMb: 6144, serverKey: "p/homestead" }];

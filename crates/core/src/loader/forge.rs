@@ -1058,7 +1058,7 @@ Other: x
         profile.version.logging = parent.logging.clone();
         assert!(client_version(&profile).logging.is_none());
         let paths = Paths { root: r"C:\data root".into() };
-        let opts = crate::launch::LaunchOptions { game_dir: r"C:\g".into(), profile: crate::launch::Profile::offline("Steve"), server: None, memory_mb: 2048 };
+        let opts = crate::launch::LaunchOptions { game_dir: r"C:\g".into(), profile: crate::launch::Profile::offline("Steve"), server: None, memory_mb: 2048, java_args: Vec::new() };
         let args = crate::launch::arguments(&paths, &merged, &opts).unwrap();
         assert!(args.iter().any(|a| a.starts_with("-Dlog4j.configurationFile")), "{args:?}");
     }

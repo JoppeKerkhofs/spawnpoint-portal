@@ -1,6 +1,7 @@
 use crate::state::{AppState, CmdResult, CommandError, Running, claim, end_all_runs, end_run, forward_progress, list_running, refuse_if_running, shown};
 use portal_core::download::numbered;
-use portal_core::instance::{self, Instance, Listing, ModFile};
+use portal_core::instance::{self, Instance, Kind, Listing, ModFile, PackRef};
+use portal_core::pack::{self, modrinth};
 use portal_core::launch::DEFAULT_MEMORY_MB;
 use portal_core::loader::{self, Loader};
 use portal_core::{Error, Paths, auth, discord, gamefiles, gamelog, join as core_join, mods, panel, play, settings};
@@ -95,9 +96,9 @@ pub async fn instance_get(state: State<'_, AppState>, id: String) -> CmdResult<I
 }
 
 #[tauri::command]
-pub async fn instance_mods(state: State<'_, AppState>, id: String) -> CmdResult<Vec<ModFile>> {
+pub async fn instance_mods(state: State<'_, AppState>, id: String, kind: Kind) -> CmdResult<Vec<ModFile>> {
     let inst = instance::load(&state.paths, &id)?;
-    Ok(instance::mods(&state.paths, &inst)?)
+    Ok(instance::files(&state.paths, &inst, kind)?)
 }
 
 #[tauri::command]
@@ -119,14 +120,38 @@ pub async fn instance_delete(state: State<'_, AppState>, id: String) -> CmdResul
 }
 
 #[tauri::command]
-pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<bool> {
+pub async fn instance_rename(state: State<'_, AppState>, id: String, name: String) -> CmdResult<Instance> {
+    Ok(instance::rename(&state.paths, &id, &name)?)
+}
+
+#[tauri::command]
+pub async fn instance_duplicate(state: State<'_, AppState>, id: String, name: String) -> CmdResult<Instance> {
+    let _claim = claim(&state.busy, &id)?;
+    refuse_if_running(&state.running, &id)?;
+    let paths = state.paths.clone();
+    Ok(tokio::task::spawn_blocking(move || instance::duplicate(&paths, &id, &name)).await.map_err(|e| Error::Other(e.to_string()))??)
+}
+
+#[tauri::command]
+pub async fn instance_set_version(state: State<'_, AppState>, id: String, minecraft: String, loader: Option<String>) -> CmdResult<Instance> {
+    let _claim = claim(&state.busy, &id)?;
+    refuse_if_running(&state.running, &id)?;
+    let loader = match loader {
+        Some(text) => Some(loader::resolve_new(&state.client, &minecraft, &Loader::parse(&text)?).await?),
+        None => None,
+    };
+    Ok(instance::set_version(&state.paths, &id, &minecraft, loader)?)
+}
+
+#[tauri::command]
+pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: String, kind: Kind) -> CmdResult<bool> {
     refuse_if_running(&state.running, &id)?;
     let paths = state.paths.clone();
     let added = tokio::task::spawn_blocking(move || -> portal_core::Result<bool> {
         let inst = instance::load(&paths, &id)?;
-        let Some(file) = app.dialog().file().add_filter("Mod", &[&inst.mods_place().1[1..]]).blocking_pick_file() else { return Ok(false) };
+        let Some(file) = app.dialog().file().add_filter("File", &[&inst.place(kind)?.1[1..]]).blocking_pick_file() else { return Ok(false) };
         let file = file.into_path().map_err(|e| Error::Other(e.to_string()))?;
-        instance::add_mod(&paths, &inst, &file)?;
+        instance::add_file(&paths, &inst, kind, &file)?;
         Ok(true)
     })
     .await
@@ -135,35 +160,108 @@ pub async fn instance_add_mod(app: AppHandle, state: State<'_, AppState>, id: St
 }
 
 #[tauri::command]
-pub async fn instance_remove_mod(state: State<'_, AppState>, id: String, name: String) -> CmdResult<()> {
+pub async fn instance_remove_mod(state: State<'_, AppState>, id: String, kind: Kind, name: String) -> CmdResult<()> {
     refuse_if_running(&state.running, &id)?;
     let mut inst = instance::load(&state.paths, &id)?;
-    Ok(instance::remove_mod(&state.paths, &mut inst, &name)?)
+    Ok(instance::remove_file(&state.paths, &mut inst, kind, &name)?)
 }
 
 #[tauri::command]
-pub async fn mods_search(state: State<'_, AppState>, id: String, query: String, offset: usize) -> CmdResult<mods::Found> {
+pub async fn mods_search(state: State<'_, AppState>, id: String, kind: Kind, query: String, offset: usize) -> CmdResult<mods::Found> {
     let inst = instance::load(&state.paths, &id)?;
-    Ok(mods::search(&state.client, mods::API, &inst, &query, offset).await?)
+    Ok(mods::search_of(&state.client, mods::API, &inst, kind, &query, offset).await?)
 }
 
 #[tauri::command]
-pub async fn mods_installed(state: State<'_, AppState>, id: String) -> CmdResult<Vec<mods::Installed>> {
+pub async fn mods_installed(state: State<'_, AppState>, id: String, kind: Kind) -> CmdResult<Vec<mods::Installed>> {
     let inst = instance::load(&state.paths, &id)?;
-    Ok(mods::installed(&state.client, mods::API, &state.paths, &inst).await?)
+    Ok(mods::installed_of(&state.client, mods::API, &state.paths, &inst, kind).await?)
 }
 
 #[tauri::command]
-pub async fn mods_install(app: AppHandle, state: State<'_, AppState>, id: String, project: String) -> CmdResult<mods::Outcome> {
+pub async fn mods_install(app: AppHandle, state: State<'_, AppState>, id: String, kind: Kind, project: String) -> CmdResult<mods::Outcome> {
     let _claim = claim(&state.busy, &id)?;
     refuse_if_running(&state.running, &id)?;
     let inst = instance::load(&state.paths, &id)?;
-    Ok(mods::install(&state.client, mods::API, &state.paths, &inst, &project, &numbered(vec!["mods"], forwarder(&app))).await?)
+    Ok(mods::install_of(&state.client, mods::API, &state.paths, &inst, kind, &project, &numbered(vec!["mods"], forwarder(&app))).await?)
+}
+
+#[tauri::command]
+pub async fn packs_search(state: State<'_, AppState>, query: String, offset: usize) -> CmdResult<mods::Found> {
+    Ok(modrinth::search(&state.client, mods::API, &query, offset).await?)
+}
+
+#[tauri::command]
+pub async fn pack_versions(state: State<'_, AppState>, project: String, version: String) -> CmdResult<Vec<modrinth::PackVersion>> {
+    Ok(modrinth::versions(&state.client, mods::API, &project, &version).await?)
+}
+
+#[tauri::command]
+pub async fn pack_install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    project: String,
+    version: String,
+    version_name: Option<String>,
+    picture: Option<String>,
+) -> CmdResult<Instance> {
+    let _claim = claim(&state.busy, &format!("pack:{project}"))?;
+    let pack = PackRef { catalogue: "modrinth".into(), project, version, version_name };
+    let progress = numbered(play::SYNC_STAGES.to_vec(), forwarder(&app));
+    Ok(pack::install_new(&state.client, &state.paths, &name, pack, picture, &progress).await?.0)
+}
+
+async fn pick(app: &AppHandle, save_as: Option<String>) -> CmdResult<Option<std::path::PathBuf>> {
+    let app = app.clone();
+    let picked = tokio::task::spawn_blocking(move || {
+        let dialog = app.dialog().file().add_filter("Modrinth pack", &["mrpack"]);
+        match save_as {
+            Some(name) => dialog.set_file_name(name).blocking_save_file(),
+            None => dialog.blocking_pick_file(),
+        }
+    })
+    .await
+    .map_err(|e| Error::Other(e.to_string()))?;
+    Ok(match picked {
+        Some(file) => Some(file.into_path().map_err(|e| Error::Other(e.to_string()))?),
+        None => None,
+    })
+}
+
+#[tauri::command]
+pub async fn pack_import(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Option<Instance>> {
+    let Some(file) = pick(&app, None).await? else { return Ok(None) };
+    let _claim = claim(&state.busy, "pack:import")?;
+    let name = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let progress = numbered(play::SYNC_STAGES.to_vec(), forwarder(&app));
+    Ok(Some(pack::import_file(&state.client, &state.paths, &file, &name, &progress).await?.0))
+}
+
+#[tauri::command]
+pub async fn instance_export(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<Option<String>> {
+    let inst = instance::load(&state.paths, &id)?;
+    let Some(file) = pick(&app, Some(format!("{}.mrpack", inst.id))).await? else { return Ok(None) };
+    modrinth::export(&state.client, mods::API, &state.paths, &inst, &file).await?;
+    Ok(Some(file.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn pack_update(app: AppHandle, state: State<'_, AppState>, id: String, version: String, version_name: Option<String>) -> CmdResult<Instance> {
+    let _claim = claim(&state.busy, &id)?;
+    refuse_if_running(&state.running, &id)?;
+    let progress = numbered(play::SYNC_STAGES.to_vec(), forwarder(&app));
+    Ok(pack::update(&state.client, &state.paths, &id, &version, version_name, &progress).await?.0)
 }
 
 #[tauri::command]
 pub async fn instance_set_picture(state: State<'_, AppState>, id: String, picture: Option<String>) -> CmdResult<Instance> {
     Ok(instance::set_picture(&state.paths, &id, picture)?)
+}
+
+#[tauri::command]
+pub async fn instance_set_java_args(state: State<'_, AppState>, id: String, args: String) -> CmdResult<Instance> {
+    Ok(instance::set_java_args(&state.paths, &id, &args)?)
 }
 
 #[tauri::command]
@@ -259,11 +357,19 @@ pub fn open_folder(app: &AppHandle, path: &Path) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub async fn open_mods_folder(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<()> {
+pub async fn open_mods_folder(app: AppHandle, state: State<'_, AppState>, id: String, kind: Kind) -> CmdResult<()> {
     let inst = instance::load(&state.paths, &id)?;
-    let mods = instance::game_dir(&state.paths, &inst.id).join(inst.mods_place().0);
+    let mods = instance::game_dir(&state.paths, &inst.id).join(inst.place(kind)?.0);
     std::fs::create_dir_all(&mods).map_err(Error::from)?;
     open_folder(&app, &mods)
+}
+
+#[tauri::command]
+pub async fn open_screenshots_folder(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    let inst = instance::load(&state.paths, &id)?;
+    let shots = instance::game_dir(&state.paths, &inst.id).join("screenshots");
+    std::fs::create_dir_all(&shots).map_err(Error::from)?;
+    open_folder(&app, &shots)
 }
 
 #[tauri::command]
