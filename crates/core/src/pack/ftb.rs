@@ -72,7 +72,7 @@ pub fn parse(json: &str) -> Result<PackInstall> {
             Origin::Url(https_url(&f.url, &f.name)?)
         };
         let hash = (!f.sha1.is_empty()).then(|| Hash::Sha1(f.sha1));
-        files.push(Wanted { path: file_path(&f.path, &f.name), from, hash, size: f.size });
+        files.push(Wanted { path: file_path(&f.path, &f.name), from, hash, size: f.size, force: false });
     }
     Ok(PackInstall { minecraft, loader, files })
 }

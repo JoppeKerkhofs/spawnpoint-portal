@@ -1,16 +1,15 @@
 use portal_core::download::{numbered, Progress, ProgressTx};
 use portal_core::auth::{self, Poll};
 use portal_core::gamefiles::{install, manifest, version_json};
-use portal_core::instance::{self, Instance, PackRef, Source};
+use portal_core::instance::{self, Instance, Kind, PackRef, Source};
 use portal_core::java;
 use portal_core::join;
 use portal_core::panel;
 use portal_core::loader::{self, Loader};
-use portal_core::pack::{self, PackInstall};
+use portal_core::pack;
 use portal_core::play::{launch_stages, start_instance};
 use portal_core::sync::Manual;
 use portal_core::{http_client, settings, Error, Paths, Result};
-use reqwest::Client;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
@@ -22,11 +21,20 @@ const USAGE: &str = "usage:
   portal instance list                     id, name, version, loader and source of each instance
   portal instance create <name> <version> [--loader <fabric|neoforge|forge>[:<version>]]
   portal instance delete <id>
-  portal instance mods <id>                name, size, pack or own
-  portal instance add-mod <id> <jar>
-  portal instance remove-mod <id> <file name>
+  portal instance rename <id> <name>       the id stays
+  portal instance duplicate <id> <name>    a copy of the whole instance, worlds included
+  portal instance export <id> <file>       a .mrpack with the mods, packs and settings, without worlds
+  portal instance set-version <id> <version> [--loader <fabric|neoforge|forge>[:<version>]]
+                                           for an instance you made yourself
+  portal instance java-args <id> [<arguments>]
+                                           your own Java arguments, as one quoted text; none clears them
+  portal instance mods <id> [--kind <resourcepack|shader>]
+                                           name, size, pack or own
+  portal instance add-mod <id> <file> [--kind <resourcepack|shader>]
+  portal instance remove-mod <id> <file name> [--kind <resourcepack|shader>]
   portal pack install ftb <pack> <version> [--name <name>]
   portal pack install modrinth <version id> [--name <name>]
+  portal pack import <file.mrpack> [--name <name>]
   portal pack update <id> <version>        install another version of the instance's pack
   portal panel add <address> [--allow-http]  link a Spawnpoint panel; approve the code it shows
   portal panel list                        id, name and address of each linked panel
@@ -73,6 +81,15 @@ fn options(rest: &[String], known: &[&str]) -> Result<HashMap<String, String>> {
         out.insert(f.clone(), value.clone());
     }
     Ok(out)
+}
+
+fn kind_option(rest: &[String]) -> Result<Kind> {
+    match options(rest, &["--kind"])?.remove("--kind").as_deref() {
+        None | Some("mod") => Ok(Kind::Mod),
+        Some("resourcepack") => Ok(Kind::Resourcepack),
+        Some("shader") => Ok(Kind::Shader),
+        Some(k) => Err(Error::Other(format!("unknown kind: {k}"))),
+    }
 }
 
 async fn login() -> Result<()> {
@@ -222,33 +239,13 @@ async fn join_server(target: &str) -> Result<()> {
     std::process::exit(code);
 }
 
-async fn install_pack(client: &Client, paths: &Paths, instance: &mut Instance, resolved: PackInstall) -> Result<()> {
-    let inst = &mut *instance;
-    let manual = with_progress(|tx| async move { pack::install(client, paths, inst, resolved, &tx).await }).await?;
-    print_manual(paths, instance, &manual);
-    Ok(())
-}
-
 async fn pack_install(rest: &[String], pack: PackRef) -> Result<()> {
     let name = pack_name(rest, &pack)?;
     let (client, paths) = (http_client(), Paths::new()?);
-    let resolved = pack::resolve(&client, &paths, &pack).await?;
-    // Left empty until `pack::install` has planned the sync: empty after a failure means nothing was written.
-    let mut instance = instance::create(&paths, &name, "", None, Source::Pack { pack })?;
+    let p = paths.clone();
+    let (instance, manual) = with_progress(|tx| async move { pack::install_new(&client, &p, &name, pack, None, &tx).await }).await?;
     println!("instance {}", instance.id);
-    if let Err(e) = install_pack(&client, &paths, &mut instance, resolved).await {
-        if instance.minecraft.is_empty() {
-            let _ = instance::delete(&paths, &instance.id);
-            return Err(e);
-        }
-        let Source::Pack { pack } = &instance.source else { return Err(e) };
-        return Err(Error::Other(format!(
-            "{e}
-the instance {id} is incomplete; run \"portal pack update {id} {version}\" to finish",
-            id = instance.id,
-            version = pack.version
-        )));
-    }
+    print_manual(&paths, &instance, &manual);
     Ok(())
 }
 
@@ -291,19 +288,54 @@ async fn run(args: &[String]) -> Result<()> {
             println!("{}", instance::create(&paths, name, version, loader, Source::Manual)?.id);
         }
         [cmd, sub, id] if cmd == "instance" && sub == "delete" => instance::delete(&Paths::new()?, id)?,
-        [cmd, sub, id] if cmd == "instance" && sub == "mods" => {
+        [cmd, sub, id, name] if cmd == "instance" && sub == "rename" => {
+            instance::rename(&Paths::new()?, id, name)?;
+        }
+        [cmd, sub, id, file] if cmd == "instance" && sub == "export" => {
             let paths = Paths::new()?;
-            for m in instance::mods(&paths, &instance::load(&paths, id)?)? {
+            let inst = instance::load(&paths, id)?;
+            pack::modrinth::export(&http_client(), portal_core::mods::API, &paths, &inst, std::path::Path::new(file)).await?;
+        }
+        [cmd, sub, file, rest @ ..] if cmd == "pack" && sub == "import" => {
+            let file = std::path::PathBuf::from(file);
+            let name = match rest {
+                [flag, name] if flag == "--name" => name.clone(),
+                [] => file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+                _ => return Err(Error::Other("usage: portal pack import <file.mrpack> [--name <name>]".into())),
+            };
+            let (client, paths) = (http_client(), Paths::new()?);
+            let p = paths.clone();
+            let (instance, manual) = with_progress(|tx| async move { pack::import_file(&client, &p, &file, &name, &tx).await }).await?;
+            println!("instance {}", instance.id);
+            print_manual(&paths, &instance, &manual);
+        }
+        [cmd, sub, id, name] if cmd == "instance" && sub == "duplicate" => {
+            println!("{}", instance::duplicate(&Paths::new()?, id, name)?.id);
+        }
+        [cmd, sub, id, version, rest @ ..] if cmd == "instance" && sub == "set-version" => {
+            let (client, paths) = (http_client(), Paths::new()?);
+            let loader = match loader_option(rest)? {
+                Some(l) => Some(loader::resolve_new(&client, version, &l).await?),
+                None => None,
+            };
+            instance::set_version(&paths, id, version, loader)?;
+        }
+        [cmd, sub, id, rest @ ..] if cmd == "instance" && sub == "java-args" && rest.len() < 2 => {
+            instance::set_java_args(&Paths::new()?, id, rest.first().map_or("", String::as_str))?;
+        }
+        [cmd, sub, id, rest @ ..] if cmd == "instance" && sub == "mods" => {
+            let paths = Paths::new()?;
+            for m in instance::files(&paths, &instance::load(&paths, id)?, kind_option(rest)?)? {
                 println!("{}  {}  {}", m.name, m.size, if m.managed { "pack" } else { "own" });
             }
         }
-        [cmd, sub, id, jar] if cmd == "instance" && sub == "add-mod" => {
+        [cmd, sub, id, jar, rest @ ..] if cmd == "instance" && sub == "add-mod" => {
             let paths = Paths::new()?;
-            instance::add_mod(&paths, &instance::load(&paths, id)?, Path::new(jar))?;
+            instance::add_file(&paths, &instance::load(&paths, id)?, kind_option(rest)?, Path::new(jar))?;
         }
-        [cmd, sub, id, name] if cmd == "instance" && sub == "remove-mod" => {
+        [cmd, sub, id, name, rest @ ..] if cmd == "instance" && sub == "remove-mod" => {
             let paths = Paths::new()?;
-            instance::remove_mod(&paths, &mut instance::load(&paths, id)?, name)?;
+            instance::remove_file(&paths, &mut instance::load(&paths, id)?, kind_option(rest)?, name)?;
         }
         [cmd, sub, cat, project, version, rest @ ..] if cmd == "pack" && sub == "install" && cat == "ftb" => {
             pack_install(rest, pack_ref("ftb", project, version)).await?
@@ -313,14 +345,9 @@ async fn run(args: &[String]) -> Result<()> {
         }
         [cmd, sub, id, version] if cmd == "pack" && sub == "update" => {
             let (client, paths) = (http_client(), Paths::new()?);
-            let mut instance = instance::load(&paths, id)?;
-            let Source::Pack { pack } = &instance.source else {
-                return Err(Error::Other(format!("instance {id} was not installed from a pack")));
-            };
-            let pack = pack_ref(&pack.catalogue, &pack.project, version);
-            let resolved = pack::resolve(&client, &paths, &pack).await?;
-            instance.source = Source::Pack { pack };
-            install_pack(&client, &paths, &mut instance, resolved).await?;
+            let p = paths.clone();
+            let (instance, manual) = with_progress(|tx| async move { pack::update(&client, &p, id, version, None, &tx).await }).await?;
+            print_manual(&paths, &instance, &manual);
         }
         [cmd, sub, address, rest @ ..] if cmd == "panel" && sub == "add" => panel_add(address, allow_http(rest)?).await?,
         [cmd, sub] if cmd == "panel" && sub == "list" => {

@@ -1,7 +1,7 @@
 use reqwest::Client;
 
 use crate::download::{ProgressTx, blocking};
-use crate::instance::{self, Instance, PackRef};
+use crate::instance::{self, Instance, PackRef, Source};
 use crate::loader::Loader;
 use crate::sync::{self, Manual, Wanted};
 use crate::{Error, Paths, Result};
@@ -46,6 +46,12 @@ pub async fn install(
         crate::loader::check_new(client, &pack.minecraft, l).await?;
     }
     let _lock = instance::lock(&instance.id)?;
+    // A pack that changes under a world can break it, so the worlds are copied first.
+    let was = instance::load(paths, &instance.id).ok().and_then(|disk| disk.source.pack().cloned());
+    if let Some(was) = was.filter(|was| instance.source.pack().is_some_and(|now| now.version != was.version)) {
+        let (paths, id) = (paths.clone(), instance.id.clone());
+        blocking(move || instance::back_up_worlds(&paths, &id, was.version_name.as_deref().unwrap_or(&was.version))).await?;
+    }
     let game = instance::game_dir(paths, &instance.id);
     let (dir, managed, tx) = (game.clone(), instance.managed.clone(), progress.clone());
     let plan = blocking(move || sync::plan_with(&dir, &managed, pack.files, &tx)).await?;
@@ -55,11 +61,72 @@ pub async fn install(
     sync::apply(client, paths, instance, plan, progress).await
 }
 
+pub async fn install_new(
+    client: &Client,
+    paths: &Paths,
+    name: &str,
+    pack: PackRef,
+    picture: Option<String>,
+    progress: &ProgressTx,
+) -> Result<(Instance, Vec<Manual>)> {
+    let resolved = resolve(client, paths, &pack).await?;
+    let finish = format!("install version {} of its pack over it to finish", pack.version);
+    // Left empty until `install` has planned the sync: empty after a failure means nothing was written.
+    let mut instance = instance::create(paths, name, "", None, Source::Pack { pack })?;
+    instance.picture = picture.filter(|p| crate::panel::picture(p).is_some());
+    install_created(client, paths, instance, resolved, &finish, progress).await
+}
+
+async fn install_created(
+    client: &Client,
+    paths: &Paths,
+    mut instance: Instance,
+    resolved: PackInstall,
+    finish: &str,
+    progress: &ProgressTx,
+) -> Result<(Instance, Vec<Manual>)> {
+    match install(client, paths, &mut instance, resolved, progress).await {
+        Ok(manual) => Ok((instance, manual)),
+        Err(e) if instance.minecraft.is_empty() => {
+            let _ = instance::delete(paths, &instance.id);
+            Err(e)
+        }
+        Err(e) => Err(Error::Other(format!("{e}; the instance {} is incomplete, {finish}", instance.id))),
+    }
+}
+
+// A .mrpack from disk becomes an instance of the player's own: there is no pack to update it from.
+pub async fn import_file(client: &Client, paths: &Paths, archive: &std::path::Path, name: &str, progress: &ProgressTx) -> Result<(Instance, Vec<Manual>)> {
+    let file = archive.to_path_buf();
+    let resolved = blocking(move || modrinth::read_mrpack(&file)).await?;
+    let instance = instance::create(paths, name, "", None, Source::Manual)?;
+    install_created(client, paths, instance, resolved, "delete it and import the file again", progress).await
+}
+
+pub async fn update(
+    client: &Client,
+    paths: &Paths,
+    id: &str,
+    version: &str,
+    version_name: Option<String>,
+    progress: &ProgressTx,
+) -> Result<(Instance, Vec<Manual>)> {
+    let mut instance = instance::load(paths, id)?;
+    let Source::Pack { pack } = &instance.source else {
+        return Err(Error::Other(format!("instance {id} was not installed from a pack")));
+    };
+    let pack = PackRef { version: version.into(), version_name, ..pack.clone() };
+    let resolved = resolve(client, paths, &pack).await?;
+    instance.source = Source::Pack { pack };
+    let manual = install(client, paths, &mut instance, resolved, progress).await?;
+    Ok((instance, manual))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::download::testing::tmp_dir;
-    use crate::instance::{ManagedFile, Source, create};
+    use crate::instance::{ManagedFile, create};
     use crate::sync::Origin;
 
     #[test]
@@ -79,7 +146,7 @@ mod tests {
         let mut inst = create(&paths, "P", "1.21.1", Some(Loader::parse("fabric:0.1").unwrap()), Source::Manual).unwrap();
         inst.managed.push(ManagedFile { path: "mods/a.jar".into(), sha1: "x".into() });
         instance::save(&paths, &inst).unwrap();
-        let bad = Wanted { path: "../x".into(), from: Origin::Bytes(vec![]), hash: None, size: None };
+        let bad = Wanted { path: "../x".into(), from: Origin::Bytes(vec![]), hash: None, size: None, force: false };
         let pack = PackInstall { minecraft: "1.20.1".into(), loader: None, files: vec![bad] };
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         assert!(install(&crate::http_client(), &paths, &mut inst, pack, &tx).await.is_err());
@@ -88,6 +155,50 @@ mod tests {
         assert_eq!(saved, inst);
         assert_eq!(saved.loader, Some(Loader::parse("fabric:0.1").unwrap()));
         assert_eq!(saved.managed.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn another_pack_version_copies_the_worlds_first_and_the_same_one_does_not() {
+        let t = tmp_dir();
+        let paths = Paths { root: t.join("root") };
+        let pack = |version: &str| Source::Pack { pack: PackRef { catalogue: "modrinth".into(), project: "p".into(), version: version.into(), version_name: None } };
+        let mut inst = create(&paths, "W", "1.21.1", None, pack("v1")).unwrap();
+        let level = instance::game_dir(&paths, "w").join("saves/Home/level.dat");
+        std::fs::create_dir_all(level.parent().unwrap()).unwrap();
+        std::fs::write(&level, "world").unwrap();
+        let backups = paths.instances().join("w/world-backups");
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let same = || PackInstall { minecraft: "1.21.1".into(), loader: None, files: vec![] };
+
+        install(&crate::http_client(), &paths, &mut inst, same(), &tx).await.unwrap();
+        assert!(!backups.exists());
+
+        inst.source = pack("v2");
+        install(&crate::http_client(), &paths, &mut inst, same(), &tx).await.unwrap();
+        assert_eq!(std::fs::read(backups.join("v1/Home/level.dat")).unwrap(), b"world");
+    }
+
+    #[tokio::test]
+    async fn an_exported_instance_comes_back_from_its_file() {
+        let t = tmp_dir();
+        let paths = Paths { root: t.join("root") };
+        let inst = create(&paths, "Mine", "1.21.1", None, Source::Manual).unwrap();
+        let game = instance::game_dir(&paths, &inst.id);
+        for (path, bytes) in [("config/a/b.toml", "x=1"), ("resourcepacks/own.zip", "zip"), ("saves/Home/level.dat", "world"), ("logs/latest.log", "log")] {
+            std::fs::create_dir_all(game.join(path).parent().unwrap()).unwrap();
+            std::fs::write(game.join(path), bytes).unwrap();
+        }
+        let (api, _) = crate::download::testing::serve(200, b"{}").await;
+        let file = t.join("mine.mrpack");
+        modrinth::export(&crate::http_client(), &api, &paths, &inst, &file).await.unwrap();
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (back, manual) = import_file(&crate::http_client(), &paths, &file, "Back", &tx).await.unwrap();
+        let game = instance::game_dir(&paths, &back.id);
+        assert_eq!((back.minecraft.as_str(), back.source.clone(), manual.len()), ("1.21.1", Source::Manual, 0));
+        assert_eq!(std::fs::read(game.join("config/a/b.toml")).unwrap(), b"x=1");
+        assert_eq!(std::fs::read(game.join("resourcepacks/own.zip")).unwrap(), b"zip");
+        assert!(!game.join("saves").exists() && !game.join("logs").exists());
     }
 
     #[tokio::test]

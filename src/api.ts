@@ -52,11 +52,17 @@ export interface Instance {
   managed: ManagedFile[];
   memory_mb: number | null;
   last_played: LastPlayed | null;
+  played_seconds: number;
   manual: Manual[];
   skipped: string[];
   picture: string | null;
   own_picture: boolean;
+  java_args: string;
+  server_java_args: string[];
+  refused_java_args: string[];
 }
+
+export type ContentKind = "mod" | "resourcepack" | "shader";
 
 export interface ModFile {
   name: string;
@@ -118,19 +124,44 @@ export interface GameExited {
 
 export const instances = () => invoke<Listing>("instances");
 export const instanceGet = (id: string) => invoke<Instance>("instance_get", { id });
-export const instanceMods = (id: string) => invoke<ModFile[]>("instance_mods", { id });
+export const instanceMods = (id: string, kind: ContentKind) => invoke<ModFile[]>("instance_mods", { id, kind });
 export const instanceCreate = (name: string, minecraft: string, loader: string | null) =>
   invoke<Instance>("instance_create", { name, minecraft, loader });
+export const instanceRename = (id: string, name: string) => invoke<Instance>("instance_rename", { id, name });
+export const instanceDuplicate = (id: string, name: string) => invoke<Instance>("instance_duplicate", { id, name });
+export const instanceSetVersion = (id: string, minecraft: string, loader: string | null) =>
+  invoke<Instance>("instance_set_version", { id, minecraft, loader });
 export const instanceDelete = (id: string) => invoke<void>("instance_delete", { id });
-export const instanceAddMod = (id: string) => invoke<boolean>("instance_add_mod", { id });
-export const instanceRemoveMod = (id: string, name: string) => invoke<void>("instance_remove_mod", { id, name });
+export const instanceAddMod = (id: string, kind: ContentKind) => invoke<boolean>("instance_add_mod", { id, kind });
+export const instanceRemoveMod = (id: string, kind: ContentKind, name: string) => invoke<void>("instance_remove_mod", { id, kind, name });
+export const instanceSetJavaArgs = (id: string, args: string) => invoke<Instance>("instance_set_java_args", { id, args });
 export const instanceSetMemory = (id: string, mb: number) => invoke<Instance>("instance_set_memory", { id, mb });
-export const modsSearch = (id: string, query: string, offset: number) => invoke<ModSearch>("mods_search", { id, query, offset });
-export const modsInstalled = (id: string) => invoke<InstalledMod[]>("mods_installed", { id });
-export const modsInstall = (id: string, project: string) => invoke<ModInstall>("mods_install", { id, project });
-export const instanceSetPicture = (id: string, picture: string | null) => invoke<Instance>("instance_set_picture", { id, picture });
+export const modsSearch = (id: string, kind: ContentKind, query: string, offset: number) => invoke<ModSearch>("mods_search", { id, kind, query, offset });
+export const modsInstalled = (id: string, kind: ContentKind) => invoke<InstalledMod[]>("mods_installed", { id, kind });
+export const modsInstall = (id: string, kind: ContentKind, project: string) => invoke<ModInstall>("mods_install", { id, kind, project });
+export interface PackVersion {
+  id: string;
+  name: string;
+  game_versions: string[];
+  loaders: string[];
+  version_type: string;
+}
+
+export const packsSearch = (query: string, offset: number) => invoke<ModSearch>("packs_search", { query, offset });
+// An instance made by the command line has no project: its version finds it.
+export const packVersions = (project: string, version: string) => invoke<PackVersion[]>("pack_versions", { project, version });
+export const packInstall = (name: string, project: string, version: string, versionName: string | null, picture: string | null) =>
+  invoke<Instance>("pack_install", { name, project, version, versionName, picture });
+export const packUpdate = (id: string, version: string, versionName: string | null) => invoke<Instance>("pack_update", { id, version, versionName });
+export const instanceSetPicture =(id: string, picture: string | null) => invoke<Instance>("instance_set_picture", { id, picture });
 export const instanceCheckManual = (id: string) => invoke<Instance>("instance_check_manual", { id });
-export const instanceLaunch = (id: string) => invoke<Instance>("instance_launch", { id });
+export interface LogSection {
+  name: string;
+  text: string;
+}
+
+export const instanceLog = (id: string) => invoke<LogSection[]>("instance_log", { id });
+export const instanceLaunch =(id: string) => invoke<Instance>("instance_launch", { id });
 export interface Joined {
   instance: Instance;
   joined: boolean;
@@ -155,7 +186,10 @@ export const bedrockInstalled = () => invoke<string | null>("bedrock_installed")
 export const bedrockStart = () => invoke<void>("bedrock_start");
 export const loaderVersions = (minecraft: string, loader: string) => invoke<string[]>("loader_versions", { minecraft, loader });
 export const minecraftVersions = () => invoke<MinecraftVersion[]>("minecraft_versions");
-export const openModsFolder = (id: string) => invoke<void>("open_mods_folder", { id });
+export const packImport = () => invoke<Instance | null>("pack_import");
+export const instanceExport = (id: string) => invoke<string | null>("instance_export", { id });
+export const openScreenshotsFolder = (id: string) => invoke<void>("open_screenshots_folder", { id });
+export const openModsFolder = (id: string, kind: ContentKind) => invoke<void>("open_mods_folder", { id, kind });
 export const openInstanceFolder = (id: string) => invoke<void>("open_instance_folder", { id });
 
 export const onProgress = (cb: (p: Progress) => void): Promise<UnlistenFn> =>
@@ -246,6 +280,12 @@ export const settingsSet = (discord: boolean) => invoke<Settings>("settings_set"
 export const openPage = (url: string) => invoke<void>("open_page", { url });
 export const accountSignInStart = () => invoke<DeviceCode>("account_sign_in_start");
 export const accountSignInPoll = () => invoke<string | null>("account_sign_in_poll");
+export interface Skin {
+  url: string | null;
+  slim: boolean;
+}
+export const accountSkin = () => invoke<Skin>("account_skin");
+export const accountSetSkin = (slim: boolean) => invoke<Skin | null>("account_set_skin", { slim });
 export const accountSignOut = () => invoke<void>("account_sign_out");
 
 export const appVersion = () => invoke<string>("app_version");

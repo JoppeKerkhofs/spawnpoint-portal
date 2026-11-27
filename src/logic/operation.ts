@@ -79,8 +79,22 @@ export function closeFailure(): void {
   op.value = { phase: "idle" };
 }
 
-export function gameExited(instance: string): void {
+// The last game that did not close normally, until it is dismissed or started again.
+export const stopped: Ref<{ instance: string; name: string } | null> = ref(null);
+// The instance whose log the One instance view shows in place of its mods.
+export const openLog: Ref<string | null> = ref(null);
+
+export function showLog(instance: string): void {
+  stopped.value = null;
+  openLog.value = instance;
+  openInstance(instance);
+}
+
+// A game the player closes exits with 0; anything else, or no code at all, was not a normal close.
+export function gameExited(instance: string, code: number | null): void {
+  const was = playing.value.find((p) => p.instance === instance);
   playing.value = playing.value.filter((p) => p.instance !== instance);
+  if (was && code !== 0) stopped.value = { instance, name: was.name };
 }
 
 const toPlaying = (i: Instance, memoryMb: number, since: Date, host: string | null): Playing => ({
@@ -96,6 +110,7 @@ const toPlaying = (i: Instance, memoryMb: number, since: Date, host: string | nu
 let defaultMemoryMb = 4096;
 
 export function markPlaying(instance: Instance, host: string | null = null): void {
+  if (stopped.value?.instance === instance.id) stopped.value = null;
   if (playing.value.some((p) => p.instance === instance.id)) return;
   playing.value = [...playing.value, toPlaying(instance, defaultMemoryMb, new Date(), host)];
 }
@@ -116,7 +131,7 @@ export function trailing(
   v: View,
   current: Op,
   list: Playing[],
-  ctx: { playerName: string; lastPlayed: string | null },
+  ctx: { playerName: string; lastPlayed: string | null; stopped?: string | null },
 ): { lead: string; muted: string } {
   switch (current.phase) {
     case "preparing":
@@ -130,6 +145,7 @@ export function trailing(
       return { lead: `Couldn’t prepare ${current.name}.`, muted: errorText(current.error) };
   }
   const p = list[list.length - 1];
+  if (!p && ctx.stopped) return { lead: `${ctx.stopped} stopped unexpectedly.`, muted: "Its log may say why." };
   if (!p) return { lead: "Ready", muted: (v === "instance" && ctx.lastPlayed) || "Join a server to start playing." };
   const since = `since ${clock(p.since)}`;
   const muted =
