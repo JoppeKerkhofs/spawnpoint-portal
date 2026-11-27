@@ -1,13 +1,15 @@
-use std::collections::BTreeMap;
-use std::io::Read;
-use std::path::Path;
+use std::collections::{BTreeMap, HashMap};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{PackInstall, check_id, https_url};
-use crate::download::{Download, Hash, blocking, fetch, get_ok};
+use crate::download::{Download, Hash, blocking, fetch, get_ok, sha512_file};
+use crate::instance::{self, Instance};
 use crate::loader::{Loader, LoaderKind};
+use crate::mods::{self, Found};
 use crate::sync::{Origin, Wanted};
 use crate::{Error, Paths, Result};
 
@@ -61,7 +63,7 @@ pub fn parse_index(json: &str) -> Result<PackInstall> {
         }
         let url = f.downloads.first().ok_or_else(|| Error::Other(format!("the pack lists no download: {}", f.path)))?;
         let from = Origin::Url(https_url(url, &f.path)?);
-        files.push(Wanted { path: f.path, from, hash: Some(Hash::Sha1(f.hashes.sha1)), size: f.file_size });
+        files.push(Wanted { path: f.path, from, hash: Some(Hash::Sha1(f.hashes.sha1)), size: f.file_size, force: false });
     }
     Ok(PackInstall { minecraft, loader, files })
 }
@@ -85,10 +87,133 @@ pub fn read_mrpack(archive: &Path) -> Result<PackInstall> {
             let mut bytes = Vec::new();
             entry.read_to_end(&mut bytes)?;
             let size = Some(bytes.len() as u64);
-            pack.files.push(Wanted { path, from: Origin::Bytes(bytes), hash: None, size });
+            pack.files.push(Wanted { path, from: Origin::Bytes(bytes), hash: None, size, force: false });
         }
     }
     Ok(pack)
+}
+
+// What an export holds: the mods and packs, and the settings of the mods. Never worlds or logs.
+const LOOKED_UP: [&str; 3] = ["mods", "resourcepacks", "shaderpacks"];
+const COPIED: [&str; 4] = ["config", "defaultconfigs", "kubejs", "scripts"];
+
+#[derive(Deserialize)]
+struct KnownVersion {
+    files: Vec<KnownFile>,
+}
+
+#[derive(Deserialize)]
+struct KnownFile {
+    url: String,
+    hashes: KnownHashes,
+}
+
+#[derive(Deserialize)]
+struct KnownHashes {
+    sha1: String,
+    sha512: String,
+}
+
+struct Exported {
+    path: String,
+    file: PathBuf,
+    size: u64,
+    // Only of a file Modrinth may know: one directly in a folder of mods or packs.
+    sha512: Option<String>,
+}
+
+fn collect(dir: &Path, rel: &str, hashed: bool, out: &mut Vec<Exported>) -> Result<()> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Ok(()) };
+    for entry in entries {
+        let entry = entry?;
+        let path = format!("{rel}/{}", entry.file_name().to_string_lossy());
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            collect(&entry.path(), &path, false, out)?;
+        } else if kind.is_file() {
+            let sha512 = if hashed { Some(sha512_file(&entry.path())?) } else { None };
+            out.push(Exported { path, file: entry.path(), size: entry.metadata()?.len(), sha512 });
+        }
+    }
+    Ok(())
+}
+
+fn loader_key(kind: LoaderKind) -> Result<&'static str> {
+    match kind {
+        LoaderKind::Fabric => Ok("fabric-loader"),
+        LoaderKind::Forge => Ok("forge"),
+        LoaderKind::NeoForge => Ok("neoforge"),
+        LoaderKind::Horizon => Err(Error::Unsupported("A Horizon instance cannot be exported".into())),
+    }
+}
+
+// Writes the instance as a .mrpack: what Modrinth has is listed by its address, the rest is put inside.
+pub async fn export(client: &Client, api: &str, paths: &Paths, instance: &Instance, target: &Path) -> Result<()> {
+    let mut dependencies = BTreeMap::from([("minecraft".to_string(), instance.minecraft.clone())]);
+    if let Some(l) = &instance.loader {
+        let version = l.version.clone().ok_or_else(|| Error::Other("the instance's mod loader has no version yet; start it once".into()))?;
+        dependencies.insert(loader_key(l.kind)?.into(), version);
+    }
+    let game = instance::game_dir(paths, &instance.id);
+    let files = blocking(move || {
+        let mut out = Vec::new();
+        for (dirs, hashed) in [(&LOOKED_UP[..], true), (&COPIED[..], false)] {
+            for dir in dirs {
+                collect(&game.join(dir), dir, hashed, &mut out)?;
+            }
+        }
+        Ok(out)
+    })
+    .await?;
+    let hashes: Vec<&str> = files.iter().filter_map(|f| f.sha512.as_deref()).collect();
+    let known: HashMap<String, KnownVersion> = if hashes.is_empty() {
+        HashMap::new()
+    } else {
+        mods::post(client, api, "/version_files", &serde_json::json!({ "hashes": hashes, "algorithm": "sha512" })).await?
+    };
+
+    let mut listed = Vec::new();
+    let mut inside = Vec::new();
+    for f in files {
+        let found = f.sha512.as_ref().and_then(|h| known.get(h)?.files.iter().find(|k| &k.hashes.sha512 == h && k.url.starts_with("https://cdn.modrinth.com/")));
+        match found {
+            Some(k) => listed.push(serde_json::json!({
+                "path": f.path,
+                "hashes": { "sha1": k.hashes.sha1, "sha512": k.hashes.sha512 },
+                "downloads": [k.url],
+                "fileSize": f.size,
+            })),
+            None => inside.push(f),
+        }
+    }
+    let index = serde_json::json!({
+        "formatVersion": 1,
+        "game": "minecraft",
+        "versionId": "1",
+        "name": instance.name,
+        "files": listed,
+        "dependencies": dependencies,
+    });
+    let target = target.to_path_buf();
+    blocking(move || {
+        let written = (|| -> Result<()> {
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&target)?);
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("modrinth.index.json", options)?;
+            zip.write_all(serde_json::to_string_pretty(&index)?.as_bytes())?;
+            for f in inside {
+                zip.start_file(format!("overrides/{}", f.path), options)?;
+                std::io::copy(&mut std::fs::File::open(&f.file)?, &mut zip)?;
+            }
+            zip.finish()?;
+            Ok(())
+        })();
+        if written.is_err() {
+            let _ = std::fs::remove_file(&target);
+        }
+        written
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -129,6 +254,42 @@ pub async fn resolve(client: &Client, paths: &Paths, version: &str) -> Result<Pa
     };
     fetch(client, &item).await?;
     blocking(move || read_mrpack(&path)).await
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PackVersion {
+    pub id: String,
+    #[serde(rename(deserialize = "version_number"))]
+    pub name: String,
+    #[serde(default)]
+    pub game_versions: Vec<String>,
+    #[serde(default)]
+    pub loaders: Vec<String>,
+    #[serde(default)]
+    pub version_type: String,
+}
+
+pub async fn search(client: &Client, api: &str, query: &str, offset: usize) -> Result<Found> {
+    let facets = serde_json::json!([
+        ["project_type:modpack"],
+        ["categories:fabric", "categories:forge", "categories:neoforge"],
+        ["client_side:required", "client_side:optional"]
+    ]);
+    mods::search_facets(client, api, facets, query, offset).await
+}
+
+// Newest first. An instance made by the command line knows its version only, so that finds the project.
+pub async fn versions(client: &Client, api: &str, project: &str, version: &str) -> Result<Vec<PackVersion>> {
+    let found;
+    let project = if project.is_empty() {
+        found = mods::version_project(client, api, version).await?;
+        &found
+    } else {
+        project
+    };
+    let all: Vec<PackVersion> = mods::get(client, api, &format!("/project/{}/version", mods::plain_id(project)?), &[]).await?;
+    // Quilt is refused at install, so a version for Quilt alone is not offered.
+    Ok(all.into_iter().filter(|v| v.loaders.is_empty() || v.loaders.iter().any(|l| l != "quilt")).collect())
 }
 
 #[cfg(test)]
@@ -186,6 +347,25 @@ mod tests {
         assert!(p.files.iter().any(|f| f.path == "options.txt"));
         assert!(!p.files.iter().any(|f| f.path.contains("server.properties")));
         assert!(p.files.iter().all(|f| f.path != "config" && f.path != "config/"));
+    }
+
+    #[tokio::test]
+    async fn pack_search_and_versions() {
+        use crate::download::testing::serve_routes;
+        let list = r#"[{"id":"new","version_number":"2.0","game_versions":["1.21.1"],"loaders":["quilt"],"version_type":"release"},
+            {"id":"old","version_number":"1.0","game_versions":["1.20.1"],"loaders":["fabric","quilt"],"version_type":"beta"}]"#;
+        let (url, _, heads) = serve_routes(vec![
+            ("/search", 200, br#"{"hits":[],"total_hits":0}"#.to_vec(), String::new()),
+            ("/version/old", 200, br#"{"project_id":"abc"}"#.to_vec(), String::new()),
+            ("/project/abc/version", 200, list.as_bytes().to_vec(), String::new()),
+        ])
+        .await;
+        let c = crate::http_client();
+        assert!(search(&c, &url, "", 0).await.unwrap().hits.is_empty());
+        assert!(heads.lock().unwrap()[0].contains("project_type%3Amodpack"));
+        let found: Vec<_> = versions(&c, &url, "", "old").await.unwrap().into_iter().map(|v| (v.id, v.name)).collect();
+        assert_eq!(found, [("old".to_string(), "1.0".to_string())]);
+        assert!(versions(&c, &url, "a/b", "").await.is_err());
     }
 
     #[tokio::test]

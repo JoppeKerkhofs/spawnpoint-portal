@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::launch::DEFAULT_MEMORY_MB;
+use crate::launch::{DEFAULT_MEMORY_MB, server_arg_allowed, split_args};
 use crate::loader::{Loader, LoaderKind};
 use crate::paths::{check_id, check_relative};
 use crate::sync::{Manual, path_key, safe_path};
@@ -23,6 +23,8 @@ pub struct Instance {
     #[serde(default)]
     pub last_played: Option<LastPlayed>,
     #[serde(default)]
+    pub played_seconds: u64,
+    #[serde(default)]
     pub manual: Vec<Manual>,
     #[serde(default)]
     pub skipped: Vec<String>,
@@ -30,6 +32,14 @@ pub struct Instance {
     pub picture: Option<String>,
     #[serde(default)]
     pub own_picture: bool,
+    // The player's own Java arguments, as typed.
+    #[serde(default)]
+    pub java_args: String,
+    // What the server sent at the last sync: the arguments in use, and those Portal refused.
+    #[serde(default)]
+    pub server_java_args: Vec<String>,
+    #[serde(default)]
+    pub refused_java_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -38,11 +48,30 @@ pub struct LastPlayed {
     pub seconds: u64,
 }
 
+// What the browser installs into an instance: each kind has its own folder.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Mod,
+    Resourcepack,
+    Shader,
+}
+
 pub const MEMORY_CHOICES_MB: [u32; 4] = [4096, 6144, 8192, 10240];
 
 impl Instance {
     pub fn memory_mb(&self) -> u32 {
         self.memory_mb.unwrap_or(DEFAULT_MEMORY_MB)
+    }
+
+    // The server's first, so the player's own choice wins where both name a flag. Checked again: instance.json is a file.
+    pub fn java_arguments(&self) -> Vec<String> {
+        let server = self.server_java_args.iter().filter(|a| server_arg_allowed(a)).cloned();
+        server.chain(split_args(&self.java_args)).collect()
+    }
+
+    pub fn set_server_java_args(&mut self, sent: Option<&str>) {
+        (self.server_java_args, self.refused_java_args) = split_args(sent.unwrap_or_default()).into_iter().partition(|a| server_arg_allowed(a));
     }
 
     pub fn is_horizon(&self) -> bool {
@@ -53,6 +82,15 @@ impl Instance {
     pub fn mods_place(&self) -> (&'static str, &'static str) {
         if self.is_horizon() { ("horizon-mods", ".hmod") } else { ("mods", ".jar") }
     }
+
+    pub fn place(&self, kind: Kind) -> Result<(&'static str, &'static str)> {
+        match kind {
+            Kind::Mod => Ok(self.mods_place()),
+            _ if self.is_horizon() => Err(Error::Unsupported("Horizon has no resource packs or shaders".into())),
+            Kind::Resourcepack => Ok(("resourcepacks", ".zip")),
+            Kind::Shader => Ok(("shaderpacks", ".zip")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,6 +99,16 @@ pub enum Source {
     Manual,
     Pack { pack: PackRef },
     Server { panel: String, server: String, pack: Option<PackRef> },
+}
+
+impl Source {
+    pub fn pack(&self) -> Option<&PackRef> {
+        match self {
+            Source::Manual => None,
+            Source::Pack { pack } => Some(pack),
+            Source::Server { pack, .. } => pack.as_ref(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -129,10 +177,14 @@ pub fn create(
                     managed: Vec::new(),
                     memory_mb: None,
                     last_played: None,
+                    played_seconds: 0,
                     manual: Vec::new(),
                     skipped: Vec::new(),
                     picture: None,
                     own_picture: false,
+                    java_args: String::new(),
+                    server_java_args: Vec::new(),
+                    refused_java_args: Vec::new(),
                 };
                 save(paths, &instance)?;
                 return Ok(instance);
@@ -196,6 +248,13 @@ pub fn set_memory(paths: &Paths, id: &str, mb: u32) -> Result<Instance> {
     update(paths, id, |i| i.memory_mb = Some(mb))
 }
 
+pub fn set_java_args(paths: &Paths, id: &str, args: &str) -> Result<Instance> {
+    if args.len() > 2000 || args.chars().any(char::is_control) {
+        return Err(Error::Other("Java arguments are one line of at most 2000 characters".into()));
+    }
+    update(paths, id, |i| i.java_args = args.trim().into())
+}
+
 pub fn set_picture(paths: &Paths, id: &str, picture: Option<String>) -> Result<Instance> {
     if let Some(p) = &picture
         && !(p.starts_with("data:") && crate::panel::picture(p).is_some())
@@ -205,8 +264,91 @@ pub fn set_picture(paths: &Paths, id: &str, picture: Option<String>) -> Result<I
     update(paths, id, |i| (i.own_picture, i.picture) = (picture.is_some(), picture))
 }
 
+pub fn rename(paths: &Paths, id: &str, name: &str) -> Result<Instance> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Error::Other("an instance needs a name".into()));
+    }
+    update(paths, id, |i| i.name = name.into())
+}
+
+// Only for an instance the player made: a sync decides the version of a server's or a pack's.
+pub fn set_version(paths: &Paths, id: &str, minecraft: &str, loader: Option<Loader>) -> Result<Instance> {
+    check_id(minecraft)?;
+    let horizon = matches!(loader, Some(Loader { kind: LoaderKind::Horizon, .. }));
+    let current = load(paths, id)?;
+    if current.source != Source::Manual || current.is_horizon() || horizon {
+        return Err(Error::Other("only an instance you made yourself can change its version".into()));
+    }
+    update(paths, id, |i| (i.minecraft, i.loader) = (minecraft.into(), loader))
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_dir(&entry.path(), &to.join(entry.file_name()))?;
+        } else if kind.is_file() {
+            std::fs::copy(entry.path(), to.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+const WORLD_BACKUPS: usize = 3;
+
+// Copies saves/ beside the game folder, named after the pack version the worlds were played on.
+// The newest three copies are kept.
+pub fn back_up_worlds(paths: &Paths, id: &str, version: &str) -> Result<Option<PathBuf>> {
+    let saves = game_dir(paths, id).join("saves");
+    if !std::fs::read_dir(&saves).is_ok_and(|mut worlds| worlds.next().is_some()) {
+        return Ok(None);
+    }
+    let name: String = version.chars().take(60).map(|c| if c.is_ascii_alphanumeric() || "-_.".contains(c) { c } else { '-' }).collect();
+    let name = name.trim_matches('.');
+    let all = dir(paths, id).join("world-backups");
+    let to = all.join(if name.is_empty() { "pack" } else { name });
+    let part = all.join(".part");
+    let _ = std::fs::remove_dir_all(&part);
+    copy_dir(&saves, &part)?;
+    let _ = std::fs::remove_dir_all(&to);
+    std::fs::rename(&part, &to)?;
+
+    let mut kept: Vec<_> = std::fs::read_dir(&all)?.flatten().filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path()))).collect();
+    kept.sort();
+    for (_, old) in kept.iter().rev().skip(WORLD_BACKUPS) {
+        let _ = std::fs::remove_dir_all(old);
+    }
+    Ok(Some(to))
+}
+
+// A copy of a server's instance belongs to the player: a server has one instance, and a sync finds it by its source.
+pub fn duplicate(paths: &Paths, id: &str, name: &str) -> Result<Instance> {
+    let from = load(paths, id)?;
+    let _lock = lock(id)?;
+    let own = matches!(from.source, Source::Server { .. });
+    let source = if own { Source::Manual } else { from.source.clone() };
+    let mut copy = create(paths, name.trim(), &from.minecraft, from.loader.clone(), source)?;
+    if let Err(e) = copy_dir(&game_dir(paths, id), &game_dir(paths, &copy.id)) {
+        let _ = std::fs::remove_dir_all(dir(paths, &copy.id));
+        return Err(e.into());
+    }
+    copy.managed = if own { Vec::new() } else { from.managed };
+    (copy.memory_mb, copy.manual, copy.skipped, copy.picture, copy.own_picture) = (from.memory_mb, from.manual, from.skipped, from.picture, from.own_picture);
+    copy.java_args = from.java_args;
+    save(paths, &copy)?;
+    Ok(copy)
+}
+
 pub fn record_played(paths: &Paths, id: &str, started_at: u64, seconds: u64) -> Result<Instance> {
-    update(paths, id, |i| i.last_played = Some(LastPlayed { started_at, seconds }))
+    update(paths, id, |i| {
+        // An instance from before the total was kept starts it with the one session it remembers.
+        let before = if i.played_seconds == 0 { i.last_played.as_ref().map_or(0, |l| l.seconds) } else { i.played_seconds };
+        i.played_seconds = before.saturating_add(seconds);
+        i.last_played = Some(LastPlayed { started_at, seconds });
+    })
 }
 
 pub fn check_manual(paths: &Paths, id: &str) -> Result<Instance> {
@@ -238,7 +380,9 @@ pub fn save_synced(paths: &Paths, instance: &mut Instance) -> Result<()> {
     let _saving = saving();
     if let Ok(disk) = load(paths, &instance.id) {
         instance.memory_mb = disk.memory_mb;
+        instance.java_args = disk.java_args;
         instance.last_played = disk.last_played;
+        instance.played_seconds = disk.played_seconds;
         if disk.own_picture || instance.own_picture {
             instance.picture = disk.picture;
         }
@@ -311,8 +455,12 @@ fn has_ext(name: &str, ext: &str) -> bool {
 }
 
 pub fn mods(paths: &Paths, instance: &Instance) -> Result<Vec<ModFile>> {
+    files(paths, instance, Kind::Mod)
+}
+
+pub fn files(paths: &Paths, instance: &Instance, kind: Kind) -> Result<Vec<ModFile>> {
     let mut out = Vec::new();
-    let (folder, ext) = instance.mods_place();
+    let (folder, ext) = instance.place(kind)?;
     let entries = match std::fs::read_dir(game_dir(paths, &instance.id).join(folder)) {
         Ok(e) => e,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(out),
@@ -333,7 +481,11 @@ pub fn mods(paths: &Paths, instance: &Instance) -> Result<Vec<ModFile>> {
 }
 
 pub fn add_mod(paths: &Paths, instance: &Instance, file: &Path) -> Result<()> {
-    let (folder, ext) = instance.mods_place();
+    add_file(paths, instance, Kind::Mod, file)
+}
+
+pub fn add_file(paths: &Paths, instance: &Instance, kind: Kind, file: &Path) -> Result<()> {
+    let (folder, ext) = instance.place(kind)?;
     let name = file
         .file_name()
         .and_then(|n| n.to_str())
@@ -348,18 +500,22 @@ pub fn add_mod(paths: &Paths, instance: &Instance, file: &Path) -> Result<()> {
     }
     std::fs::copy(file, target)?;
     if instance.is_horizon() {
-        // The file of a Horizon mod is named after its id.
+        // Only a mod gets here. The file of a Horizon mod is named after its id.
         crate::horizon::enable_mod(&game, &name[..name.len() - ext.len()])?;
     }
     Ok(())
 }
 
 pub fn remove_mod(paths: &Paths, instance: &mut Instance, name: &str) -> Result<()> {
+    remove_file(paths, instance, Kind::Mod, name)
+}
+
+pub fn remove_file(paths: &Paths, instance: &mut Instance, kind: Kind, name: &str) -> Result<()> {
     check_relative(name)?;
     if name.contains('/') {
         return Err(Error::Other(format!("{name:?} is not a plain file name")));
     }
-    let folder = instance.mods_place().0;
+    let folder = instance.place(kind)?.0;
     match std::fs::remove_file(game_dir(paths, &instance.id).join(folder).join(name)) {
         Ok(()) => {}
         Err(e) if e.kind() == ErrorKind::NotFound => {
@@ -397,6 +553,44 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let paths = Paths { root: dir.join("root") };
         (Tmp(dir), paths)
+    }
+
+    #[test]
+    fn rename_duplicate_and_change_version() {
+        let (_t, paths) = tmp();
+        let server = Source::Server { panel: "p".into(), server: "s".into(), pack: None };
+        let mut a = create(&paths, "Dup A", "1.21.1", None, server).unwrap();
+        a.managed.push(ManagedFile { path: "mods/a.jar".into(), sha1: "x".into() });
+        save(&paths, &a).unwrap();
+        std::fs::create_dir_all(game_dir(&paths, &a.id).join("saves/w")).unwrap();
+        std::fs::write(game_dir(&paths, &a.id).join("saves/w/level.dat"), b"world").unwrap();
+
+        assert!(rename(&paths, &a.id, "  ").is_err());
+        assert_eq!(rename(&paths, &a.id, " New ").unwrap().name, "New");
+        assert!(load(&paths, "dup-a").is_ok());
+
+        let copy = duplicate(&paths, &a.id, "Dup B").unwrap();
+        assert_eq!((copy.id.as_str(), &copy.source, copy.managed.len()), ("dup-b", &Source::Manual, 0));
+        assert_eq!(std::fs::read(game_dir(&paths, "dup-b").join("saves/w/level.dat")).unwrap(), b"world");
+        assert_eq!(load(&paths, "dup-b").unwrap(), copy);
+
+        assert!(set_version(&paths, &a.id, "1.20.1", None).is_err());
+
+        // A sync replaces the server's arguments and keeps the player's, which come last at the start.
+        assert!(set_java_args(&paths, &a.id, "-Dx\n-Dy").is_err());
+        set_java_args(&paths, &a.id, " -Dmine=1 ").unwrap();
+        let mut synced = a.clone();
+        synced.set_server_java_args(Some("-XX:+UseZGC -Xmx64G -javaagent:evil.jar"));
+        save_synced(&paths, &mut synced).unwrap();
+        let now = load(&paths, &a.id).unwrap();
+        assert_eq!(now.java_arguments(), ["-XX:+UseZGC", "-Dmine=1"]);
+        assert_eq!(now.refused_java_args, ["-Xmx64G", "-javaagent:evil.jar"]);
+        synced.set_server_java_args(None);
+        assert!(synced.server_java_args.is_empty() && synced.refused_java_args.is_empty());
+        assert!(set_version(&paths, "dup-b", "../x", None).is_err());
+        let fabric = Loader::parse("fabric:0.1").unwrap();
+        let changed = set_version(&paths, "dup-b", "1.20.1", Some(fabric.clone())).unwrap();
+        assert_eq!((changed.minecraft.as_str(), changed.loader), ("1.20.1", Some(fabric)));
     }
 
     fn jar_named(t: &Tmp, name: &str) -> PathBuf {
@@ -533,11 +727,37 @@ mod tests {
     }
 
     #[test]
+    fn worlds_are_copied_under_the_pack_version_and_three_copies_stay() {
+        let (_t, p) = tmp();
+        create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        assert_eq!(back_up_worlds(&p, "m", "1.0").unwrap(), None);
+        let level = game_dir(&p, "m").join("saves/Home/level.dat");
+        std::fs::create_dir_all(level.parent().unwrap()).unwrap();
+        for version in ["1.0", "1.1", "2.0 beta/x", "3.0", "1.1"] {
+            std::fs::write(&level, version).unwrap();
+            back_up_worlds(&p, "m", version).unwrap().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let all = dir(&p, "m").join("world-backups");
+        let mut names: Vec<String> = std::fs::read_dir(&all).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(names, ["1.1", "2.0-beta-x", "3.0"]);
+        assert_eq!(std::fs::read(all.join("1.1/Home/level.dat")).unwrap(), b"1.1");
+        assert_eq!(std::fs::read(&level).unwrap(), b"1.1");
+    }
+
+    #[test]
     fn last_play_is_recorded() {
         let (_t, p) = tmp();
         create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
         record_played(&p, "m", 1_763_640_000, 4320).unwrap();
         assert_eq!(load(&p, "m").unwrap().last_played, Some(LastPlayed { started_at: 1_763_640_000, seconds: 4320 }));
+        let again = record_played(&p, "m", 1_763_650_000, 80).unwrap();
+        assert_eq!((again.played_seconds, again.last_played.map(|l| l.seconds)), (4400, Some(80)));
+
+        // Written before the total existed: the session it remembers counts.
+        update(&p, "m", |i| i.played_seconds = 0).unwrap();
+        assert_eq!(record_played(&p, "m", 1_763_660_000, 20).unwrap().played_seconds, 100);
     }
 
     #[test]

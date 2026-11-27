@@ -143,6 +143,27 @@ pub async fn account_sign_out(state: State<'_, AppState>) -> CmdResult<()> {
     Ok(auth::sign_out(&state.paths)?)
 }
 
+#[tauri::command]
+pub async fn account_skin(state: State<'_, AppState>) -> CmdResult<auth::Skin> {
+    Ok(auth::skin(&state.paths).await?)
+}
+
+// Asks for a PNG and makes it the player's skin; `None` when no file was chosen.
+#[tauri::command]
+pub async fn account_set_skin(app: tauri::AppHandle, state: State<'_, AppState>, slim: bool) -> CmdResult<Option<auth::Skin>> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tokio::task::spawn_blocking(move || app.dialog().file().add_filter("Skin", &["png"]).blocking_pick_file())
+        .await
+        .map_err(|e| Error::Other(e.to_string()))?;
+    let Some(file) = picked else { return Ok(None) };
+    let file = file.into_path().map_err(|e| Error::Other(e.to_string()))?;
+    if std::fs::metadata(&file).map_err(Error::from)?.len() > 1024 * 1024 {
+        return Err(Error::Other("a skin is a PNG picture of 64 by 64 pixels".into()).into());
+    }
+    let png = std::fs::read(&file).map_err(Error::from)?;
+    Ok(Some(auth::set_skin(&state.paths, &png, slim).await?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

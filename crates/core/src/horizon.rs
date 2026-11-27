@@ -162,7 +162,8 @@ pub async fn launch(client: &Client, paths: &Paths, game_dir: &Path, profile: &P
     std::fs::create_dir_all(game_dir)?;
     let mut game = tool(&build, "horizon-client.exe").into_std();
     game.arg("--resources").arg(resources).arg("--game-dir").arg(game_dir).arg("--home").arg(game_dir);
-    game.arg("--session-stdin").stdin(Stdio::piped()).current_dir(game_dir);
+    let (out, err) = crate::gamelog::capture(game_dir, true);
+    game.arg("--session-stdin").stdin(Stdio::piped()).stdout(out).stderr(err).current_dir(game_dir);
     if let Some(host) = server {
         game.args(["--quickPlayMultiplayer", host]);
     }

@@ -15,6 +15,7 @@ pub struct StartRequest {
     pub profile: Profile,
     pub server: Option<String>,
     pub memory_mb: u32,
+    pub java_args: Vec<String>,
     pub loader: Option<Loader>,
 }
 
@@ -48,6 +49,7 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
         profile: request.profile.clone(),
         server: request.server.clone(),
         memory_mb: request.memory_mb,
+        java_args: request.java_args.clone(),
     };
     // Refuses a version without launch arguments before anything is downloaded.
     arguments(paths, &version, &opts)?;
@@ -73,7 +75,8 @@ pub async fn start(client: &Client, paths: &Paths, request: &StartRequest, progr
     let (root, extracting) = (paths.clone(), version.clone());
     blocking(move || extract_natives(&root, &extracting)).await?;
     std::fs::create_dir_all(&game_dir)?;
-    Ok((command(&javaw, &args, &game_dir).spawn()?, joined))
+    let plain_output = version.logging.as_ref().is_none_or(|l| l.client.is_none());
+    Ok((command(&javaw, &args, &game_dir, plain_output).spawn()?, joined))
 }
 
 pub async fn start_instance(
@@ -91,6 +94,7 @@ pub async fn start_instance(
         profile,
         server,
         memory_mb,
+        java_args: instance.java_arguments(),
         loader: instance.loader.clone(),
     };
     start(client, paths, &request, progress).await

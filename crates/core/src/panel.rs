@@ -172,6 +172,10 @@ fn clean_detail<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<O
     Ok(Option::<String>::deserialize(d)?.map(|s| cut(s, 300)))
 }
 
+fn clean_args<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Option<String>, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.map(|s| cut(s, 500)))
+}
+
 const LOGO_HOSTS: [&str; 4] = ["https://cdn.modrinth.com/", "https://media.forgecdn.net/", "https://cdn.feed-the-beast.com/", "https://horizon-rust.github.io/horizon-mods/"];
 const PNG_PREFIX: &str = "data:image/png;base64,";
 
@@ -206,6 +210,9 @@ pub struct Server {
     pub picture: Option<String>,
     #[serde(default, deserialize_with = "clean_detail")]
     pub detail: Option<String>,
+    // Java arguments the server's owner set for the players' game.
+    #[serde(default, deserialize_with = "clean_args")]
+    pub client_jvm_opts: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,11 +223,21 @@ pub struct ClientMod {
     pub url: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientFile {
+    pub path: String,
+    pub sha512: String,
+    pub size: u64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ClientMods {
     pub mods: Vec<ClientMod>,
     #[serde(default)]
     pub removed: Vec<String>,
+    // What the server's owner chose for players beside the jars, such as configuration.
+    #[serde(default)]
+    pub files: Vec<ClientFile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -401,6 +418,14 @@ pub fn client_mod_url(panel: &Panel, slug: &str, file: &str) -> Result<String> {
 
 pub fn panel_file(panel: &Panel, slug: &str, file: &str) -> Result<Origin> {
     Ok(Origin::PanelFile { url: client_mod_url(panel, slug, file)?, bearer: token(panel)? })
+}
+
+pub fn client_file(panel: &Panel, slug: &str, path: &str) -> Result<Origin> {
+    check_id(slug)?;
+    let path = crate::sync::safe_path(path)?;
+    let parts: Vec<String> = path.split('/').map(encode).collect();
+    let url = format!("{}/api/v1/servers/{}/client-files/{}", panel.address, encode(slug), parts.join("/"));
+    Ok(Origin::PanelFile { url, bearer: token(panel)? })
 }
 
 fn no_key(panel: &Panel) -> Error {
