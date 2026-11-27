@@ -16,6 +16,8 @@ pub struct Wanted {
     pub from: Origin,
     pub hash: Option<Hash>,
     pub size: Option<u64>,
+    // The server's copy wins: a file the player has there is replaced, and kept as a backup.
+    pub force: bool,
 }
 
 #[derive(Clone)]
@@ -142,7 +144,7 @@ pub fn plan_with(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>, 
         let manual = matches!(w.from, Origin::Manual { .. });
         if right || (ours && (manual || w.hash.is_none())) {
             out.managed.push(ManagedFile { path: w.path, sha1 });
-        } else if ours {
+        } else if ours || w.force {
             out.replaces.insert(w.path.clone(), sha1);
             out.write.push(w);
         } else if !manual {
@@ -161,6 +163,12 @@ pub fn plan_with(game_dir: &Path, managed: &[ManagedFile], wanted: Vec<Wanted>, 
         }
     }
     Ok(out)
+}
+
+fn backup_path(file: &Path) -> std::path::PathBuf {
+    let mut name = file.as_os_str().to_owned();
+    name.push(".portal-backup");
+    name.into()
 }
 
 fn still_ours(file: &Path, replaced: Option<&str>, hash: Option<&Hash>) -> bool {
@@ -209,6 +217,7 @@ pub async fn apply(
     }
 
     let old = std::mem::take(&mut instance.managed);
+    let old_sha: HashMap<String, &str> = old.iter().map(|m| (m.path.to_lowercase(), m.sha1.as_str())).collect();
     let mut downloads = Vec::new();
     let mut attempted = vec![false; writes.len()];
     let mut result = Ok(());
@@ -222,6 +231,15 @@ pub async fn apply(
         }) {
             skipped.push(w.path.clone());
             continue;
+        }
+        let put_by_us = |was: &String| old_sha.get(&w.path.to_lowercase()).is_some_and(|o| o.eq_ignore_ascii_case(was));
+        if w.force && plan.replaces.get(&w.path).is_some_and(|was| !put_by_us(was)) {
+            if let Err(e) = tokio::fs::copy(file, backup_path(file)).await {
+                if result.is_ok() {
+                    result = Err(e.into());
+                }
+                continue;
+            }
         }
         attempted[i] = true;
         match &w.from {
@@ -250,7 +268,6 @@ pub async fn apply(
         result = fetch_all(client, "mods", downloads, progress).await;
     }
 
-    let old_sha: HashMap<String, &str> = old.iter().map(|m| (m.path.to_lowercase(), m.sha1.as_str())).collect();
     instance.managed = plan.managed;
     let checks: Vec<_> = plan.write.iter().zip(&writes).zip(attempted).map(|((w, file), tried)| (file.clone(), w.hash.clone(), tried)).collect();
     let written = match blocking(move || {
@@ -333,6 +350,7 @@ mod tests {
             from: Origin::Url("u".into()),
             hash: Some(Hash::Sha1(sha(bytes))),
             size: None,
+            force: false,
         }
     }
 
@@ -374,7 +392,7 @@ mod tests {
     }
 
     fn bytes_w(path: &str, bytes: &[u8]) -> Wanted {
-        Wanted { path: path.into(), from: Origin::Bytes(bytes.to_vec()), hash: None, size: None }
+        Wanted { path: path.into(), from: Origin::Bytes(bytes.to_vec()), hash: None, size: None, force: false }
     }
 
     #[test]
@@ -661,6 +679,34 @@ mod tests {
         run(&paths, &mut inst, plan).await.unwrap();
         assert_eq!(std::fs::read(game.join("a.jar")).unwrap(), b"player edit");
         assert!(inst.managed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_servers_file_replaces_the_players_and_keeps_it_as_a_backup() {
+        let (_t, paths, mut inst) = setup();
+        let game = instance::game_dir(&paths, &inst.id);
+        let (file, backup) = (game.join("config/a.toml"), game.join("config/a.toml.portal-backup"));
+        std::fs::create_dir_all(game.join("config")).unwrap();
+        std::fs::write(&file, b"player's").unwrap();
+        let forced = |bytes: &[u8]| Wanted { from: Origin::Bytes(bytes.to_vec()), force: true, ..w("config/a.toml", bytes) };
+
+        let planned = plan(&game, &inst.managed, vec![forced(b"server 1")]).unwrap();
+        run(&paths, &mut inst, planned).await.unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"server 1");
+        assert_eq!(std::fs::read(&backup).unwrap(), b"player's");
+        assert_eq!(inst.managed, vec![m("config/a.toml", b"server 1")]);
+
+        // What the launcher put itself is replaced without a backup of it.
+        let planned = plan(&game, &inst.managed, vec![forced(b"server 2")]).unwrap();
+        run(&paths, &mut inst, planned).await.unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"server 2");
+        assert_eq!(std::fs::read(&backup).unwrap(), b"player's");
+
+        // The same file without the mark stays the player's.
+        std::fs::write(&file, b"edited").unwrap();
+        let planned = plan(&game, &inst.managed, vec![Wanted { force: false, ..forced(b"server 3") }]).unwrap();
+        run(&paths, &mut inst, planned).await.unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"edited");
     }
 
     #[tokio::test]
