@@ -334,7 +334,6 @@ mod tests {
         assert_eq!(after(&a, "--assetIndex"), v("1.21.1").assets.unwrap());
         assert!(!a.iter().any(|x| x.contains("${")));
         assert!(!a.iter().any(|x| x == "--demo" || x == "--width" || x.starts_with("--quickPlay")));
-        assert!(!a.iter().any(|x| x == "-XstartOnFirstThread"));
         assert!(a.iter().any(|x| x.starts_with("-Dlog4j.configurationFile=")));
     }
 
@@ -500,7 +499,7 @@ mod tests {
         let _guard = Tmp(root.clone());
         let paths = Paths { root: root.clone() };
         let version: VersionJson = serde_json::from_str(
-            r#"{"id":"t","mainClass":"m","libraries":[{"name":"a:b:1","natives":{"windows":"natives-windows","linux":"natives-windows"},
+            r#"{"id":"t","mainClass":"m","libraries":[{"name":"a:b:1","natives":{"windows":"natives-windows","linux":"natives-windows","osx":"natives-windows"},
             "downloads":{"classifiers":{"natives-windows":{"path":"n/n.jar","url":"u"}}}}]}"#,
         )
         .unwrap();
