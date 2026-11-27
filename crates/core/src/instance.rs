@@ -101,6 +101,16 @@ pub enum Source {
     Server { panel: String, server: String, pack: Option<PackRef> },
 }
 
+impl Source {
+    pub fn pack(&self) -> Option<&PackRef> {
+        match self {
+            Source::Manual => None,
+            Source::Pack { pack } => Some(pack),
+            Source::Server { pack, .. } => pack.as_ref(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PackRef {
     pub catalogue: String,
@@ -285,6 +295,33 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+const WORLD_BACKUPS: usize = 3;
+
+// Copies saves/ beside the game folder, named after the pack version the worlds were played on.
+// The newest three copies are kept.
+pub fn back_up_worlds(paths: &Paths, id: &str, version: &str) -> Result<Option<PathBuf>> {
+    let saves = game_dir(paths, id).join("saves");
+    if !std::fs::read_dir(&saves).is_ok_and(|mut worlds| worlds.next().is_some()) {
+        return Ok(None);
+    }
+    let name: String = version.chars().take(60).map(|c| if c.is_ascii_alphanumeric() || "-_.".contains(c) { c } else { '-' }).collect();
+    let name = name.trim_matches('.');
+    let all = dir(paths, id).join("world-backups");
+    let to = all.join(if name.is_empty() { "pack" } else { name });
+    let part = all.join(".part");
+    let _ = std::fs::remove_dir_all(&part);
+    copy_dir(&saves, &part)?;
+    let _ = std::fs::remove_dir_all(&to);
+    std::fs::rename(&part, &to)?;
+
+    let mut kept: Vec<_> = std::fs::read_dir(&all)?.flatten().filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path()))).collect();
+    kept.sort();
+    for (_, old) in kept.iter().rev().skip(WORLD_BACKUPS) {
+        let _ = std::fs::remove_dir_all(old);
+    }
+    Ok(Some(to))
 }
 
 // A copy of a server's instance belongs to the player: a server has one instance, and a sync finds it by its source.
@@ -687,6 +724,26 @@ mod tests {
         assert_eq!(set_memory(&p, "m", 6144).unwrap().memory_mb(), 6144);
         assert!(set_memory(&p, "m", 5000).is_err());
         assert_eq!(load(&p, "m").unwrap().memory_mb, Some(6144));
+    }
+
+    #[test]
+    fn worlds_are_copied_under_the_pack_version_and_three_copies_stay() {
+        let (_t, p) = tmp();
+        create(&p, "M", "1.21.1", None, Source::Manual).unwrap();
+        assert_eq!(back_up_worlds(&p, "m", "1.0").unwrap(), None);
+        let level = game_dir(&p, "m").join("saves/Home/level.dat");
+        std::fs::create_dir_all(level.parent().unwrap()).unwrap();
+        for version in ["1.0", "1.1", "2.0 beta/x", "3.0", "1.1"] {
+            std::fs::write(&level, version).unwrap();
+            back_up_worlds(&p, "m", version).unwrap().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let all = dir(&p, "m").join("world-backups");
+        let mut names: Vec<String> = std::fs::read_dir(&all).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(names, ["1.1", "2.0-beta-x", "3.0"]);
+        assert_eq!(std::fs::read(all.join("1.1/Home/level.dat")).unwrap(), b"1.1");
+        assert_eq!(std::fs::read(&level).unwrap(), b"1.1");
     }
 
     #[test]
